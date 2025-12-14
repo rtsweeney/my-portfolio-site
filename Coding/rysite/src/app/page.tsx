@@ -29,7 +29,7 @@ export default async function Home() {
 
   return (
     <main style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Fixed Header */}
+      {/* Header */}
       <header style={{
         padding: '1.5rem 2rem',
         display: 'flex',
@@ -38,12 +38,25 @@ export default async function Home() {
         position: 'relative',
         zIndex: 10
       }}>
-        <h1 className="gradient-text" style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>Sweeney.town</h1>
-        <nav style={{ display: 'flex', gap: '2rem', fontSize: '0.95rem' }}>
-          <a href="#resume" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Resume</a>
-          <a href="#photos" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Photos</a>
-          <a href="/studio" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>Admin</a>
+        {/* Left: Page Navigation */}
+        <nav style={{ display: 'flex', gap: '2rem', fontSize: '0.95rem', alignItems: 'center' }}>
+          <a href="/" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s', fontWeight: 500 }}>Home</a>
+          <a href="#about" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>About</a>
+          <a href="#skills" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Skills</a>
+          <a href="#projects" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Projects</a>
+          <a href="#contact" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Contact</a>
         </nav>
+
+        {/* Right: Social Links & Resume */}
+        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+          <a href="https://www.linkedin.com/in/rtsweeney01/" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8, transition: 'opacity 0.2s' }}>
+            <Image src="/linkedin.png" alt="LinkedIn" width={24} height={24} />
+          </a>
+          <a href="https://github.com/rtsweeney" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8, transition: 'opacity 0.2s' }}>
+            <Image src="/github.png" alt="GitHub" width={24} height={24} />
+          </a>
+          <a href="/resume" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500, fontSize: '0.95rem' }}>Resume</a>
+        </div>
       </header>
 
       {/* Hero Section - Takes up ~2/3 of viewport */}
