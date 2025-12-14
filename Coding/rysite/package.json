@@ -12,10 +12,10 @@
     "@sanity/image-url": "^1.2.0",
     "@sanity/vision": "^4.21.1",
     "lucide-react": "^0.561.0",
-    "next": "16.0.10",
+    "next": "^15.1.0",
     "next-sanity": "^11.6.10",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "sanity": "^4.21.1",
     "styled-components": "^6.1.19"
   },
@@ -24,7 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.0.10",
+    "eslint-config-next": "^15.1.0",
     "typescript": "^5"
   }
 }
