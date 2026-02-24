@@ -1,4 +1,4 @@
-import { client } from '@/sanity/lib/client';
+import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
 import Footer from '@/components/Footer';
 
@@ -15,7 +15,7 @@ const PROJECTS_QUERY = `*[_type == "project"] | order(date desc) {
 export const revalidate = 60;
 
 export default async function ProjectsPage() {
-  const projects = await client.fetch(PROJECTS_QUERY);
+  const projects = await safeFetch(PROJECTS_QUERY, []);
 
   return (
     <main>

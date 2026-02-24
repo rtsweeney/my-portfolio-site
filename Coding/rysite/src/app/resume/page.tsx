@@ -1,4 +1,4 @@
-import { client } from '@/sanity/lib/client';
+import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
 import Footer from '@/components/Footer';
 
@@ -22,7 +22,7 @@ function formatDate(dateStr: string) {
 }
 
 export default async function ResumePage() {
-  const resume = await client.fetch(RESUME_QUERY);
+  const resume = await safeFetch(RESUME_QUERY, []);
 
   return (
     <main>

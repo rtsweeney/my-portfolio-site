@@ -1,4 +1,4 @@
-import { client } from '@/sanity/lib/client';
+import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
 import Footer from '@/components/Footer';
 
@@ -30,7 +30,7 @@ function formatBlogDate(dateStr: string) {
 }
 
 export default async function BlogPage() {
-  const posts = await client.fetch(BLOG_QUERY);
+  const posts = await safeFetch(BLOG_QUERY, []);
 
   return (
     <main>
