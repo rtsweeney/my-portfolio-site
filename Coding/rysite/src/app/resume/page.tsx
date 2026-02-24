@@ -1,5 +1,7 @@
 import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
+import type { PortableTextBlock } from 'next-sanity';
+import Link from 'next/link';
 import Footer from '@/components/Footer';
 
 const RESUME_QUERY = `*[_type == "resume"] | order(startDate desc) {
@@ -15,6 +17,17 @@ const RESUME_QUERY = `*[_type == "resume"] | order(startDate desc) {
 
 export const revalidate = 60;
 
+interface ResumeItem {
+  _id: string;
+  title: string;
+  company: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  description: PortableTextBlock[];
+  location: string;
+}
+
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
@@ -22,7 +35,7 @@ function formatDate(dateStr: string) {
 }
 
 export default async function ResumePage() {
-  const resume = await safeFetch(RESUME_QUERY, []);
+  const resume = await safeFetch<ResumeItem[]>(RESUME_QUERY, []);
 
   return (
     <main>
@@ -41,12 +54,12 @@ export default async function ResumePage() {
             <div className="empty-state-icon">&#128188;</div>
             <h3 className="empty-state-title">No experience added yet</h3>
             <p className="empty-state-text">
-              Visit <a href="/studio">/studio</a> to add your resume entries.
+              Visit <Link href="/studio">/studio</Link> to add your resume entries.
             </p>
           </div>
         ) : (
           <div className="resume-timeline" style={{ maxWidth: '800px', margin: '0 auto' }}>
-            {resume.map((job: any) => (
+            {resume.map((job) => (
               <div
                 key={job._id}
                 className={`resume-item ${job.isCurrent ? 'resume-item-current' : ''}`}

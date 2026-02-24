@@ -1,5 +1,7 @@
 import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
+import type { PortableTextBlock } from 'next-sanity';
+import Link from 'next/link';
 import Footer from '@/components/Footer';
 
 const PROJECTS_QUERY = `*[_type == "project"] | order(date desc) {
@@ -14,8 +16,18 @@ const PROJECTS_QUERY = `*[_type == "project"] | order(date desc) {
 
 export const revalidate = 60;
 
+interface Project {
+  _id: string;
+  title: string;
+  description: PortableTextBlock[];
+  techStack: string[];
+  liveUrl: string;
+  repoUrl: string;
+  date: string;
+}
+
 export default async function ProjectsPage() {
-  const projects = await safeFetch(PROJECTS_QUERY, []);
+  const projects = await safeFetch<Project[]>(PROJECTS_QUERY, []);
 
   return (
     <main>
@@ -34,12 +46,12 @@ export default async function ProjectsPage() {
             <div className="empty-state-icon">&#128736;</div>
             <h3 className="empty-state-title">No projects yet</h3>
             <p className="empty-state-text">
-              Visit <a href="/studio">/studio</a> to add your first project.
+              Visit <Link href="/studio">/studio</Link> to add your first project.
             </p>
           </div>
         ) : (
           <div className="projects-grid">
-            {projects.map((project: any) => (
+            {projects.map((project) => (
               <div key={project._id} className="card">
                 <div className="project-card-header">
                   <div className="project-card-icon">&#128187;</div>

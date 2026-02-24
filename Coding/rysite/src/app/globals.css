@@ -37,7 +37,7 @@
   --text-muted: #5a5e73;
 
   /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
 
   /* Spacing & Radius */
   --radius-sm: 6px;

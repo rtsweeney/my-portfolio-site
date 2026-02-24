@@ -1,5 +1,7 @@
 import { safeFetch } from '@/sanity/lib/client';
 import { PortableText } from 'next-sanity';
+import type { PortableTextBlock } from 'next-sanity';
+import Link from 'next/link';
 import Footer from '@/components/Footer';
 
 const BLOG_QUERY = `*[_type == "blogPost"] | order(date desc) {
@@ -11,6 +13,14 @@ const BLOG_QUERY = `*[_type == "blogPost"] | order(date desc) {
 }`;
 
 export const revalidate = 60;
+
+interface BlogPost {
+  _id: string;
+  title: string;
+  date: string;
+  tag: string;
+  body: PortableTextBlock[];
+}
 
 const TAG_CLASS_MAP: Record<string, string> = {
   update: 'blog-tag-update',
@@ -30,7 +40,7 @@ function formatBlogDate(dateStr: string) {
 }
 
 export default async function BlogPage() {
-  const posts = await safeFetch(BLOG_QUERY, []);
+  const posts = await safeFetch<BlogPost[]>(BLOG_QUERY, []);
 
   return (
     <main>
@@ -51,12 +61,12 @@ export default async function BlogPage() {
             <div className="empty-state-icon">&#128221;</div>
             <h3 className="empty-state-title">No posts yet</h3>
             <p className="empty-state-text">
-              Visit <a href="/studio">/studio</a> to write your first life update.
+              Visit <Link href="/studio">/studio</Link> to write your first life update.
             </p>
           </div>
         ) : (
           <div className="blog-grid" style={{ maxWidth: '800px', margin: '0 auto' }}>
-            {posts.map((post: any) => {
+            {posts.map((post) => {
               const { month, day, year } = formatBlogDate(post.date);
               const tagClass = TAG_CLASS_MAP[post.tag] || 'blog-tag-update';
 
