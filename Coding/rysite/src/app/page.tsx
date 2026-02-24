@@ -1,161 +1,78 @@
-import { client } from "@/sanity/lib/client";
-import { PortableText } from "next-sanity";
-import Image from "next/image";
-import { urlFor } from "@/sanity/lib/image";
+import Link from 'next/link';
+import Footer from '@/components/Footer';
 
-// GROQ Queries
-const RESUME_QUERY = `*[_type == "resume"] | order(startDate desc) {
-  _id,
-  title,
-  company,
-  startDate,
-  endDate,
-  isCurrent,
-  description,
-  location
-}`;
-
-const PHOTOS_QUERY = `*[_type == "photo"] | order(dateTaken desc) {
-  _id,
-  title,
-  image
-}`;
-
-export const revalidate = 60; // Revalidate every 60 seconds
-
-export default async function Home() {
-  const resume = await client.fetch(RESUME_QUERY);
-  const photos = await client.fetch(PHOTOS_QUERY);
-
+export default function Home() {
   return (
-    <main style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <header style={{
-        padding: '1.5rem 2rem',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        {/* Left: Page Navigation */}
-        <nav style={{ display: 'flex', gap: '2rem', fontSize: '0.95rem', alignItems: 'center' }}>
-          <a href="/" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s', fontWeight: 500 }}>Home</a>
-          <a href="#about" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>About</a>
-          <a href="#skills" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Skills</a>
-          <a href="#projects" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Projects</a>
-          <a href="#contact" style={{ color: 'var(--foreground)', textDecoration: 'none', transition: 'color 0.2s' }}>Contact</a>
-        </nav>
+    <main>
+      <div className="page-bg" />
 
-        {/* Right: Social Links & Resume */}
-        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-          <a href="https://www.linkedin.com/in/rtsweeney01/" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8, transition: 'opacity 0.2s' }}>
-            <Image src="/linkedin.png" alt="LinkedIn" width={24} height={24} />
-          </a>
-          <a href="https://github.com/rtsweeney" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8, transition: 'opacity 0.2s' }}>
-            <Image src="/github.png" alt="GitHub" width={24} height={24} />
-          </a>
-          <a href="/resume" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500, fontSize: '0.95rem' }}>Resume</a>
-        </div>
-      </header>
-
-      {/* Hero Section - Takes up ~2/3 of viewport */}
-      <section style={{
-        minHeight: '66vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-        padding: '2rem'
-      }}>
-        <p style={{
-          color: '#a1a1aa',
-          fontSize: '1rem',
-          letterSpacing: '0.1em',
-          textTransform: 'uppercase',
-          marginBottom: '1rem',
-          fontWeight: 300
-        }}>
-          This page is for
+      {/* Hero */}
+      <section className="hero">
+        <p className="hero-tagline animate-in animate-delay-1">Welcome to</p>
+        <h1 className="hero-title animate-in animate-delay-2">
+          <span className="gradient-text">sweeney.town</span>
+        </h1>
+        <p className="hero-subtitle animate-in animate-delay-3">
+          A little corner of the internet for projects, ideas, tools, and life updates.
+          Poke around &mdash; there&apos;s always something new.
         </p>
-        <h2 style={{
-          fontSize: 'clamp(4rem, 10vw, 8rem)',
-          fontWeight: 900,
-          lineHeight: 1,
-          margin: 0
-        }}>
-          <span className="gradient-text">Ryan Sweeney</span>
-        </h2>
+        <div className="hero-cta-group animate-in animate-delay-4">
+          <Link href="/projects" className="btn btn-primary">See My Projects</Link>
+          <Link href="/resume" className="btn btn-secondary">View Resume</Link>
+        </div>
       </section>
 
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem', width: '100%' }}>
+      {/* Section Cards */}
+      <section className="container" style={{ paddingBottom: '4rem' }}>
+        <h2 className="section-title" style={{ textAlign: 'center' }}>What&apos;s Here</h2>
+        <p className="section-subtitle" style={{ textAlign: 'center' }}>
+          Everything I&apos;m working on, thinking about, or building.
+        </p>
 
-        {/* Resume Section */}
-        <section id="resume" style={{ marginBottom: '8rem' }}>
-          <h3 style={{ fontSize: '2rem', marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>Experience</h3>
+        <div className="home-grid">
+          <Link href="/projects" style={{ textDecoration: 'none' }}>
+            <div className="card card-accent-purple">
+              <div className="home-card-icon">&#128736;</div>
+              <h3 className="home-card-title">Projects</h3>
+              <p className="home-card-desc">
+                Personal and professional projects I&apos;ve built or am working on. Code, design, and everything in between.
+              </p>
+            </div>
+          </Link>
 
-          {resume.length === 0 ? (
-            <div className="glass" style={{ padding: '2rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
-              <p style={{ color: '#a1a1aa' }}>No resume items found.</p>
-              <p>Go to <a href="/studio" style={{ color: 'var(--primary)' }}>/studio</a> to add your experience.</p>
+          <Link href="/resume" style={{ textDecoration: 'none' }}>
+            <div className="card card-accent-teal">
+              <div className="home-card-icon">&#128196;</div>
+              <h3 className="home-card-title">Resume</h3>
+              <p className="home-card-desc">
+                My professional experience, skills, and career journey laid out in a clean digital format.
+              </p>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
-              {resume.map((job: any) => (
-                <article key={job._id} className="glass" style={{ padding: '2rem', borderRadius: 'var(--radius-lg)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-                    <h4 style={{ fontSize: '1.5rem', fontWeight: 600 }}>{job.title}</h4>
-                    <span style={{ color: 'var(--primary)', fontWeight: 500 }}>
-                      {job.startDate} — {job.isCurrent ? 'Present' : job.endDate}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '1.1rem', color: '#e5e5e5', marginBottom: '1rem' }}>
-                    {job.company} {job.location && <span style={{ color: '#737373' }}>• {job.location}</span>}
-                  </div>
-                  <div style={{ color: '#a1a1aa', lineHeight: 1.6 }}>
-                    {job.description && <PortableText value={job.description} />}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+          </Link>
 
-        {/* Photos Section */}
-        <section id="photos" style={{ marginBottom: '4rem' }}>
-          <h3 style={{ fontSize: '2rem', marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>Gallery</h3>
+          <Link href="/blog" style={{ textDecoration: 'none' }}>
+            <div className="card card-accent-pink">
+              <div className="home-card-icon">&#128221;</div>
+              <h3 className="home-card-title">Life Updates</h3>
+              <p className="home-card-desc">
+                A blog-style feed of what&apos;s going on &mdash; milestones, thoughts, and things I want to share.
+              </p>
+            </div>
+          </Link>
 
-          {photos.length === 0 ? (
-            <div className="glass" style={{ padding: '2rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
-              <p style={{ color: '#a1a1aa' }}>No photos uploaded yet.</p>
-              <p>Visit <a href="/studio" style={{ color: 'var(--primary)' }}>/studio</a> to upload some shots.</p>
+          <Link href="/calculators" style={{ textDecoration: 'none' }}>
+            <div className="card card-accent-gold">
+              <div className="home-card-icon">&#129518;</div>
+              <h3 className="home-card-title">Calculators</h3>
+              <p className="home-card-desc">
+                Handy tools and calculators I&apos;ve made. Unit converters, financial tools, and more to come.
+              </p>
             </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '2rem' }}>
-              {photos.map((photo: any) => (
-                <div key={photo._id} className="glass" style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                  {photo.image && (
-                    <div style={{ position: 'relative', height: '300px', width: '100%' }}>
-                      <Image
-                        src={urlFor(photo.image).width(800).url()}
-                        alt={photo.title || 'Gallery Image'}
-                        fill
-                        style={{ objectFit: 'cover' }}
-                      />
-                    </div>
-                  )}
-                  {photo.title && (
-                    <div style={{ padding: '1rem' }}>
-                      <p style={{ fontWeight: 500 }}>{photo.title}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+          </Link>
+        </div>
+      </section>
+
+      <Footer />
     </main>
   );
 }

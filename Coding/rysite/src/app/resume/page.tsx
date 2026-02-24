@@ -1,9 +1,7 @@
-import { client } from "@/sanity/lib/client";
-import { PortableText } from "next-sanity";
-import Link from "next/link";
-import Image from "next/image";
+import { client } from '@/sanity/lib/client';
+import { PortableText } from 'next-sanity';
+import Footer from '@/components/Footer';
 
-// GROQ Query
 const RESUME_QUERY = `*[_type == "resume"] | order(startDate desc) {
   _id,
   title,
@@ -17,71 +15,62 @@ const RESUME_QUERY = `*[_type == "resume"] | order(startDate desc) {
 
 export const revalidate = 60;
 
+function formatDate(dateStr: string) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
 export default async function ResumePage() {
-    const resume = await client.fetch(RESUME_QUERY);
+  const resume = await client.fetch(RESUME_QUERY);
 
-    return (
-        <main style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-            {/* Header */}
-            <header style={{
-                padding: '1.5rem 2rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderBottom: '1px solid var(--border)'
-            }}>
-                <Link href="/" style={{ color: 'var(--foreground)', textDecoration: 'none', fontSize: '0.95rem' }}>← Back to Home</Link>
+  return (
+    <main>
+      <div className="page-bg" />
 
-                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-                    <a href="https://www.linkedin.com/in/rtsweeney01/" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8 }}>
-                        <Image src="/linkedin.png" alt="LinkedIn" width={24} height={24} />
-                    </a>
-                    <a href="https://github.com/rtsweeney" target="_blank" rel="noopener noreferrer" style={{ opacity: 0.8 }}>
-                        <Image src="/github.png" alt="GitHub" width={24} height={24} />
-                    </a>
+      <div className="container">
+        <div className="page-header">
+          <h1 className="section-title">
+            <span className="gradient-text">Resume</span>
+          </h1>
+          <p className="section-subtitle" style={{ marginBottom: 0 }}>Professional experience &amp; career journey</p>
+        </div>
+
+        {resume.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">&#128188;</div>
+            <h3 className="empty-state-title">No experience added yet</h3>
+            <p className="empty-state-text">
+              Visit <a href="/studio">/studio</a> to add your resume entries.
+            </p>
+          </div>
+        ) : (
+          <div className="resume-timeline" style={{ maxWidth: '800px', margin: '0 auto' }}>
+            {resume.map((job: any) => (
+              <div
+                key={job._id}
+                className={`resume-item ${job.isCurrent ? 'resume-item-current' : ''}`}
+              >
+                <div className="resume-date">
+                  {formatDate(job.startDate)} &mdash; {job.isCurrent ? 'Present' : formatDate(job.endDate)}
                 </div>
-            </header>
+                <h3 className="resume-role">{job.title}</h3>
+                <p className="resume-company">
+                  {job.company}
+                  {job.location && <span style={{ color: 'var(--text-muted)' }}> &bull; {job.location}</span>}
+                </p>
+                {job.description && (
+                  <div className="resume-description">
+                    <PortableText value={job.description} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-            <div style={{ maxWidth: '900px', margin: '0 auto', padding: '4rem 2rem', width: '100%' }}>
-                {/* Resume Header */}
-                <div style={{ marginBottom: '4rem', textAlign: 'center' }}>
-                    <h1 style={{ fontSize: 'clamp(2.5rem, 5vw, 4rem)', fontWeight: 900, marginBottom: '0.5rem' }}>
-                        <span className="gradient-text">Ryan Sweeney</span>
-                    </h1>
-                    <p style={{ color: '#a1a1aa', fontSize: '1.1rem' }}>Professional Experience</p>
-                </div>
-
-                {/* Experience Section */}
-                <section>
-                    {resume.length === 0 ? (
-                        <div className="glass" style={{ padding: '3rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
-                            <p style={{ color: '#a1a1aa', marginBottom: '1rem' }}>No resume items found.</p>
-                            <p>Visit <a href="/studio" style={{ color: 'var(--primary)' }}>/studio</a> to add your experience.</p>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
-                            {resume.map((job: any) => (
-                                <article key={job._id} className="glass" style={{ padding: '2.5rem', borderRadius: 'var(--radius-lg)' }}>
-                                    <div style={{ marginBottom: '1.5rem' }}>
-                                        <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>{job.title}</h2>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '1rem' }}>
-                                            <p style={{ fontSize: '1.1rem', color: '#e5e5e5' }}>
-                                                {job.company} {job.location && <span style={{ color: '#737373' }}>• {job.location}</span>}
-                                            </p>
-                                            <span style={{ color: 'var(--primary)', fontWeight: 500 }}>
-                                                {job.startDate} — {job.isCurrent ? 'Present' : job.endDate}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div style={{ color: '#a1a1aa', lineHeight: 1.7, fontSize: '1rem' }}>
-                                        {job.description && <PortableText value={job.description} />}
-                                    </div>
-                                </article>
-                            ))}
-                        </div>
-                    )}
-                </section>
-            </div>
-        </main>
-    );
+      <Footer />
+    </main>
+  );
 }
