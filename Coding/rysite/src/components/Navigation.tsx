@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { ChevronDown, Menu, X } from 'lucide-react';
 
 const calculators = [
+  { name: 'Beers Per Beer', href: '/calculators/beers-per-beer', subtitle: 'Standard beers in any drink' },
   { name: 'Unit Converter', href: '/calculators/unit-converter', subtitle: 'Length, weight, temp & more' },
 ];
 
