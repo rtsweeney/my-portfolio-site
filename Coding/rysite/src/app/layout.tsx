@@ -6,7 +6,7 @@ import Navigation from "@/components/Navigation";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "sweeney.town",
+  title: "Sweeney Town",
   description: "Ryan Sweeney's personal corner of the internet — projects, resume, blog, and tools.",
 };
 
