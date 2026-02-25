@@ -3,6 +3,13 @@ import Footer from '@/components/Footer';
 
 const calculators = [
   {
+    name: 'Beers Per Beer',
+    description: 'Find out how many standard beers (4.2%, 12 oz) are in any beverage by ABV and volume.',
+    href: '/calculators/beers-per-beer',
+    icon: '&#127866;',
+    accent: 'card-accent-gold',
+  },
+  {
     name: 'Unit Converter',
     description: 'Convert between common units of length, weight, temperature, and more.',
     href: '/calculators/unit-converter',
