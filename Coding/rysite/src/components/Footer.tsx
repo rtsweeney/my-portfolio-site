@@ -10,6 +10,12 @@ export default function Footer() {
         <a href="https://github.com/rtsweeney" target="_blank" rel="noopener noreferrer" className="footer-social-link">
           <Image src="/github.png" alt="GitHub" width={20} height={20} />
         </a>
+        <a href="https://letterboxd.com/Sweeneyr3/" target="_blank" rel="noopener noreferrer" className="footer-social-link">
+          <Image src="/letterboxd.svg" alt="Letterboxd" width={20} height={20} />
+        </a>
+        <a href="https://www.chess.com/member/sweenayy" target="_blank" rel="noopener noreferrer" className="footer-social-link">
+          <Image src="/chess.svg" alt="Chess.com" width={20} height={20} />
+        </a>
       </div>
       <p className="footer-text">
         Built by <a href="https://github.com/rtsweeney">Ryan Sweeney</a> &mdash; sweeney.town
