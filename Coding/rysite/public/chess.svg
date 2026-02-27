@@ -1,7 +1,0 @@
-<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-  <rect width="200" height="200" fill="#81B64B" rx="10"/>
-  <g transform="translate(100, 100) scale(1.2)">
-    <!-- Chess Knight -->
-    <path d="M -10 20 L -15 5 L -10 0 L -5 -5 L 0 -8 L 5 -5 L 10 0 L 15 5 L 10 20 Z" fill="white" stroke="white" stroke-width="1" stroke-linejoin="round"/>
-  </g>
-</svg>
