@@ -260,6 +260,7 @@ a {
   visibility: hidden;
   transform: translateX(-50%) translateY(8px);
   transition: all var(--transition-smooth);
+  z-index: 200;
 }
 
 .nav-dropdown:hover .nav-dropdown-menu {
