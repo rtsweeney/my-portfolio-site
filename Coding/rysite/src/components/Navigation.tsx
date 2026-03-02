@@ -9,6 +9,7 @@ import { ChevronDown, Menu, X } from 'lucide-react';
 const calculators = [
   { name: 'Beers Per Beer', href: '/calculators/beers-per-beer', subtitle: 'Standard beers in any drink' },
   { name: 'Unit Converter', href: '/calculators/unit-converter', subtitle: 'Length, weight, temp & more' },
+  { name: 'Air Density', href: '/calculators/air-density', subtitle: 'Density from temp, humidity & altitude' },
 ];
 
 export default function Navigation() {

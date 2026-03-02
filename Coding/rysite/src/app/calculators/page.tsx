@@ -16,6 +16,13 @@ const calculators = [
     icon: '&#128207;',
     accent: 'card-accent-teal',
   },
+  {
+    name: 'Air Density',
+    description: 'Calculate the density of air from temperature, relative humidity, and altitude using the ISA atmosphere model.',
+    href: '/calculators/air-density',
+    icon: '&#127756;',
+    accent: 'card-accent-purple',
+  },
 ];
 
 export default function CalculatorsPage() {
