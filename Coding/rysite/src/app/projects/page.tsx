@@ -41,54 +41,71 @@ export default async function ProjectsPage() {
           <p className="section-subtitle" style={{ marginBottom: 0 }}>Things I&apos;ve built, am building, or am tinkering with</p>
         </div>
 
-        {projects.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">&#128736;</div>
-            <h3 className="empty-state-title">No projects yet</h3>
-            <p className="empty-state-text">
-              Visit <Link href="/studio">/studio</Link> to add your first project.
-            </p>
-          </div>
-        ) : (
-          <div className="projects-grid">
-            {projects.map((project) => (
-              <div key={project._id} className="card">
-                <div className="project-card-header">
-                  <div className="project-card-icon">&#128187;</div>
-                </div>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                  {project.title}
-                </h3>
-                {project.description && (
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                    <PortableText value={project.description} />
-                  </div>
-                )}
-                {project.techStack && project.techStack.length > 0 && (
-                  <div className="project-tech-tags">
-                    {project.techStack.map((tech: string) => (
-                      <span key={tech} className="project-tech-tag">{tech}</span>
-                    ))}
-                  </div>
-                )}
-                {(project.liveUrl || project.repoUrl) && (
-                  <div className="project-links">
-                    {project.liveUrl && (
-                      <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className="project-link">
-                        Live &rarr;
-                      </a>
-                    )}
-                    {project.repoUrl && (
-                      <a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="project-link">
-                        Source &rarr;
-                      </a>
-                    )}
-                  </div>
-                )}
+        <div className="projects-grid">
+          {/* Planetarium — built-in interactive project */}
+          <Link href="/planetarium" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-purple" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#127776;</div>
               </div>
-            ))}
-          </div>
-        )}
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Planetarium
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>An interactive star map dashboard. See what&apos;s in the sky tonight based on your location, pick a constellation, and find out exactly where to look.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Astronomy</span>
+                <span className="project-tech-tag">Canvas</span>
+                <span className="project-tech-tag">Geolocation</span>
+                <span className="project-tech-tag">Next.js</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">
+                  Open &rarr;
+                </span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Sanity-managed projects */}
+          {projects.map((project) => (
+            <div key={project._id} className="card">
+              <div className="project-card-header">
+                <div className="project-card-icon">&#128187;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                {project.title}
+              </h3>
+              {project.description && (
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                  <PortableText value={project.description} />
+                </div>
+              )}
+              {project.techStack && project.techStack.length > 0 && (
+                <div className="project-tech-tags">
+                  {project.techStack.map((tech: string) => (
+                    <span key={tech} className="project-tech-tag">{tech}</span>
+                  ))}
+                </div>
+              )}
+              {(project.liveUrl || project.repoUrl) && (
+                <div className="project-links">
+                  {project.liveUrl && (
+                    <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className="project-link">
+                      Live &rarr;
+                    </a>
+                  )}
+                  {project.repoUrl && (
+                    <a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="project-link">
+                      Source &rarr;
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <Footer />
