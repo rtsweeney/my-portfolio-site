@@ -46,6 +46,7 @@ export default function PlanetariumPage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedStar, setExpandedStar] = useState<string | null>(null);
   const [celestialBodies, setCelestialBodies] = useState<CelestialBody[]>([]);
+  const [selectedBody, setSelectedBody] = useState<CelestialBody | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gradientAngleRef = useRef(0);
 
@@ -271,11 +272,12 @@ export default function PlanetariumPage() {
 
       const bx = cx + proj.x * radius;
       const by = cy + proj.y * radius;
+      const isBodySelected = selectedBody?.name === body.name;
 
       if (body.isSun) {
         // Sun — yellow with large halo to simulate brightness
         const sunHalo = ctx.createRadialGradient(bx, by, 0, bx, by, 65);
-        sunHalo.addColorStop(0, 'rgba(253, 203, 110, 0.45)');
+        sunHalo.addColorStop(0, isBodySelected ? 'rgba(253, 203, 110, 0.65)' : 'rgba(253, 203, 110, 0.45)');
         sunHalo.addColorStop(0.4, 'rgba(253, 203, 110, 0.15)');
         sunHalo.addColorStop(1, 'rgba(253, 203, 110, 0)');
         ctx.fillStyle = sunHalo;
@@ -283,24 +285,50 @@ export default function PlanetariumPage() {
         ctx.arc(bx, by, 65, 0, Math.PI * 2);
         ctx.fill();
 
+        if (isBodySelected) {
+          ctx.strokeStyle = '#f9ca24';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(bx, by, 10, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
         ctx.fillStyle = '#f9ca24';
         ctx.beginPath();
         ctx.arc(bx, by, 5, 0, Math.PI * 2);
         ctx.fill();
       } else {
         // Planets — pink with subtle glow
-        const planetGlow = ctx.createRadialGradient(bx, by, 0, bx, by, 12);
-        planetGlow.addColorStop(0, 'rgba(232, 67, 147, 0.3)');
+        const glowRadius = isBodySelected ? 18 : 12;
+        const planetGlow = ctx.createRadialGradient(bx, by, 0, bx, by, glowRadius);
+        planetGlow.addColorStop(0, isBodySelected ? 'rgba(232, 67, 147, 0.5)' : 'rgba(232, 67, 147, 0.3)');
         planetGlow.addColorStop(1, 'rgba(232, 67, 147, 0)');
         ctx.fillStyle = planetGlow;
         ctx.beginPath();
-        ctx.arc(bx, by, 12, 0, Math.PI * 2);
+        ctx.arc(bx, by, glowRadius, 0, Math.PI * 2);
         ctx.fill();
+
+        if (isBodySelected) {
+          ctx.strokeStyle = '#e84393';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(bx, by, 8, 0, Math.PI * 2);
+          ctx.stroke();
+        }
 
         ctx.fillStyle = '#e84393';
         ctx.beginPath();
         ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // Label for selected body
+      if (isBodySelected) {
+        ctx.font = '700 11px system-ui, sans-serif';
+        ctx.fillStyle = body.isSun ? '#c17d10' : '#c0287a';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(body.name, bx, by - (body.isSun ? 14 : 12));
       }
     }
 
@@ -333,7 +361,7 @@ export default function PlanetariumPage() {
     ctx.beginPath();
     ctx.arc(cx, cy, 4, 0, Math.PI * 2);
     ctx.stroke();
-  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar, celestialBodies]);
+  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar, celestialBodies, selectedBody]);
 
   useEffect(() => {
     let frameId: number;
@@ -371,6 +399,32 @@ export default function PlanetariumPage() {
     const observeDate = new Date(year, month - 1, day, hours, minutes);
     const lst = localSiderealTime(observeDate, location.lon);
 
+    // Check planets/Sun first (smaller targets, tighter hit radius)
+    let closestBodyDist = Infinity;
+    let closestBody: CelestialBody | null = null;
+
+    for (const body of celestialBodies) {
+      const proj = projectToSkyMap(body.ra, body.dec, location.lat, lst);
+      if (!proj) continue;
+
+      const bx = cx + proj.x * radius;
+      const by = cy + proj.y * radius;
+      const dist = Math.sqrt((clickX - bx) ** 2 + (clickY - by) ** 2);
+      const hitRadius = body.isSun ? 25 : 18;
+
+      if (dist < hitRadius && dist < closestBodyDist) {
+        closestBodyDist = dist;
+        closestBody = body;
+      }
+    }
+
+    if (closestBody) {
+      setSelectedBody(selectedBody?.name === closestBody.name ? null : closestBody);
+      setSelectedConstellation(null);
+      setExpandedStar(null);
+      return;
+    }
+
     // Find closest constellation center to click
     let closestDist = Infinity;
     let closestConstellation: VisibleConstellation | null = null;
@@ -390,6 +444,7 @@ export default function PlanetariumPage() {
     }
 
     setSelectedConstellation(closestConstellation);
+    setSelectedBody(null);
     setExpandedStar(null);
   };
 
@@ -548,7 +603,7 @@ export default function PlanetariumPage() {
           <div className="planetarium-skymap-container">
             <h2 className="planetarium-panel-title">Sky Map</h2>
             <p className="planetarium-panel-subtitle">
-              Click a constellation to see viewing details
+              Click a constellation or planet to see details
             </p>
             <div className="planetarium-canvas-wrapper">
               <canvas
@@ -583,7 +638,44 @@ export default function PlanetariumPage() {
 
           {/* Detail Panel */}
           <div className="planetarium-detail-panel">
-            {selectedConstellation ? (
+            {selectedBody ? (
+              <div className="planetarium-detail-content">
+                <div className="planetarium-body-detail-header">
+                  <span className={`planetarium-body-detail-symbol ${selectedBody.isSun ? 'planetarium-body-detail-symbol--sun' : ''}`}>{selectedBody.symbol}</span>
+                  <div>
+                    <h2 className="planetarium-detail-name">{selectedBody.name}</h2>
+                    <p className="planetarium-detail-abbr">{selectedBody.isSun ? 'Star' : 'Planet'}</p>
+                  </div>
+                </div>
+
+                <div className="planetarium-direction-card">
+                  <div className="planetarium-direction-label">Where to look</div>
+                  <div className="planetarium-direction-compass">{selectedBody.compass}</div>
+                  <div className="planetarium-direction-hint">{selectedBody.directionHint}</div>
+                  <div className="planetarium-direction-stats">
+                    <div>
+                      <span className="planetarium-stat-label">Altitude</span>
+                      <span className="planetarium-stat-value">{selectedBody.altitude.toFixed(1)}°</span>
+                    </div>
+                    <div>
+                      <span className="planetarium-stat-label">Azimuth</span>
+                      <span className="planetarium-stat-value">{selectedBody.azimuth.toFixed(1)}°</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="planetarium-detail-desc">{selectedBody.description}</p>
+
+                <div className="planetarium-detail-section">
+                  <h3 className="planetarium-detail-section-title">Cool Facts</h3>
+                  <ul className="planetarium-facts-list">
+                    {selectedBody.facts.map((fact, i) => (
+                      <li key={i} className="planetarium-fact-item">{fact}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : selectedConstellation ? (
               <div className="planetarium-detail-content">
                 <h2 className="planetarium-detail-name">{selectedConstellation.name}</h2>
                 <p className="planetarium-detail-abbr">{selectedConstellation.abbreviation}</p>
@@ -660,8 +752,8 @@ export default function PlanetariumPage() {
             ) : (
               <div className="planetarium-detail-empty">
                 <div className="planetarium-detail-empty-icon">&#127776;</div>
-                <h3>Select a Constellation</h3>
-                <p>Click on a constellation in the sky map or choose one from the list below to see detailed viewing information.</p>
+                <h3>Select a Constellation or Planet</h3>
+                <p>Click on a constellation or planet in the sky map, or choose one from the lists below to see detailed viewing information.</p>
               </div>
             )}
           </div>
@@ -691,6 +783,7 @@ export default function PlanetariumPage() {
                   className={`planetarium-constellation-card ${selectedConstellation?.name === c.name ? 'planetarium-constellation-card--selected' : ''} ${c.bestMonths.includes(currentMonth) ? 'planetarium-constellation-card--inseason' : ''}`}
                   onClick={() => {
                     setSelectedConstellation(selectedConstellation?.name === c.name ? null : c);
+                    setSelectedBody(null);
                     setExpandedStar(null);
                   }}
                 >
@@ -718,9 +811,14 @@ export default function PlanetariumPage() {
           </p>
           <div className="planetarium-body-grid">
             {celestialBodies.map(body => (
-              <div
+              <button
                 key={body.name}
-                className={`planetarium-body-card ${body.isSun ? 'planetarium-body-card--sun' : 'planetarium-body-card--planet'} ${body.altitude > 0 ? '' : 'planetarium-body-card--below'}`}
+                className={`planetarium-body-card ${body.isSun ? 'planetarium-body-card--sun' : 'planetarium-body-card--planet'} ${body.altitude > 0 ? '' : 'planetarium-body-card--below'} ${selectedBody?.name === body.name ? 'planetarium-body-card--selected' : ''}`}
+                onClick={() => {
+                  setSelectedBody(selectedBody?.name === body.name ? null : body);
+                  setSelectedConstellation(null);
+                  setExpandedStar(null);
+                }}
               >
                 <div className="planetarium-body-card-header">
                   <span className="planetarium-body-symbol">{body.symbol}</span>
@@ -729,7 +827,7 @@ export default function PlanetariumPage() {
                 </div>
                 <div className="planetarium-body-hint">{body.directionHint}</div>
                 <div className="planetarium-body-desc">{body.description}</div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

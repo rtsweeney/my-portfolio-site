@@ -864,6 +864,7 @@ export interface CelestialBody {
   name: string;
   symbol: string;
   description: string;
+  facts: string[];
   isSun: boolean;
   ra: number;   // hours
   dec: number;  // degrees
@@ -929,12 +930,62 @@ const ORBITAL_ELEMENTS: Record<string, OrbitalElements> = {
   },
 };
 
-const PLANET_INFO: Record<string, { symbol: string; description: string }> = {
-  Mercury: { symbol: '☿', description: 'The smallest planet and closest to the Sun. Difficult to spot because it never strays far from the horizon.' },
-  Venus: { symbol: '♀', description: 'The brightest planet in our sky, often called the Morning or Evening Star. Its thick clouds reflect sunlight brilliantly.' },
-  Mars: { symbol: '♂', description: 'The Red Planet, named for the Roman god of war. Its reddish hue comes from iron oxide (rust) on its surface.' },
-  Jupiter: { symbol: '♃', description: 'The largest planet in our solar system. Its four Galilean moons are visible through binoculars.' },
-  Saturn: { symbol: '♄', description: 'The ringed planet — its stunning ring system is visible through a small telescope. Second largest planet in our solar system.' },
+const PLANET_INFO: Record<string, { symbol: string; description: string; facts: string[] }> = {
+  Mercury: {
+    symbol: '☿',
+    description: 'The smallest planet and closest to the Sun. Difficult to spot because it never strays far from the horizon.',
+    facts: [
+      'Mercury has no atmosphere to retain heat — daytime temperatures reach 430°C (800°F) while nighttime plummets to -180°C (-290°F).',
+      'A year on Mercury is just 88 Earth days, but a single solar day (sunrise to sunrise) lasts 176 Earth days — two full orbits.',
+      'Despite being closest to the Sun, Mercury is not the hottest planet — Venus is, thanks to its greenhouse effect.',
+      'Mercury\'s iron core takes up about 75% of its radius, making it the densest planet after Earth.',
+      'The MESSENGER spacecraft discovered water ice in permanently shadowed craters at Mercury\'s poles.',
+    ],
+  },
+  Venus: {
+    symbol: '♀',
+    description: 'The brightest planet in our sky, often called the Morning or Evening Star. Its thick clouds reflect sunlight brilliantly.',
+    facts: [
+      'Venus rotates backwards (retrograde) compared to most planets, so the Sun rises in the west and sets in the east.',
+      'A day on Venus (243 Earth days) is longer than its year (225 Earth days) — it spins incredibly slowly.',
+      'Surface pressure on Venus is 90 times that of Earth — equivalent to being 900 meters underwater.',
+      'Venus\'s thick CO₂ atmosphere creates a runaway greenhouse effect, making its surface hotter than Mercury at 465°C (870°F).',
+      'Venus is the closest planet to Earth in size — sometimes called Earth\'s "evil twin" due to its hostile conditions.',
+    ],
+  },
+  Mars: {
+    symbol: '♂',
+    description: 'The Red Planet, named for the Roman god of war. Its reddish hue comes from iron oxide (rust) on its surface.',
+    facts: [
+      'Olympus Mons on Mars is the tallest volcano in the solar system at ~21.9 km (72,000 ft) — nearly 2.5 times the height of Everest.',
+      'Mars has seasons similar to Earth because its axial tilt (25.2°) is close to Earth\'s (23.4°).',
+      'The Valles Marineris canyon system stretches over 4,000 km — roughly the width of the continental United States.',
+      'Mars has two tiny moons, Phobos and Deimos, likely captured asteroids. Phobos is slowly spiraling inward and will eventually break apart.',
+      'A Martian day ("sol") is 24 hours and 37 minutes — remarkably close to an Earth day.',
+    ],
+  },
+  Jupiter: {
+    symbol: '♃',
+    description: 'The largest planet in our solar system. Its four Galilean moons are visible through binoculars.',
+    facts: [
+      'Jupiter\'s Great Red Spot is a storm larger than Earth that has been raging for at least 350 years.',
+      'Jupiter has at least 95 known moons — including the four large Galilean moons discovered by Galileo in 1610.',
+      'Jupiter\'s moon Europa likely has a liquid water ocean beneath its icy crust, making it a prime candidate for extraterrestrial life.',
+      'Jupiter is so massive (318× Earth\'s mass) that it doesn\'t orbit the Sun\'s center — the barycenter lies outside the Sun\'s surface.',
+      'Jupiter\'s magnetosphere is the largest structure in the solar system — if visible, it would appear twice the size of the full Moon from Earth.',
+    ],
+  },
+  Saturn: {
+    symbol: '♄',
+    description: 'The ringed planet — its stunning ring system is visible through a small telescope. Second largest planet in our solar system.',
+    facts: [
+      'Saturn\'s rings are made of billions of chunks of ice and rock, ranging in size from tiny grains to house-sized boulders.',
+      'Despite being the second-largest planet, Saturn is the least dense — it would float in water if you could find a bathtub big enough.',
+      'Saturn\'s moon Titan has a thick nitrogen atmosphere and liquid methane lakes on its surface — the only other body with stable surface liquids.',
+      'Saturn\'s rings span up to 282,000 km in diameter but are only about 10 meters thick on average.',
+      'A day on Saturn is just 10.7 hours — its rapid rotation makes it noticeably oblate (wider at the equator).',
+    ],
+  },
 };
 
 function computeHeliocentricEcliptic(name: string, T: number): { x: number; y: number; z: number } {
@@ -1008,6 +1059,13 @@ export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): 
     name: 'Sun',
     symbol: '☀',
     description: 'Our nearest star, 93 million miles away. When above the horizon, its brightness washes out most stars and planets.',
+    facts: [
+      'The Sun contains 99.86% of all mass in the solar system — over 330,000 times Earth\'s mass.',
+      'Light from the Sun takes about 8 minutes and 20 seconds to reach Earth, traveling at 300,000 km/s.',
+      'The Sun\'s core temperature is about 15 million °C (27 million °F) — hot enough to fuse hydrogen into helium.',
+      'The Sun is roughly halfway through its life — about 4.6 billion years old with another ~5 billion years of hydrogen fuel remaining.',
+      'Every second, the Sun converts about 600 million tons of hydrogen into helium, releasing energy equivalent to billions of nuclear bombs.',
+    ],
     isSun: true,
     ra: sunRaDec.ra,
     dec: sunRaDec.dec,
@@ -1033,6 +1091,7 @@ export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): 
       name,
       symbol: info.symbol,
       description: info.description,
+      facts: info.facts,
       isSun: false,
       ra: raDec.ra,
       dec: raDec.dec,
