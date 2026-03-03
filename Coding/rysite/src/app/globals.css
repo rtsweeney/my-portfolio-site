@@ -1192,18 +1192,17 @@ a {
 }
 
 .planetarium-legend-dot--visible {
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(108, 92, 231, 0.3);
+  background: #6c5ce7;
 }
 
 .planetarium-legend-dot--selected {
-  background: #00e6b8;
-  box-shadow: 0 0 4px rgba(0, 184, 148, 0.5);
+  background: #00856a;
+  box-shadow: 0 0 4px rgba(0, 133, 106, 0.4);
 }
 
 .planetarium-legend-dot--dim {
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 /* Detail Panel */
@@ -1340,25 +1339,56 @@ a {
 }
 
 .planetarium-star-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0.75rem;
   background: var(--surface);
   border-radius: var(--radius-sm);
+  overflow: hidden;
   font-size: 0.85rem;
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.planetarium-star-item:has(.planetarium-star-header[aria-expanded="true"]) {
+  border-color: rgba(108, 92, 231, 0.2);
 }
 
 .planetarium-star-item--hidden {
   opacity: 0.4;
 }
 
-.planetarium-star-name {
-  font-weight: 600;
-  color: var(--text-primary);
+.planetarium-star-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.planetarium-star-header:hover {
+  background: rgba(108, 92, 231, 0.05);
+}
+
+.planetarium-star-header-left {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.planetarium-star-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.planetarium-star-name {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .planetarium-star-mag {
@@ -1368,8 +1398,29 @@ a {
 }
 
 .planetarium-star-pos {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-secondary);
+}
+
+.planetarium-star-chevron {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  display: inline-block;
+  line-height: 1;
+}
+
+.planetarium-star-chevron--open {
+  transform: rotate(90deg);
+}
+
+.planetarium-star-desc {
+  padding: 0 0.75rem 0.65rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
 }
 
 .planetarium-detail-empty {

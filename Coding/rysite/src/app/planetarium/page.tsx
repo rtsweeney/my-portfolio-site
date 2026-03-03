@@ -42,7 +42,9 @@ export default function PlanetariumPage() {
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
+  const [expandedStar, setExpandedStar] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gradientAngleRef = useRef(0);
 
   // Get user's geolocation on mount
   useEffect(() => {
@@ -77,6 +79,7 @@ export default function PlanetariumPage() {
     // If selected constellation is no longer visible, deselect
     if (selectedConstellation && !visible.find(c => c.name === selectedConstellation.name)) {
       setSelectedConstellation(null);
+      setExpandedStar(null);
     }
   }, [date, time, location, selectedConstellation]);
 
@@ -103,23 +106,28 @@ export default function PlanetariumPage() {
     // Clear
     ctx.clearRect(0, 0, displaySize, displaySize);
 
-    // Sky background
+    // Sky background — white with very subtle warm gradient
     const skyGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    skyGrad.addColorStop(0, '#0a0a2e');
-    skyGrad.addColorStop(0.7, '#0d1137');
-    skyGrad.addColorStop(1, '#151845');
+    skyGrad.addColorStop(0, '#ffffff');
+    skyGrad.addColorStop(0.75, '#f8f8fb');
+    skyGrad.addColorStop(1, '#f0eff8');
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fillStyle = skyGrad;
     ctx.fill();
 
-    // Border
-    ctx.strokeStyle = 'rgba(108, 92, 231, 0.4)';
-    ctx.lineWidth = 2;
+    // Horizon border — animated flowing gradient ring (matches gradient-text)
+    const horizonGrad = ctx.createConicGradient(gradientAngleRef.current, cx, cy);
+    horizonGrad.addColorStop(0, '#6c5ce7');
+    horizonGrad.addColorStop(0.33, '#00b894');
+    horizonGrad.addColorStop(0.67, '#e84393');
+    horizonGrad.addColorStop(1, '#6c5ce7');
+    ctx.strokeStyle = horizonGrad;
+    ctx.lineWidth = 3;
     ctx.stroke();
 
     // Altitude rings
-    ctx.strokeStyle = 'rgba(108, 92, 231, 0.1)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.07)';
     ctx.lineWidth = 1;
     for (let alt = 30; alt < 90; alt += 30) {
       const r = ((90 - alt) / 90) * radius;
@@ -129,7 +137,8 @@ export default function PlanetariumPage() {
     }
 
     // Cardinal direction lines
-    ctx.strokeStyle = 'rgba(108, 92, 231, 0.08)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(cx, cy - radius);
     ctx.lineTo(cx, cy + radius);
@@ -138,14 +147,14 @@ export default function PlanetariumPage() {
     ctx.stroke();
 
     // Direction labels
-    ctx.font = '600 13px system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(108, 92, 231, 0.7)';
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.85)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('N', cx, cy - radius - 14);
-    ctx.fillText('S', cx, cy + radius + 14);
-    ctx.fillText('E', cx + radius + 14, cy);
-    ctx.fillText('W', cx - radius - 14, cy);
+    ctx.fillText('N', cx, cy - radius - 15);
+    ctx.fillText('S', cx, cy + radius + 15);
+    ctx.fillText('E', cx + radius + 15, cy);
+    ctx.fillText('W', cx - radius - 15, cy);
 
     // Calculate current LST
     const [year, month, day] = date.split('-').map(Number);
@@ -153,26 +162,8 @@ export default function PlanetariumPage() {
     const observeDate = new Date(year, month - 1, day, hours, minutes);
     const lst = localSiderealTime(observeDate, location.lon);
 
-    // Draw background stars (random faint dots for atmosphere)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-    // Use a seeded-like approach based on date for consistency
-    const seed = year * 10000 + month * 100 + day;
-    for (let i = 0; i < 200; i++) {
-      const pseudoRandom = ((seed * (i + 1) * 9301 + 49297) % 233280) / 233280;
-      const pseudoRandom2 = ((seed * (i + 1) * 7393 + 38291) % 177311) / 177311;
-      const angle = pseudoRandom * Math.PI * 2;
-      const dist = Math.sqrt(pseudoRandom2) * radius;
-      const sx = cx + Math.cos(angle) * dist;
-      const sy = cy + Math.sin(angle) * dist;
-      const size = 0.5 + pseudoRandom * 1;
-      ctx.beginPath();
-      ctx.arc(sx, sy, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
     // Draw constellations
     for (const constellation of CONSTELLATIONS) {
-      // Project all stars
       const projectedStars = constellation.stars.map(star =>
         projectToSkyMap(star.ra, star.dec, location.lat, lst)
       );
@@ -183,12 +174,12 @@ export default function PlanetariumPage() {
       const isSelected = selectedConstellation?.name === constellation.name;
       const isVisible = visibleConstellations.some(vc => vc.name === constellation.name);
 
-      // Draw constellation lines
+      // Constellation lines
       ctx.strokeStyle = isSelected
-        ? 'rgba(0, 184, 148, 0.8)'
+        ? 'rgba(0, 133, 106, 0.75)'
         : isVisible
-          ? 'rgba(108, 92, 231, 0.35)'
-          : 'rgba(255, 255, 255, 0.08)';
+          ? 'rgba(108, 92, 231, 0.3)'
+          : 'rgba(0, 0, 0, 0.06)';
       ctx.lineWidth = isSelected ? 2 : 1;
 
       for (const line of constellation.lines) {
@@ -202,32 +193,47 @@ export default function PlanetariumPage() {
         ctx.stroke();
       }
 
-      // Draw stars
+      // Stars
       for (let i = 0; i < projectedStars.length; i++) {
         const proj = projectedStars[i];
         if (!proj) continue;
 
         const star = constellation.stars[i];
-        const starSize = Math.max(1, 4 - star.mag * 0.8);
-
+        const starSize = Math.max(1.5, 4.5 - star.mag * 0.9);
         const sx = cx + proj.x * radius;
         const sy = cy + proj.y * radius;
+        const isExpandedStar = isSelected && expandedStar === star.name;
 
-        if (isSelected) {
-          // Glow effect for selected constellation
-          const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, starSize * 3);
-          glow.addColorStop(0, 'rgba(0, 184, 148, 0.6)');
-          glow.addColorStop(1, 'rgba(0, 184, 148, 0)');
+        if (isExpandedStar) {
+          // Bright highlight ring for the star selected in the sidebar
+          ctx.strokeStyle = '#e84393';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx, sy, starSize + 6, 0, Math.PI * 2);
+          ctx.stroke();
+
+          const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, starSize * 4);
+          glow.addColorStop(0, 'rgba(232, 67, 147, 0.35)');
+          glow.addColorStop(1, 'rgba(232, 67, 147, 0)');
           ctx.fillStyle = glow;
           ctx.beginPath();
-          ctx.arc(sx, sy, starSize * 3, 0, Math.PI * 2);
+          ctx.arc(sx, sy, starSize * 4, 0, Math.PI * 2);
           ctx.fill();
-
-          ctx.fillStyle = '#00e6b8';
+          ctx.fillStyle = '#e84393';
+        } else if (isSelected) {
+          // Soft teal halo for other stars in the selected constellation
+          const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, starSize * 3.5);
+          glow.addColorStop(0, 'rgba(0, 133, 106, 0.25)');
+          glow.addColorStop(1, 'rgba(0, 133, 106, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(sx, sy, starSize * 3.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#00856a';
         } else if (isVisible) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillStyle = '#6c5ce7';
         } else {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
         }
 
         ctx.beginPath();
@@ -235,12 +241,12 @@ export default function PlanetariumPage() {
         ctx.fill();
       }
 
-      // Draw constellation name if selected or visible
+      // Constellation name label
       if (isSelected || isVisible) {
         const centerProj = projectToSkyMap(constellation.ra, constellation.dec, location.lat, lst);
         if (centerProj) {
-          ctx.font = isSelected ? '600 12px system-ui, sans-serif' : '500 10px system-ui, sans-serif';
-          ctx.fillStyle = isSelected ? '#00e6b8' : 'rgba(255, 255, 255, 0.5)';
+          ctx.font = isSelected ? '700 12px system-ui, sans-serif' : '500 10px system-ui, sans-serif';
+          ctx.fillStyle = isSelected ? '#00856a' : 'rgba(0, 0, 0, 0.35)';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
           ctx.fillText(
@@ -252,19 +258,60 @@ export default function PlanetariumPage() {
       }
     }
 
-    // Draw zenith marker
-    ctx.fillStyle = 'rgba(108, 92, 231, 0.3)';
+    // Polaris — always label the North Star prominently if above horizon
+    const polarisProj = projectToSkyMap(2.53, 89.26, location.lat, lst);
+    if (polarisProj) {
+      const px = cx + polarisProj.x * radius;
+      const py = cy + polarisProj.y * radius;
+      const polarisSelected = selectedConstellation?.name === 'Ursa Minor' && expandedStar === 'Polaris';
+
+      // Outer glow ring
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 12);
+      glow.addColorStop(0, polarisSelected ? 'rgba(232, 67, 147, 0.25)' : 'rgba(253, 203, 110, 0.3)');
+      glow.addColorStop(1, 'rgba(253, 203, 110, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(px, py, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Star dot
+      ctx.fillStyle = polarisSelected ? '#e84393' : '#fdcb6e';
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label
+      ctx.font = '700 11px system-ui, sans-serif';
+      ctx.fillStyle = polarisSelected ? '#e84393' : '#d4a520';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Polaris', px + 10, py);
+    }
+
+    // Zenith marker
+    ctx.strokeStyle = 'rgba(108, 92, 231, 0.4)';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-    ctx.fill();
-  }, [date, time, location, selectedConstellation, visibleConstellations]);
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar]);
 
   useEffect(() => {
-    drawSkyMap();
+    let frameId: number;
+    const animate = () => {
+      // 6-second rotation cycle to match the gradient-text animation
+      gradientAngleRef.current = ((Date.now() % 6000) / 6000) * Math.PI * 2;
+      drawSkyMap();
+      frameId = requestAnimationFrame(animate);
+    };
+    frameId = requestAnimationFrame(animate);
 
     const handleResize = () => drawSkyMap();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', handleResize);
+    };
   }, [drawSkyMap]);
 
   // Handle canvas click to select constellations
@@ -304,6 +351,7 @@ export default function PlanetariumPage() {
     }
 
     setSelectedConstellation(closestConstellation);
+    setExpandedStar(null);
   };
 
   const handleManualLocation = () => {
@@ -531,16 +579,32 @@ export default function PlanetariumPage() {
                   <div className="planetarium-stars-list">
                     {getStarDetails().map(star => (
                       <div key={star.name} className={`planetarium-star-item ${star.visible ? '' : 'planetarium-star-item--hidden'}`}>
-                        <div className="planetarium-star-name">
-                          {star.name}
-                          <span className="planetarium-star-mag">mag {star.mag.toFixed(1)}</span>
-                        </div>
-                        <div className="planetarium-star-pos">
-                          {star.visible
-                            ? `${star.compass} · ${star.altitude.toFixed(0)}° alt`
-                            : 'Below horizon'
-                          }
-                        </div>
+                        <button
+                          className="planetarium-star-header"
+                          onClick={() => setExpandedStar(expandedStar === star.name ? null : star.name)}
+                          aria-expanded={expandedStar === star.name}
+                        >
+                          <div className="planetarium-star-header-left">
+                            <span className="planetarium-star-name">{star.name}</span>
+                            <span className="planetarium-star-mag">mag {star.mag.toFixed(1)}</span>
+                          </div>
+                          <div className="planetarium-star-header-right">
+                            <span className="planetarium-star-pos">
+                              {star.visible
+                                ? `${star.compass} · ${star.altitude.toFixed(0)}°`
+                                : 'Below horizon'
+                              }
+                            </span>
+                            <span className={`planetarium-star-chevron ${expandedStar === star.name ? 'planetarium-star-chevron--open' : ''}`}>
+                              ›
+                            </span>
+                          </div>
+                        </button>
+                        {expandedStar === star.name && (
+                          <div className="planetarium-star-desc">
+                            {star.description}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -578,9 +642,10 @@ export default function PlanetariumPage() {
                 <button
                   key={c.name}
                   className={`planetarium-constellation-card ${selectedConstellation?.name === c.name ? 'planetarium-constellation-card--selected' : ''} ${c.bestMonths.includes(currentMonth) ? 'planetarium-constellation-card--inseason' : ''}`}
-                  onClick={() => setSelectedConstellation(
-                    selectedConstellation?.name === c.name ? null : c
-                  )}
+                  onClick={() => {
+                    setSelectedConstellation(selectedConstellation?.name === c.name ? null : c);
+                    setExpandedStar(null);
+                  }}
                 >
                   <div className="planetarium-constellation-card-header">
                     <span className="planetarium-constellation-name">{c.name}</span>
