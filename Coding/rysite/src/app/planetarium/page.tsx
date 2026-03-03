@@ -10,7 +10,6 @@ import {
   projectToSkyMap,
   raDecToAltAz,
   azimuthToCompass,
-  describeDirection,
   type Constellation,
 } from './constellations';
 
