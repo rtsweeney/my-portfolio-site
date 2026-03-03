@@ -1542,6 +1542,82 @@ a {
   color: #00856a;
 }
 
+.planetarium-legend-dot--planet {
+  background: #e84393;
+}
+
+.planetarium-legend-dot--sun {
+  background: #f9ca24;
+  box-shadow: 0 0 6px rgba(249, 202, 36, 0.6);
+}
+
+.planetarium-body-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.planetarium-body-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.planetarium-body-card:hover {
+  border-color: rgba(108, 92, 231, 0.3);
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.08);
+}
+
+.planetarium-body-card--planet {
+  border-left: 3px solid #e84393;
+}
+
+.planetarium-body-card--sun {
+  border-left: 3px solid #f9ca24;
+}
+
+.planetarium-body-card--below {
+  opacity: 0.55;
+}
+
+.planetarium-body-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.planetarium-body-symbol {
+  font-size: 1.2rem;
+}
+
+.planetarium-body-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.planetarium-body-alt {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.planetarium-body-hint {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+}
+
+.planetarium-body-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
 /* ============================================
    Responsive
    ============================================ */

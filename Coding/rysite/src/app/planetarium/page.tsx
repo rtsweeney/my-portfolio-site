@@ -6,11 +6,13 @@ import Footer from '@/components/Footer';
 import {
   CONSTELLATIONS,
   getVisibleConstellations,
+  getCelestialBodies,
   localSiderealTime,
   projectToSkyMap,
   raDecToAltAz,
   azimuthToCompass,
   type Constellation,
+  type CelestialBody,
 } from './constellations';
 
 interface VisibleConstellation extends Constellation {
@@ -43,6 +45,7 @@ export default function PlanetariumPage() {
   const [manualLon, setManualLon] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedStar, setExpandedStar] = useState<string | null>(null);
+  const [celestialBodies, setCelestialBodies] = useState<CelestialBody[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gradientAngleRef = useRef(0);
 
@@ -75,6 +78,9 @@ export default function PlanetariumPage() {
 
     const visible = getVisibleConstellations(observeDate, location.lat, location.lon) as VisibleConstellation[];
     setVisibleConstellations(visible);
+
+    const bodies = getCelestialBodies(observeDate, location.lat, location.lon);
+    setCelestialBodies(bodies);
 
     // If selected constellation is no longer visible, deselect
     if (selectedConstellation && !visible.find(c => c.name === selectedConstellation.name)) {
@@ -258,6 +264,46 @@ export default function PlanetariumPage() {
       }
     }
 
+    // Planets & Sun
+    for (const body of celestialBodies) {
+      const proj = projectToSkyMap(body.ra, body.dec, location.lat, lst);
+      if (!proj) continue;
+
+      const bx = cx + proj.x * radius;
+      const by = cy + proj.y * radius;
+
+      if (body.isSun) {
+        // Sun — yellow with large halo to simulate brightness
+        const sunHalo = ctx.createRadialGradient(bx, by, 0, bx, by, 65);
+        sunHalo.addColorStop(0, 'rgba(253, 203, 110, 0.45)');
+        sunHalo.addColorStop(0.4, 'rgba(253, 203, 110, 0.15)');
+        sunHalo.addColorStop(1, 'rgba(253, 203, 110, 0)');
+        ctx.fillStyle = sunHalo;
+        ctx.beginPath();
+        ctx.arc(bx, by, 65, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#f9ca24';
+        ctx.beginPath();
+        ctx.arc(bx, by, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Planets — pink with subtle glow
+        const planetGlow = ctx.createRadialGradient(bx, by, 0, bx, by, 12);
+        planetGlow.addColorStop(0, 'rgba(232, 67, 147, 0.3)');
+        planetGlow.addColorStop(1, 'rgba(232, 67, 147, 0)');
+        ctx.fillStyle = planetGlow;
+        ctx.beginPath();
+        ctx.arc(bx, by, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#e84393';
+        ctx.beginPath();
+        ctx.arc(bx, by, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     // Polaris — always label the North Star prominently if above horizon
     const polarisProj = projectToSkyMap(2.53, 89.26, location.lat, lst);
     if (polarisProj) {
@@ -287,7 +333,7 @@ export default function PlanetariumPage() {
     ctx.beginPath();
     ctx.arc(cx, cy, 4, 0, Math.PI * 2);
     ctx.stroke();
-  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar]);
+  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar, celestialBodies]);
 
   useEffect(() => {
     let frameId: number;
@@ -524,6 +570,14 @@ export default function PlanetariumPage() {
                 <span className="planetarium-legend-dot planetarium-legend-dot--dim" />
                 Below horizon
               </span>
+              <span className="planetarium-legend-item">
+                <span className="planetarium-legend-dot planetarium-legend-dot--planet" />
+                Planet
+              </span>
+              <span className="planetarium-legend-item">
+                <span className="planetarium-legend-dot planetarium-legend-dot--sun" />
+                Sun
+              </span>
             </div>
           </div>
 
@@ -654,6 +708,30 @@ export default function PlanetariumPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Planets & Sun */}
+        <div className="planetarium-list-section">
+          <h2 className="planetarium-panel-title">Planets &amp; Sun</h2>
+          <p className="planetarium-panel-subtitle">
+            Solar system bodies computed from orbital mechanics
+          </p>
+          <div className="planetarium-body-grid">
+            {celestialBodies.map(body => (
+              <div
+                key={body.name}
+                className={`planetarium-body-card ${body.isSun ? 'planetarium-body-card--sun' : 'planetarium-body-card--planet'} ${body.altitude > 0 ? '' : 'planetarium-body-card--below'}`}
+              >
+                <div className="planetarium-body-card-header">
+                  <span className="planetarium-body-symbol">{body.symbol}</span>
+                  <span className="planetarium-body-name">{body.name}</span>
+                  <span className="planetarium-body-alt">{body.altitude.toFixed(0)}°</span>
+                </div>
+                <div className="planetarium-body-hint">{body.directionHint}</div>
+                <div className="planetarium-body-desc">{body.description}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
