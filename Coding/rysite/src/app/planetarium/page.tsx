@@ -279,13 +279,6 @@ export default function PlanetariumPage() {
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
-
-      // Label
-      ctx.font = '700 11px system-ui, sans-serif';
-      ctx.fillStyle = polarisSelected ? '#e84393' : '#d4a520';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Polaris', px + 10, py);
     }
 
     // Zenith marker
