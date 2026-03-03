@@ -44,6 +44,7 @@ export default function PlanetariumPage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedStar, setExpandedStar] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gradientAngleRef = useRef(0);
 
   // Get user's geolocation on mount
   useEffect(() => {
@@ -115,9 +116,14 @@ export default function PlanetariumPage() {
     ctx.fillStyle = skyGrad;
     ctx.fill();
 
-    // Horizon border — solid black ring
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2.5;
+    // Horizon border — animated flowing gradient ring (matches gradient-text)
+    const horizonGrad = ctx.createConicGradient(gradientAngleRef.current, cx, cy);
+    horizonGrad.addColorStop(0, '#6c5ce7');
+    horizonGrad.addColorStop(0.33, '#00b894');
+    horizonGrad.addColorStop(0.67, '#e84393');
+    horizonGrad.addColorStop(1, '#6c5ce7');
+    ctx.strokeStyle = horizonGrad;
+    ctx.lineWidth = 3;
     ctx.stroke();
 
     // Altitude rings
@@ -196,9 +202,26 @@ export default function PlanetariumPage() {
         const starSize = Math.max(1.5, 4.5 - star.mag * 0.9);
         const sx = cx + proj.x * radius;
         const sy = cy + proj.y * radius;
+        const isExpandedStar = isSelected && expandedStar === star.name;
 
-        if (isSelected) {
-          // Soft teal halo
+        if (isExpandedStar) {
+          // Bright highlight ring for the star selected in the sidebar
+          ctx.strokeStyle = '#e84393';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sx, sy, starSize + 6, 0, Math.PI * 2);
+          ctx.stroke();
+
+          const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, starSize * 4);
+          glow.addColorStop(0, 'rgba(232, 67, 147, 0.35)');
+          glow.addColorStop(1, 'rgba(232, 67, 147, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(sx, sy, starSize * 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#e84393';
+        } else if (isSelected) {
+          // Soft teal halo for other stars in the selected constellation
           const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, starSize * 3.5);
           glow.addColorStop(0, 'rgba(0, 133, 106, 0.25)');
           glow.addColorStop(1, 'rgba(0, 133, 106, 0)');
@@ -208,7 +231,7 @@ export default function PlanetariumPage() {
           ctx.fill();
           ctx.fillStyle = '#00856a';
         } else if (isVisible) {
-          ctx.fillStyle = '#1a1a2e';
+          ctx.fillStyle = '#6c5ce7';
         } else {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
         }
@@ -241,14 +264,24 @@ export default function PlanetariumPage() {
     ctx.beginPath();
     ctx.arc(cx, cy, 4, 0, Math.PI * 2);
     ctx.stroke();
-  }, [date, time, location, selectedConstellation, visibleConstellations]);
+  }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar]);
 
   useEffect(() => {
-    drawSkyMap();
+    let frameId: number;
+    const animate = () => {
+      // 6-second rotation cycle to match the gradient-text animation
+      gradientAngleRef.current = ((Date.now() % 6000) / 6000) * Math.PI * 2;
+      drawSkyMap();
+      frameId = requestAnimationFrame(animate);
+    };
+    frameId = requestAnimationFrame(animate);
 
     const handleResize = () => drawSkyMap();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', handleResize);
+    };
   }, [drawSkyMap]);
 
   // Handle canvas click to select constellations
