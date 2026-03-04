@@ -293,6 +293,7 @@ function drawOverlay(
 export default function PleatCounterPage() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [pleatCountStr, setPleatCountStr] = useState('');
   const [pleatDetected, setPleatDetected] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -334,7 +335,7 @@ export default function PleatCounterPage() {
   const showResults = ppi !== null || areaDisplay !== null;
   const fmt = (n: number, d: number) => n.toFixed(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
-  // CV analysis pipeline
+  // CV analysis pipeline — defers heavy work so spinner paints first
   const processImage = useCallback((img: HTMLImageElement, sens: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -351,19 +352,27 @@ export default function PleatCounterPage() {
     canvas.height = ch;
     ctx.drawImage(img, 0, 0, cw, ch);
 
-    const imageData = ctx.getImageData(0, 0, cw, ch);
-    const gray = toGrayscale(imageData.data);
-    grayRef.current = { gray, w: cw, h: ch };
-    imgRef.current = img;
+    setLoadingStatus('Analyzing pleats\u2026');
 
-    const region = detectFilterRegion(gray, cw, ch);
-    regionRef.current = region;
+    // Yield to the browser so the spinner/status text actually paints
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const imageData = ctx.getImageData(0, 0, cw, ch);
+        const gray = toGrayscale(imageData.data);
+        grayRef.current = { gray, w: cw, h: ch };
+        imgRef.current = img;
 
-    const result = analyzePleats(gray, cw, ch, region, sens);
-    setPleatCountStr(String(result.count));
-    setPleatDetected(result.count > 0);
-    setAnalyzing(false);
-    drawOverlay(canvas, img, region, result.positions, result.direction);
+        const region = detectFilterRegion(gray, cw, ch);
+        regionRef.current = region;
+
+        const result = analyzePleats(gray, cw, ch, region, sens);
+        setPleatCountStr(String(result.count));
+        setPleatDetected(result.count > 0);
+        setAnalyzing(false);
+        setLoadingStatus(null);
+        drawOverlay(canvas, img, region, result.positions, result.direction);
+      }, 0);
+    });
   }, []);
 
   const reanalyze = useCallback((sens: number) => {
@@ -377,12 +386,29 @@ export default function PleatCounterPage() {
   }, []);
 
   const loadFile = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) return;
+    // Accept image/* plus HEIC/HEIF which iOS may report with non-standard types
+    const isImage = file.type.startsWith('image/')
+      || /\.(heic|heif|jpg|jpeg|png|webp|avif|bmp|tiff?)$/i.test(file.name);
+    if (!isImage) return;
+
     setAnalyzing(true);
-    const img = new Image();
+    setLoadingStatus('Loading image\u2026');
+    setImageSrc(null); // ensure upload zone disappears on re-upload
+
     const url = URL.createObjectURL(file);
-    img.onload = () => { setImageSrc(url); processImage(img, sensitivity); };
-    img.src = url;
+
+    // Show the loading UI immediately, then start decoding
+    requestAnimationFrame(() => {
+      setImageSrc(url);
+      const img = new Image();
+      img.onload = () => processImage(img, sensitivity);
+      img.onerror = () => {
+        setAnalyzing(false);
+        setLoadingStatus(null);
+        setImageSrc(null);
+      };
+      img.src = url;
+    });
   }, [processImage, sensitivity]);
 
   const handleCapture = (e: ChangeEvent<HTMLInputElement>) => {
@@ -411,6 +437,7 @@ export default function PleatCounterPage() {
   const handleReset = () => {
     setImageSrc(null);
     setAnalyzing(false);
+    setLoadingStatus(null);
     setPleatCountStr('');
     setPleatDetected(false);
     imgRef.current = null;
@@ -456,7 +483,7 @@ export default function PleatCounterPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             capture="environment"
             onChange={handleCapture}
             style={{ display: 'none' }}
@@ -464,13 +491,35 @@ export default function PleatCounterPage() {
           <input
             ref={fileInputUploadRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif"
             onChange={handleCapture}
             style={{ display: 'none' }}
           />
 
+          {/* Full-screen loading overlay (shown before canvas is ready) */}
+          {analyzing && !imageSrc && (
+            <div style={{
+              border: '2px dashed var(--border)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--glass-bg)',
+              backdropFilter: 'blur(16px)',
+              padding: '3rem 2rem',
+              textAlign: 'center',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: '1rem', minHeight: 220,
+            }}>
+              <div style={{ width: 40, height: 40, border: '3px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent-secondary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              <p style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+                {loadingStatus || 'Loading image\u2026'}
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                Large photos may take a moment to decode
+              </p>
+            </div>
+          )}
+
           {/* Capture Zone / Canvas */}
-          {!imageSrc ? (
+          {!imageSrc && !analyzing ? (
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -533,7 +582,7 @@ export default function PleatCounterPage() {
                   gap: '0.75rem',
                 }}>
                   <div style={{ width: 36, height: 36, border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#00e676', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  <p style={{ color: 'white', fontWeight: 600, fontSize: '0.95rem' }}>Analyzing pleats...</p>
+                  <p style={{ color: 'white', fontWeight: 600, fontSize: '0.95rem' }}>{loadingStatus || 'Analyzing pleats\u2026'}</p>
                 </div>
               )}
               <button
