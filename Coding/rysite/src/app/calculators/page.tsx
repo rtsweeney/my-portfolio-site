@@ -3,13 +3,6 @@ import Footer from '@/components/Footer';
 
 const calculators = [
   {
-    name: 'Machine-Vision Media Area',
-    description: 'Photograph a pleated filter panel — auto-counts pleats and calculates useable media area and pleats per inch.',
-    href: '/calculators/filter-pleat-counter',
-    icon: '&#128247;',
-    accent: 'card-accent-teal',
-  },
-  {
     name: 'Beers Per Beer',
     description: 'Find out how many standard beers (4.2%, 12 oz) are in any beverage by ABV and volume.',
     href: '/calculators/beers-per-beer',

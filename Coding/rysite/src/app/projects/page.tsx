@@ -42,14 +42,14 @@ export default async function ProjectsPage() {
         </div>
 
         <div className="projects-grid">
-          {/* Machine-Vision Media Area — built-in project */}
-          <Link href="/calculators/filter-pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
+          {/* Machine Vision Pleat Counting — built-in project */}
+          <Link href="/projects/pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-teal" style={{ height: '100%', cursor: 'pointer' }}>
               <div className="project-card-header">
                 <div className="project-card-icon">&#128247;</div>
               </div>
               <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Machine-Vision Media Area
+                Machine Vision Pleat Counting
               </h3>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
                 <p>Photograph a pleated filter panel and let the browser do the rest — auto-detects the panel boundary, counts pleats via edge-frequency analysis, and calculates useable media area and pleats per inch. No server, no ML model, pure canvas.</p>
@@ -59,30 +59,6 @@ export default async function ProjectsPage() {
                 <span className="project-tech-tag">Canvas API</span>
                 <span className="project-tech-tag">Next.js</span>
                 <span className="project-tech-tag">Mobile Camera</span>
-              </div>
-              <div className="project-links">
-                <span className="project-link">Open &rarr;</span>
-              </div>
-            </div>
-          </Link>
-
-          {/* Machine Vision Pleat Counting — built-in project */}
-          <Link href="/projects/pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div className="card card-accent-gold" style={{ height: '100%', cursor: 'pointer' }}>
-              <div className="project-card-header">
-                <div className="project-card-icon">&#128270;</div>
-              </div>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Machine Vision Pleat Counting
-              </h3>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                <p>Upload a photo of a pleated filter and the browser counts pleats via edge-frequency analysis, draws a counting line across the media, and calculates useable media area — all client-side.</p>
-              </div>
-              <div className="project-tech-tags">
-                <span className="project-tech-tag">Computer Vision</span>
-                <span className="project-tech-tag">Canvas API</span>
-                <span className="project-tech-tag">Next.js</span>
-                <span className="project-tech-tag">Client-Side</span>
               </div>
               <div className="project-links">
                 <span className="project-link">Open &rarr;</span>
