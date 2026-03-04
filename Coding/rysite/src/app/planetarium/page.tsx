@@ -341,15 +341,15 @@ export default function PlanetariumPage() {
 
       // Outer glow ring
       const glow = ctx.createRadialGradient(px, py, 0, px, py, 12);
-      glow.addColorStop(0, polarisSelected ? 'rgba(232, 67, 147, 0.25)' : 'rgba(253, 203, 110, 0.3)');
-      glow.addColorStop(1, 'rgba(253, 203, 110, 0)');
+      glow.addColorStop(0, polarisSelected ? 'rgba(232, 67, 147, 0.25)' : 'rgba(0, 184, 236, 0.3)');
+      glow.addColorStop(1, 'rgba(0, 184, 236, 0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.arc(px, py, 12, 0, Math.PI * 2);
       ctx.fill();
 
       // Star dot
-      ctx.fillStyle = polarisSelected ? '#e84393' : '#fdcb6e';
+      ctx.fillStyle = polarisSelected ? '#e84393' : '#00b8ec';
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
