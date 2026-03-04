@@ -7,6 +7,18 @@ import Footer from '@/components/Footer';
 type AreaUnit = 'ft²' | 'm²' | 'in²';
 interface Rect { x: number; y: number; w: number; h: number }
 
+interface PleatResult {
+  count: number;
+  positions: number[];
+  direction: 'h' | 'v';
+  ridgeLines: number[][];   // for each pleat: array of perpendicular positions where ridge was tracked
+  ridgeOffsets: number[][];  // lateral offset at each tracked position (how much ridge wandered)
+  gratingBars: number[];     // positions of detected grating bars (perpendicular to pleats)
+  period: number;            // estimated pleat spacing in pixels
+  gratingDetected: boolean;
+  confidence: number;        // 0-1 confidence in the count
+}
+
 const MAX_DIM = 1000;
 
 // ── Image Processing Utilities ────────────────────────────────────────────────
@@ -67,25 +79,60 @@ function otsuThreshold(gray: Float32Array): number {
   return threshold;
 }
 
-// ── Filter Region Detection ───────────────────────────────────────────────────
+// ── Enhanced Filter Region Detection ─────────────────────────────────────────
+// Uses gradient energy + brightness to better isolate filter media from frame/background
 
 function detectFilterRegion(gray: Float32Array, w: number, h: number): Rect {
   const blurR = Math.max(2, Math.round(Math.min(w, h) * 0.005));
   const blurred = boxBlur(gray, w, h, blurR);
   const t = otsuThreshold(blurred);
 
+  // Compute gradient magnitude for edge-energy based detection
+  const gradEnergy = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const gx = blurred[y * w + x + 1] - blurred[y * w + x - 1];
+      const gy = blurred[(y + 1) * w + x] - blurred[(y - 1) * w + x];
+      gradEnergy[y * w + x] = Math.sqrt(gx * gx + gy * gy);
+    }
+  }
+
+  // Combine brightness and texture (gradient energy) for row/col scoring
   const rowBright = new Float32Array(h);
   const colBright = new Float32Array(w);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++)
-      if (blurred[y * w + x] > t) { rowBright[y]++; colBright[x]++; }
+  const rowTexture = new Float32Array(h);
+  const colTexture = new Float32Array(w);
 
-  const rMin = w * 0.30, cMin = h * 0.30;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      if (blurred[idx] > t) { rowBright[y]++; colBright[x]++; }
+      rowTexture[y] += gradEnergy[idx];
+      colTexture[x] += gradEnergy[idx];
+    }
+  }
+
+  // Normalize texture scores
+  let maxRowTex = 0, maxColTex = 0;
+  for (let y = 0; y < h; y++) maxRowTex = Math.max(maxRowTex, rowTexture[y]);
+  for (let x = 0; x < w; x++) maxColTex = Math.max(maxColTex, colTexture[x]);
+  if (maxRowTex > 0) for (let y = 0; y < h; y++) rowTexture[y] /= maxRowTex;
+  if (maxColTex > 0) for (let x = 0; x < w; x++) colTexture[x] /= maxColTex;
+
+  // Combined score: brightness coverage + texture presence
+  const rowScore = new Float32Array(h);
+  const colScore = new Float32Array(w);
+  for (let y = 0; y < h; y++) rowScore[y] = (rowBright[y] / w) * 0.6 + rowTexture[y] * 0.4;
+  for (let x = 0; x < w; x++) colScore[x] = (colBright[x] / h) * 0.6 + colTexture[x] * 0.4;
+
+  // Find region boundaries using a threshold on combined score
+  const scoreThreshR = 0.25;
+  const scoreThreshC = 0.25;
   let top = 0, bottom = h - 1, left = 0, right = w - 1;
-  for (let y = 0; y < h; y++) { if (rowBright[y] >= rMin) { top = y; break; } }
-  for (let y = h - 1; y >= 0; y--) { if (rowBright[y] >= rMin) { bottom = y; break; } }
-  for (let x = 0; x < w; x++) { if (colBright[x] >= cMin) { left = x; break; } }
-  for (let x = w - 1; x >= 0; x--) { if (colBright[x] >= cMin) { right = x; break; } }
+  for (let y = 0; y < h; y++) { if (rowScore[y] >= scoreThreshR) { top = y; break; } }
+  for (let y = h - 1; y >= 0; y--) { if (rowScore[y] >= scoreThreshR) { bottom = y; break; } }
+  for (let x = 0; x < w; x++) { if (colScore[x] >= scoreThreshC) { left = x; break; } }
+  for (let x = w - 1; x >= 0; x--) { if (colScore[x] >= scoreThreshC) { right = x; break; } }
 
   const rw = right - left + 1, rh = bottom - top + 1;
   if (rw < w * 0.18 || rh < h * 0.18) {
@@ -96,32 +143,7 @@ function detectFilterRegion(gray: Float32Array, w: number, h: number): Rect {
   return { x: left + ins, y: top + ins, w: rw - 2 * ins, h: rh - 2 * ins };
 }
 
-// ── Profile Analysis & Peak Detection ─────────────────────────────────────────
-
-function getProfile(
-  gray: Float32Array, imgW: number, region: Rect, dir: 'h' | 'v'
-): Float32Array {
-  const margin = 0.15;
-  if (dir === 'h') {
-    const yS = Math.floor(region.y + region.h * margin);
-    const yE = Math.floor(region.y + region.h * (1 - margin));
-    const prof = new Float32Array(region.w);
-    for (let y = yS; y < yE; y++)
-      for (let x = 0; x < region.w; x++)
-        prof[x] += gray[y * imgW + region.x + x];
-    for (let x = 0; x < region.w; x++) prof[x] /= (yE - yS);
-    return prof;
-  } else {
-    const xS = Math.floor(region.x + region.w * margin);
-    const xE = Math.floor(region.x + region.w * (1 - margin));
-    const prof = new Float32Array(region.h);
-    for (let x = xS; x < xE; x++)
-      for (let y = 0; y < region.h; y++)
-        prof[y] += gray[(region.y + y) * imgW + x];
-    for (let y = 0; y < region.h; y++) prof[y] /= (xE - xS);
-    return prof;
-  }
-}
+// ── Profile Utilities ─────────────────────────────────────────────────────────
 
 function smoothProfile(p: Float32Array, r: number): Float32Array {
   const n = p.length;
@@ -171,39 +193,494 @@ function findPeaks(profile: Float32Array, minProm: number): number[] {
   return peaks;
 }
 
-function periodicityScore(peaks: number[]): number {
-  if (peaks.length < 3) return peaks.length * 0.5;
-  const diffs = peaks.slice(1).map((p, i) => p - peaks[i]);
-  const mean = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-  if (!mean) return 0;
-  const variance = diffs.reduce((a, d) => a + (d - mean) ** 2, 0) / diffs.length;
-  const cv = Math.sqrt(variance) / mean;
-  return peaks.length * Math.max(0, 1 - cv);
+// ── Autocorrelation Period Estimation ─────────────────────────────────────────
+// Finds dominant periodic spacing by computing autocorrelation of a 1D signal.
+// Much more robust to partial occlusion than simple peak counting.
+
+function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPeriod: number): { period: number; strength: number } {
+  const n = profile.length;
+  // Normalize
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += profile[i];
+  mean /= n;
+  const centered = new Float32Array(n);
+  let energy = 0;
+  for (let i = 0; i < n; i++) {
+    centered[i] = profile[i] - mean;
+    energy += centered[i] * centered[i];
+  }
+  if (energy < 1e-10) return { period: 0, strength: 0 };
+
+  // Compute autocorrelation for lags in [minPeriod, maxPeriod]
+  const minLag = Math.max(2, Math.floor(minPeriod));
+  const maxLag = Math.min(Math.floor(n / 2), Math.ceil(maxPeriod));
+  const acf = new Float32Array(maxLag + 1);
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < n - lag; i++) sum += centered[i] * centered[i + lag];
+    acf[lag] = sum / energy;
+  }
+
+  // Find first significant peak in autocorrelation
+  let bestLag = 0, bestVal = -Infinity;
+  for (let lag = minLag + 1; lag < maxLag; lag++) {
+    if (acf[lag] > acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestVal) {
+      bestVal = acf[lag];
+      bestLag = lag;
+      break; // take the first (fundamental) peak
+    }
+  }
+
+  // If no clear peak found, try global max
+  if (bestLag === 0) {
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      if (acf[lag] > bestVal) { bestVal = acf[lag]; bestLag = lag; }
+    }
+  }
+
+  // Parabolic interpolation for sub-pixel accuracy
+  if (bestLag > minLag && bestLag < maxLag) {
+    const a = acf[bestLag - 1], b = acf[bestLag], c = acf[bestLag + 1];
+    const denom = 2 * (2 * b - a - c);
+    if (Math.abs(denom) > 1e-10) {
+      const delta = (a - c) / denom;
+      return { period: bestLag + delta, strength: Math.max(0, bestVal) };
+    }
+  }
+
+  return { period: bestLag, strength: Math.max(0, bestVal) };
 }
+
+// ── Grating Detection ────────────────────────────────────────────────────────
+// Detects periodic grating bars running perpendicular to pleats.
+// Returns positions of grating bars and gaps between them.
+
+function detectGrating(
+  gray: Float32Array, imgW: number, region: Rect, pleatDir: 'h' | 'v'
+): { bars: number[]; gaps: Array<[number, number]>; detected: boolean } {
+  // The grating runs perpendicular to pleats.
+  // For horizontal pleats, grating bars are vertical (detected in the vertical profile).
+  // For vertical pleats, grating bars are horizontal (detected in the horizontal profile).
+  const perpLen = pleatDir === 'h' ? region.h : region.w;
+  const paraLen = pleatDir === 'h' ? region.w : region.h;
+
+  // Build profile perpendicular to pleats (averaging along pleat direction)
+  const profile = new Float32Array(perpLen);
+  const margin = 0.1;
+  const paraStart = Math.floor(paraLen * margin);
+  const paraEnd = Math.floor(paraLen * (1 - margin));
+  const paraCount = paraEnd - paraStart;
+  if (paraCount <= 0) return { bars: [], gaps: [], detected: false };
+
+  for (let perp = 0; perp < perpLen; perp++) {
+    let sum = 0;
+    for (let para = paraStart; para < paraEnd; para++) {
+      const x = pleatDir === 'h' ? region.x + para : region.x + perp;
+      const y = pleatDir === 'h' ? region.y + perp : region.y + para;
+      sum += gray[y * imgW + x];
+    }
+    profile[perp] = sum / paraCount;
+  }
+
+  // Smooth and detrend
+  const smoothR = Math.max(1, Math.round(perpLen * 0.005));
+  const smoothed = smoothProfile(profile, smoothR);
+  const det = detrend(smoothed);
+
+  // Look for grating period — grating bars are usually wider-spaced than pleats
+  const minGratingPeriod = Math.max(5, perpLen * 0.03);
+  const maxGratingPeriod = perpLen * 0.25;
+  const { period: gratingPeriod, strength } = estimatePeriodAutocorr(det, minGratingPeriod, maxGratingPeriod);
+
+  // Grating detection threshold: need reasonable periodicity
+  if (strength < 0.15 || gratingPeriod < minGratingPeriod) {
+    return { bars: [], gaps: [], detected: false };
+  }
+
+  // Find the dark bars (grating bars are typically darker)
+  const sd = stdDev(det);
+  const barThreshold = -sd * 0.3; // bars are valleys (dark)
+  const bars: number[] = [];
+
+  // Find valleys (dark bars)
+  for (let i = 1; i < perpLen - 1; i++) {
+    if (det[i] < det[i - 1] && det[i] <= det[i + 1] && det[i] < barThreshold) {
+      // Check it's roughly consistent with the grating period
+      if (bars.length === 0 || Math.abs((i - bars[bars.length - 1]) - gratingPeriod) < gratingPeriod * 0.5) {
+        bars.push(i);
+      }
+    }
+  }
+
+  // Estimate bar width (typically ~15-30% of grating period)
+  const barHalfWidth = Math.max(2, Math.round(gratingPeriod * 0.12));
+
+  // Compute gaps between bars
+  const gaps: Array<[number, number]> = [];
+  if (bars.length > 0) {
+    // Gap before first bar
+    if (bars[0] > barHalfWidth * 2) {
+      gaps.push([0, bars[0] - barHalfWidth]);
+    }
+    // Gaps between bars
+    for (let i = 0; i < bars.length - 1; i++) {
+      const gapStart = bars[i] + barHalfWidth;
+      const gapEnd = bars[i + 1] - barHalfWidth;
+      if (gapEnd > gapStart + 2) gaps.push([gapStart, gapEnd]);
+    }
+    // Gap after last bar
+    if (bars[bars.length - 1] + barHalfWidth * 2 < perpLen) {
+      gaps.push([bars[bars.length - 1] + barHalfWidth, perpLen - 1]);
+    }
+  }
+
+  return { bars, gaps, detected: bars.length >= 2 };
+}
+
+// ── Multi-Strip Profile Extraction ───────────────────────────────────────────
+// Extracts intensity profiles from multiple strips, preferring gaps between grating bars.
+
+function extractStripProfiles(
+  gray: Float32Array, imgW: number, region: Rect, dir: 'h' | 'v',
+  gaps: Array<[number, number]> | null, numStrips: number
+): Float32Array[] {
+  const paraLen = dir === 'h' ? region.w : region.h;
+  const perpLen = dir === 'h' ? region.h : region.w;
+  const profiles: Float32Array[] = [];
+
+  // Determine strip positions
+  let stripRanges: Array<[number, number]>;
+  if (gaps && gaps.length > 0) {
+    // Sample within each gap
+    stripRanges = [];
+    for (const [gStart, gEnd] of gaps) {
+      const gapSize = gEnd - gStart;
+      if (gapSize < 3) continue;
+      // Use the middle portion of each gap for cleaner signal
+      const margin = Math.max(1, Math.floor(gapSize * 0.15));
+      stripRanges.push([gStart + margin, gEnd - margin]);
+    }
+  } else {
+    // No grating detected — divide into uniform strips
+    const stripH = Math.max(3, Math.floor(perpLen / numStrips));
+    stripRanges = [];
+    for (let s = 0; s < numStrips; s++) {
+      const start = Math.floor(s * perpLen / numStrips);
+      const end = Math.min(perpLen - 1, start + stripH);
+      if (end > start + 1) stripRanges.push([start, end]);
+    }
+  }
+
+  for (const [stripStart, stripEnd] of stripRanges) {
+    const prof = new Float32Array(paraLen);
+    const count = stripEnd - stripStart;
+    if (count <= 0) continue;
+    for (let perp = stripStart; perp < stripEnd; perp++) {
+      for (let para = 0; para < paraLen; para++) {
+        const x = dir === 'h' ? region.x + para : region.x + perp;
+        const y = dir === 'h' ? region.y + perp : region.y + para;
+        prof[para] += gray[y * imgW + x];
+      }
+    }
+    for (let i = 0; i < paraLen; i++) prof[i] /= count;
+    profiles.push(prof);
+  }
+
+  return profiles;
+}
+
+// ── Consensus Peak Voting ────────────────────────────────────────────────────
+// Merges peaks from multiple strips using a vote accumulator.
+// Peaks at similar positions across strips reinforce each other.
+
+function consensusPeaks(
+  allPeaks: number[][], profileLen: number, expectedPeriod: number
+): number[] {
+  if (allPeaks.length === 0) return [];
+
+  // Create vote accumulator with some tolerance for positional jitter
+  const tolerance = Math.max(2, Math.round(expectedPeriod * 0.15));
+  const votes = new Float32Array(profileLen);
+
+  for (const peaks of allPeaks) {
+    for (const p of peaks) {
+      // Gaussian-weighted vote centered on peak position
+      for (let d = -tolerance; d <= tolerance; d++) {
+        const idx = p + d;
+        if (idx >= 0 && idx < profileLen) {
+          const weight = Math.exp(-(d * d) / (2 * (tolerance / 2) ** 2));
+          votes[idx] += weight;
+        }
+      }
+    }
+  }
+
+  // Smooth the vote accumulator slightly
+  const smoothedVotes = smoothProfile(votes, Math.max(1, Math.round(tolerance * 0.3)));
+
+  // Find peaks in vote accumulator
+  const minVotes = Math.max(1, allPeaks.length * 0.15);
+  const consensusPositions: number[] = [];
+  for (let i = 1; i < profileLen - 1; i++) {
+    if (smoothedVotes[i] > smoothedVotes[i - 1] && smoothedVotes[i] >= smoothedVotes[i + 1]
+        && smoothedVotes[i] >= minVotes) {
+      // Merge with previous if too close
+      if (consensusPositions.length > 0 && i - consensusPositions[consensusPositions.length - 1] < expectedPeriod * 0.4) {
+        // Keep the one with more votes
+        const prev = consensusPositions[consensusPositions.length - 1];
+        if (smoothedVotes[i] > smoothedVotes[prev]) {
+          consensusPositions[consensusPositions.length - 1] = i;
+        }
+      } else {
+        consensusPositions.push(i);
+      }
+    }
+  }
+
+  return consensusPositions;
+}
+
+// ── Ridge Tracking ───────────────────────────────────────────────────────────
+// For each pleat position, tracks the ridge perpendicular to the pleat direction.
+// Follows the local intensity maximum across grating bars and gaps.
+
+function trackRidges(
+  gray: Float32Array, imgW: number, region: Rect, dir: 'h' | 'v',
+  pleatPositions: number[], period: number, gratingBars: number[]
+): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
+  const perpLen = dir === 'h' ? region.h : region.w;
+  const searchRadius = Math.max(2, Math.round(period * 0.2));
+  const step = Math.max(1, Math.round(perpLen / 100)); // sample every few pixels
+
+  // Create grating bar mask for quick lookup
+  const barHalfWidth = Math.max(2, Math.round(period * 0.1));
+  const isGratingBar = new Uint8Array(perpLen);
+  for (const bar of gratingBars) {
+    for (let d = -barHalfWidth; d <= barHalfWidth; d++) {
+      const idx = bar + d;
+      if (idx >= 0 && idx < perpLen) isGratingBar[idx] = 1;
+    }
+  }
+
+  const ridgeLines: number[][] = [];
+  const ridgeOffsets: number[][] = [];
+
+  for (const pleatPos of pleatPositions) {
+    const line: number[] = [];
+    const offsets: number[] = [];
+    let currentPos = pleatPos;
+
+    for (let perp = 0; perp < perpLen; perp += step) {
+      // At this perpendicular position, find the local maximum near expected pleat position
+      let bestPos = currentPos;
+      let bestVal = -Infinity;
+
+      for (let d = -searchRadius; d <= searchRadius; d++) {
+        const para = currentPos + d;
+        if (para < 0 || para >= (dir === 'h' ? region.w : region.h)) continue;
+
+        const x = dir === 'h' ? region.x + para : region.x + perp;
+        const y = dir === 'h' ? region.y + perp : region.y + para;
+        const val = gray[y * imgW + x];
+
+        if (val > bestVal) {
+          bestVal = val;
+          bestPos = para;
+        }
+      }
+
+      line.push(perp);
+      offsets.push(bestPos - pleatPos);
+
+      // If not on a grating bar, allow the tracker to update position
+      // On grating bars, maintain predicted trajectory to bridge the gap
+      if (!isGratingBar[perp]) {
+        currentPos = bestPos;
+      }
+      // else: keep currentPos as-is, effectively extrapolating through the grating
+    }
+
+    ridgeLines.push(line);
+    ridgeOffsets.push(offsets);
+  }
+
+  return { ridgeLines, ridgeOffsets };
+}
+
+// ── Grid Extrapolation ───────────────────────────────────────────────────────
+// Uses estimated period to project a regular grid of expected pleat positions.
+// Fills in any pleats missed by peak detection due to occlusion.
+
+function extrapolateGrid(
+  detectedPositions: number[], period: number, regionLen: number
+): { gridPositions: number[]; count: number } {
+  if (period <= 0 || detectedPositions.length === 0) {
+    return { gridPositions: detectedPositions, count: detectedPositions.length };
+  }
+
+  // Find the best phase alignment by voting
+  // Phase = position mod period
+  const phaseBins = Math.max(10, Math.round(period));
+  const phaseVotes = new Float32Array(phaseBins);
+  for (const pos of detectedPositions) {
+    const phase = ((pos % period) + period) % period;
+    const bin = Math.round((phase / period) * phaseBins) % phaseBins;
+    phaseVotes[bin]++;
+  }
+
+  // Find best phase
+  let bestPhase = 0, bestVotes = 0;
+  for (let i = 0; i < phaseBins; i++) {
+    if (phaseVotes[i] > bestVotes) { bestVotes = phaseVotes[i]; bestPhase = i; }
+  }
+  const phaseOffset = (bestPhase / phaseBins) * period;
+
+  // Generate grid: all positions = phaseOffset + n*period within region
+  const gridPositions: number[] = [];
+  let pos = phaseOffset;
+  // Walk backwards to find the first grid position
+  while (pos - period >= 0) pos -= period;
+  // Now walk forwards through the region
+  while (pos < regionLen) {
+    if (pos >= 0) {
+      gridPositions.push(Math.round(pos));
+    }
+    pos += period;
+  }
+
+  // Validate: each grid position should have a detected peak nearby, or be in a gap
+  // (i.e., the grid should mostly agree with detected peaks)
+  let matches = 0;
+  const matchTolerance = period * 0.3;
+  for (const gp of gridPositions) {
+    for (const dp of detectedPositions) {
+      if (Math.abs(gp - dp) < matchTolerance) { matches++; break; }
+    }
+  }
+
+  // If grid matches detected peaks well, use the grid (fills in gaps)
+  // If not, fall back to detected positions
+  const matchRatio = detectedPositions.length > 0 ? matches / detectedPositions.length : 0;
+  if (matchRatio >= 0.5 && gridPositions.length > 0) {
+    return { gridPositions, count: gridPositions.length };
+  }
+
+  return { gridPositions: detectedPositions, count: detectedPositions.length };
+}
+
+// ── Main Analysis Pipeline ───────────────────────────────────────────────────
 
 function analyzePleats(
   gray: Float32Array, imgW: number, imgH: number, region: Rect, sensitivity: number
-): { count: number; positions: number[]; direction: 'h' | 'v' } {
+): PleatResult {
   const pFactor = 0.55 - (sensitivity / 100) * 0.50;
   const smoothR = Math.max(1, Math.round(Math.max(region.w, region.h) * 0.003));
+  const numStrips = 12;
 
-  function analyze(dir: 'h' | 'v') {
-    const raw = getProfile(gray, imgW, region, dir);
-    const smooth = smoothProfile(raw, smoothR);
-    const det = detrend(smooth);
-    const sd = stdDev(det);
-    const peaks = findPeaks(det, sd * pFactor);
-    return { peaks, score: periodicityScore(peaks) };
+  function analyzeDirection(dir: 'h' | 'v'): PleatResult {
+    const paraLen = dir === 'h' ? region.w : region.h;
+
+    // Step 1: Detect grating (perpendicular to pleats)
+    const grating = detectGrating(gray, imgW, region, dir);
+
+    // Step 2: Extract profiles from multiple strips (between grating bars if detected)
+    const profiles = extractStripProfiles(
+      gray, imgW, region, dir,
+      grating.detected ? grating.gaps : null,
+      numStrips
+    );
+
+    if (profiles.length === 0) {
+      return { count: 0, positions: [], direction: dir, ridgeLines: [], ridgeOffsets: [],
+               gratingBars: [], period: 0, gratingDetected: false, confidence: 0 };
+    }
+
+    // Step 3: Process each strip profile and collect peaks
+    const allPeaks: number[][] = [];
+    let bestPeriodSum = 0, periodCount = 0;
+
+    for (const rawProfile of profiles) {
+      const smooth = smoothProfile(rawProfile, smoothR);
+      const det = detrend(smooth);
+      const sd = stdDev(det);
+      const peaks = findPeaks(det, sd * pFactor);
+      if (peaks.length >= 2) allPeaks.push(peaks);
+
+      // Estimate period for this strip
+      const minPeriod = Math.max(3, paraLen * 0.01);
+      const maxPeriod = paraLen * 0.15;
+      const { period, strength } = estimatePeriodAutocorr(det, minPeriod, maxPeriod);
+      if (strength > 0.1 && period > 0) {
+        bestPeriodSum += period;
+        periodCount++;
+      }
+    }
+
+    // Step 4: Get combined profile for global period estimation
+    const combinedProfile = new Float32Array(paraLen);
+    for (const p of profiles) for (let i = 0; i < paraLen; i++) combinedProfile[i] += p[i];
+    for (let i = 0; i < paraLen; i++) combinedProfile[i] /= profiles.length;
+    const combinedSmooth = smoothProfile(combinedProfile, smoothR);
+    const combinedDet = detrend(combinedSmooth);
+
+    const minPeriod = Math.max(3, paraLen * 0.01);
+    const maxPeriod = paraLen * 0.15;
+    const globalPeriod = estimatePeriodAutocorr(combinedDet, minPeriod, maxPeriod);
+
+    // Best period: prefer per-strip average if available, else global
+    const estPeriod = periodCount > 0
+      ? bestPeriodSum / periodCount
+      : globalPeriod.period;
+
+    // Step 5: Consensus voting across strips
+    let positions: number[];
+    if (allPeaks.length >= 2 && estPeriod > 0) {
+      positions = consensusPeaks(allPeaks, paraLen, estPeriod);
+    } else {
+      // Fall back to combined profile peak detection
+      const sd = stdDev(combinedDet);
+      positions = findPeaks(combinedDet, sd * pFactor);
+    }
+
+    // Step 6: Grid extrapolation to fill gaps from occlusion
+    const { gridPositions, count } = extrapolateGrid(positions, estPeriod, paraLen);
+
+    // Step 7: Ridge tracking
+    const { ridgeLines, ridgeOffsets } = trackRidges(
+      gray, imgW, region, dir, gridPositions, estPeriod, grating.bars
+    );
+
+    // Confidence scoring
+    const periodConfidence = globalPeriod.strength;
+    const stripAgreement = allPeaks.length / Math.max(1, profiles.length);
+    const confidence = Math.min(1, periodConfidence * 0.5 + stripAgreement * 0.5);
+
+    return {
+      count,
+      positions: gridPositions,
+      direction: dir,
+      ridgeLines,
+      ridgeOffsets,
+      gratingBars: grating.bars,
+      period: estPeriod,
+      gratingDetected: grating.detected,
+      confidence,
+    };
   }
 
-  const h = analyze('h');
-  const v = analyze('v');
+  const hResult = analyzeDirection('h');
+  const vResult = analyzeDirection('v');
 
-  if (h.score >= v.score && h.peaks.length > 0)
-    return { count: h.peaks.length, positions: h.peaks, direction: 'h' };
-  if (v.peaks.length > 0)
-    return { count: v.peaks.length, positions: v.peaks, direction: 'v' };
-  return { count: 0, positions: [], direction: 'h' };
+  // Score each direction: period strength * count, with bonus for grating detection
+  const hScore = hResult.confidence * hResult.count * (hResult.gratingDetected ? 1.2 : 1);
+  const vScore = vResult.confidence * vResult.count * (vResult.gratingDetected ? 1.2 : 1);
+
+  if (hScore >= vScore && hResult.count > 0) return hResult;
+  if (vResult.count > 0) return vResult;
+
+  // Fallback to whichever direction found anything
+  if (hResult.count > 0) return hResult;
+  return vResult.count > 0 ? vResult : { ...hResult, count: 0, positions: [], direction: 'h' };
 }
 
 // ── Canvas Overlay ────────────────────────────────────────────────────────────
@@ -212,12 +689,12 @@ function drawOverlay(
   canvas: HTMLCanvasElement,
   img: HTMLImageElement,
   region: Rect,
-  positions: number[],
-  direction: 'h' | 'v'
+  result: PleatResult
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const { width: cw, height: ch } = canvas;
+  const { positions, direction: dir, ridgeLines, ridgeOffsets, gratingBars, gratingDetected } = result;
 
   ctx.drawImage(img, 0, 0, cw, ch);
 
@@ -249,41 +726,104 @@ function drawOverlay(
       ctx.stroke();
     });
 
-  // Counting line — a single line across the pleats showing where counting occurs
-  if (positions.length > 0) {
-    ctx.strokeStyle = 'rgba(255, 214, 10, 0.85)';
-    ctx.lineWidth = Math.max(2, cw / 350);
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    if (direction === 'h') {
-      const lineY = Math.round(region.y + region.h * 0.5);
-      ctx.moveTo(region.x, lineY);
-      ctx.lineTo(region.x + region.w, lineY);
-    } else {
-      const lineX = Math.round(region.x + region.w * 0.5);
-      ctx.moveTo(lineX, region.y);
-      ctx.lineTo(lineX, region.y + region.h);
-    }
-    ctx.stroke();
+  if (positions.length === 0) return;
 
-    // Pleat indicator tick marks along the counting line
-    ctx.strokeStyle = 'rgba(255, 82, 82, 0.7)';
-    ctx.lineWidth = Math.max(1, cw / 600);
-    const tickLen = Math.max(8, Math.min(region.w, region.h) * 0.04);
-    for (const pos of positions) {
+  // Draw grating bar indicators (if detected)
+  if (gratingDetected && gratingBars.length > 0) {
+    ctx.strokeStyle = 'rgba(255, 165, 0, 0.3)';
+    ctx.lineWidth = Math.max(1, cw / 500);
+    ctx.setLineDash([4, 4]);
+    for (const barPos of gratingBars) {
       ctx.beginPath();
-      if (direction === 'h') {
-        const x = region.x + pos;
-        const midY = region.y + region.h * 0.5;
-        ctx.moveTo(x, midY - tickLen);
-        ctx.lineTo(x, midY + tickLen);
+      if (dir === 'h') {
+        const y = region.y + barPos;
+        ctx.moveTo(region.x, y);
+        ctx.lineTo(region.x + region.w, y);
       } else {
-        const y = region.y + pos;
-        const midX = region.x + region.w * 0.5;
-        ctx.moveTo(midX - tickLen, y);
-        ctx.lineTo(midX + tickLen, y);
+        const x = region.x + barPos;
+        ctx.moveTo(x, region.y);
+        ctx.lineTo(x, region.y + region.h);
       }
       ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Draw ridge lines — continuous lines tracking each pleat across the filter
+  if (ridgeLines.length > 0 && ridgeOffsets.length > 0) {
+    ctx.lineWidth = Math.max(1, cw / 600);
+    for (let p = 0; p < positions.length; p++) {
+      if (p >= ridgeLines.length || p >= ridgeOffsets.length) break;
+      const rLine = ridgeLines[p];
+      const rOff = ridgeOffsets[p];
+      if (rLine.length < 2) continue;
+
+      ctx.strokeStyle = 'rgba(0, 191, 255, 0.45)';
+      ctx.beginPath();
+      for (let k = 0; k < rLine.length; k++) {
+        const para = positions[p] + rOff[k];
+        const perp = rLine[k];
+        const x = dir === 'h' ? region.x + para : region.x + perp;
+        const y = dir === 'h' ? region.y + perp : region.y + para;
+        if (k === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Counting line — a single line across the pleats showing where counting occurs
+  ctx.strokeStyle = 'rgba(255, 214, 10, 0.85)';
+  ctx.lineWidth = Math.max(2, cw / 350);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  if (dir === 'h') {
+    const lineY = Math.round(region.y + region.h * 0.5);
+    ctx.moveTo(region.x, lineY);
+    ctx.lineTo(region.x + region.w, lineY);
+  } else {
+    const lineX = Math.round(region.x + region.w * 0.5);
+    ctx.moveTo(lineX, region.y);
+    ctx.lineTo(lineX, region.y + region.h);
+  }
+  ctx.stroke();
+
+  // Pleat indicator tick marks along the counting line
+  ctx.strokeStyle = 'rgba(255, 82, 82, 0.7)';
+  ctx.lineWidth = Math.max(1, cw / 600);
+  const tickLen = Math.max(8, Math.min(region.w, region.h) * 0.04);
+  for (const pos of positions) {
+    ctx.beginPath();
+    if (dir === 'h') {
+      const x = region.x + pos;
+      const midY = region.y + region.h * 0.5;
+      ctx.moveTo(x, midY - tickLen);
+      ctx.lineTo(x, midY + tickLen);
+    } else {
+      const y = region.y + pos;
+      const midX = region.x + region.w * 0.5;
+      ctx.moveTo(midX - tickLen, y);
+      ctx.lineTo(midX + tickLen, y);
+    }
+    ctx.stroke();
+  }
+
+  // Pleat number labels (small, every few pleats to avoid clutter)
+  const labelEvery = positions.length > 30 ? 5 : positions.length > 15 ? 3 : 2;
+  ctx.font = `${Math.max(9, Math.round(cw / 80))}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.textAlign = 'center';
+  for (let i = 0; i < positions.length; i++) {
+    if (i % labelEvery !== 0 && i !== positions.length - 1) continue;
+    const pos = positions[i];
+    if (dir === 'h') {
+      const x = region.x + pos;
+      const midY = region.y + region.h * 0.5;
+      ctx.fillText(String(i + 1), x, midY - tickLen - 4);
+    } else {
+      const y = region.y + pos;
+      const midX = region.x + region.w * 0.5;
+      ctx.fillText(String(i + 1), midX + tickLen + 12, y + 3);
     }
   }
 }
@@ -303,6 +843,7 @@ export default function PleatCounterPage() {
   const [pleatHeight, setPleatHeight] = useState('');
   const [panels, setPanels] = useState('1');
   const [areaUnit, setAreaUnit] = useState<AreaUnit>('ft²');
+  const [analysisInfo, setAnalysisInfo] = useState<{ gratingDetected: boolean; confidence: number; period: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -352,7 +893,7 @@ export default function PleatCounterPage() {
     canvas.height = ch;
     ctx.drawImage(img, 0, 0, cw, ch);
 
-    setLoadingStatus('Analyzing pleats\u2026');
+    setLoadingStatus('Detecting filter region\u2026');
 
     // Yield to the browser so the spinner/status text actually paints
     requestAnimationFrame(() => {
@@ -362,15 +903,26 @@ export default function PleatCounterPage() {
         grayRef.current = { gray, w: cw, h: ch };
         imgRef.current = img;
 
-        const region = detectFilterRegion(gray, cw, ch);
-        regionRef.current = region;
+        setLoadingStatus('Detecting grating & analyzing pleats\u2026');
 
-        const result = analyzePleats(gray, cw, ch, region, sens);
-        setPleatCountStr(String(result.count));
-        setPleatDetected(result.count > 0);
-        setAnalyzing(false);
-        setLoadingStatus(null);
-        drawOverlay(canvas, img, region, result.positions, result.direction);
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            const region = detectFilterRegion(gray, cw, ch);
+            regionRef.current = region;
+
+            const result = analyzePleats(gray, cw, ch, region, sens);
+            setPleatCountStr(String(result.count));
+            setPleatDetected(result.count > 0);
+            setAnalysisInfo({
+              gratingDetected: result.gratingDetected,
+              confidence: result.confidence,
+              period: result.period,
+            });
+            setAnalyzing(false);
+            setLoadingStatus(null);
+            drawOverlay(canvas, img, region, result);
+          }, 0);
+        });
       }, 0);
     });
   }, []);
@@ -382,7 +934,12 @@ export default function PleatCounterPage() {
     const result = analyzePleats(gd.gray, gd.w, gd.h, region, sens);
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
-    drawOverlay(canvas, img, region, result.positions, result.direction);
+    setAnalysisInfo({
+      gratingDetected: result.gratingDetected,
+      confidence: result.confidence,
+      period: result.period,
+    });
+    drawOverlay(canvas, img, region, result);
   }, []);
 
   const loadFile = useCallback((file: File) => {
@@ -394,6 +951,7 @@ export default function PleatCounterPage() {
     setAnalyzing(true);
     setLoadingStatus('Loading image\u2026');
     setImageSrc(null); // ensure upload zone disappears on re-upload
+    setAnalysisInfo(null);
 
     const url = URL.createObjectURL(file);
 
@@ -440,6 +998,7 @@ export default function PleatCounterPage() {
     setLoadingStatus(null);
     setPleatCountStr('');
     setPleatDetected(false);
+    setAnalysisInfo(null);
     imgRef.current = null;
     grayRef.current = null;
     regionRef.current = null;
@@ -472,7 +1031,7 @@ export default function PleatCounterPage() {
             <span className="gradient-text">Machine Vision Pleat Counting</span>
           </h1>
           <p className="section-subtitle" style={{ marginBottom: 0 }}>
-            Upload a photo of a filter — pleats are counted and useable media area is calculated client-side
+            Upload a photo of a filter — pleats are counted through grating obstructions using multi-strip analysis, autocorrelation, and ridge tracking
           </p>
         </div>
 
@@ -545,7 +1104,7 @@ export default function PleatCounterPage() {
                 Photograph your filter
               </p>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.75rem', maxWidth: 380, margin: '0 auto 1.75rem' }}>
-                Take a photo or upload an image of the filter&apos;s pleated media — pleats will be counted automatically
+                Take a photo or upload an image of the filter&apos;s pleated media — pleats will be counted automatically, even through grating
               </p>
               <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button
@@ -600,27 +1159,60 @@ export default function PleatCounterPage() {
               </button>
 
               {/* Legend */}
-              <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--text-muted)', flexWrap: 'wrap', position: 'absolute', bottom: -24, left: 0 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ width: 14, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.6rem', fontSize: '0.72rem', color: 'var(--text-muted)', flexWrap: 'wrap', position: 'absolute', bottom: -24, left: 0 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 12, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
                   Filter boundary
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ width: 14, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 12, height: 2, background: 'rgba(0,191,255,0.6)', borderRadius: 2, display: 'inline-block' }} />
+                  Ridge lines
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 12, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
                   Counting line
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ width: 14, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ width: 12, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
                   Detected pleats
                 </span>
+                {analysisInfo?.gratingDetected && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 12, height: 2, background: 'rgba(255,165,0,0.5)', borderRadius: 2, display: 'inline-block' }} />
+                    Grating bars
+                  </span>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* Analysis info banner (shown after analysis) */}
+          {imageSrc && !analyzing && analysisInfo && (
+            <div style={{
+              marginTop: '1rem', padding: '0.6rem 1rem',
+              background: analysisInfo.gratingDetected ? 'rgba(255,165,0,0.08)' : 'rgba(0,184,148,0.06)',
+              border: `1px solid ${analysisInfo.gratingDetected ? 'rgba(255,165,0,0.2)' : 'rgba(0,184,148,0.15)'}`,
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.78rem', color: 'var(--text-secondary)',
+              display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'center',
+            }}>
+              {analysisInfo.gratingDetected && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ color: 'rgba(255,165,0,0.9)', fontWeight: 700, fontSize: '0.85rem' }}>GRATING DETECTED</span>
+                  <span style={{ color: 'var(--text-muted)' }}>&mdash; counting through obstructions</span>
+                </span>
+              )}
+              <span>Confidence: <strong>{Math.round(analysisInfo.confidence * 100)}%</strong></span>
+              {analysisInfo.period > 0 && (
+                <span>Period: <strong>{analysisInfo.period.toFixed(1)}px</strong></span>
+              )}
             </div>
           )}
 
           {/* Sensitivity slider (visible after capture) */}
           {imageSrc && (
             <div style={{
-              marginTop: '1rem', padding: '0.9rem 1.1rem',
+              marginTop: '0.75rem', padding: '0.9rem 1.1rem',
               background: 'var(--surface)', borderRadius: 'var(--radius-md)',
               border: '1px solid var(--border-subtle)',
             }}>
@@ -663,7 +1255,7 @@ export default function PleatCounterPage() {
                 )}
               </label>
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                <button onClick={decrement} style={adjBtn} aria-label="Decrease pleat count">−</button>
+                <button onClick={decrement} style={adjBtn} aria-label="Decrease pleat count">&minus;</button>
                 <input
                   type="number"
                   inputMode="numeric"
@@ -769,7 +1361,7 @@ export default function PleatCounterPage() {
                       <div className="calc-result-label">Media : Face</div>
                       <div className="calc-result-value">
                         {fmt(areaMm2! / (widthMm * lengthMm * panelCount), 2)}
-                        <span style={{ fontSize: '1rem', fontWeight: 400 }}>×</span>
+                        <span style={{ fontSize: '1rem', fontWeight: 400 }}>&times;</span>
                       </div>
                       <div className="calc-result-detail">expansion ratio</div>
                     </div>
