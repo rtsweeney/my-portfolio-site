@@ -66,6 +66,30 @@ export default async function ProjectsPage() {
             </div>
           </Link>
 
+          {/* Machine Vision Pleat Counting — built-in project */}
+          <Link href="/projects/pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-gold" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#128270;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Machine Vision Pleat Counting
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>Upload a photo of a pleated filter and the browser counts pleats via edge-frequency analysis, draws a counting line across the media, and calculates useable media area — all client-side.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Computer Vision</span>
+                <span className="project-tech-tag">Canvas API</span>
+                <span className="project-tech-tag">Next.js</span>
+                <span className="project-tech-tag">Client-Side</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* Planetarium — built-in interactive project */}
           <Link href="/planetarium" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-purple" style={{ height: '100%', cursor: 'pointer' }}>
