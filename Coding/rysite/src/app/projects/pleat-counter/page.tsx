@@ -206,6 +206,88 @@ function analyzePleats(
   return { count: 0, positions: [], direction: 'h' };
 }
 
+// ── Canvas Overlay ────────────────────────────────────────────────────────────
+
+function drawOverlay(
+  canvas: HTMLCanvasElement,
+  img: HTMLImageElement,
+  region: Rect,
+  positions: number[],
+  direction: 'h' | 'v'
+) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const { width: cw, height: ch } = canvas;
+
+  ctx.drawImage(img, 0, 0, cw, ch);
+
+  // Darken area outside the detected filter region
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.fillRect(0, 0, cw, region.y);
+  ctx.fillRect(0, region.y + region.h, cw, ch - region.y - region.h);
+  ctx.fillRect(0, region.y, region.x, region.h);
+  ctx.fillRect(region.x + region.w, region.y, cw - region.x - region.w, region.h);
+
+  // Detected filter outline
+  ctx.strokeStyle = '#00e676';
+  ctx.lineWidth = Math.max(1.5, cw / 400);
+  ctx.setLineDash([8, 5]);
+  ctx.strokeRect(region.x, region.y, region.w, region.h);
+  ctx.setLineDash([]);
+
+  // Corner accents
+  const cl = 18;
+  ctx.strokeStyle = '#00e676';
+  ctx.lineWidth = Math.max(2, cw / 300);
+  ([[region.x, region.y, 1, 1], [region.x + region.w, region.y, -1, 1],
+    [region.x, region.y + region.h, 1, -1], [region.x + region.w, region.y + region.h, -1, -1]] as number[][])
+    .forEach(([cx, cy, dx, dy]) => {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * cl, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy + dy * cl);
+      ctx.stroke();
+    });
+
+  // Counting line — a single line across the pleats showing where counting occurs
+  if (positions.length > 0) {
+    ctx.strokeStyle = 'rgba(255, 214, 10, 0.85)';
+    ctx.lineWidth = Math.max(2, cw / 350);
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    if (direction === 'h') {
+      const lineY = Math.round(region.y + region.h * 0.5);
+      ctx.moveTo(region.x, lineY);
+      ctx.lineTo(region.x + region.w, lineY);
+    } else {
+      const lineX = Math.round(region.x + region.w * 0.5);
+      ctx.moveTo(lineX, region.y);
+      ctx.lineTo(lineX, region.y + region.h);
+    }
+    ctx.stroke();
+
+    // Pleat indicator tick marks along the counting line
+    ctx.strokeStyle = 'rgba(255, 82, 82, 0.7)';
+    ctx.lineWidth = Math.max(1, cw / 600);
+    const tickLen = Math.max(8, Math.min(region.w, region.h) * 0.04);
+    for (const pos of positions) {
+      ctx.beginPath();
+      if (direction === 'h') {
+        const x = region.x + pos;
+        const midY = region.y + region.h * 0.5;
+        ctx.moveTo(x, midY - tickLen);
+        ctx.lineTo(x, midY + tickLen);
+      } else {
+        const y = region.y + pos;
+        const midX = region.x + region.w * 0.5;
+        ctx.moveTo(midX - tickLen, y);
+        ctx.lineTo(midX + tickLen, y);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PleatCounterPage() {
@@ -281,9 +363,7 @@ export default function PleatCounterPage() {
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
     setAnalyzing(false);
-
-    // Redraw base image (overlay drawing deferred to Part 3)
-    ctx.drawImage(img, 0, 0, cw, ch);
+    drawOverlay(canvas, img, region, result.positions, result.direction);
   }, []);
 
   const reanalyze = useCallback((sens: number) => {
@@ -293,9 +373,7 @@ export default function PleatCounterPage() {
     const result = analyzePleats(gd.gray, gd.w, gd.h, region, sens);
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
-
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    drawOverlay(canvas, img, region, result.positions, result.direction);
   }, []);
 
   const loadFile = useCallback((file: File) => {
@@ -442,7 +520,7 @@ export default function PleatCounterPage() {
               </div>
             </div>
           ) : (
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', marginBottom: '1.75rem' }}>
               <canvas
                 ref={canvasRef}
                 style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block' }}
@@ -471,6 +549,22 @@ export default function PleatCounterPage() {
               >
                 Retake
               </button>
+
+              {/* Legend */}
+              <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--text-muted)', flexWrap: 'wrap', position: 'absolute', bottom: -24, left: 0 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: 14, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
+                  Filter boundary
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: 14, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
+                  Counting line
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: 14, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
+                  Detected pleats
+                </span>
+              </div>
             </div>
           )}
 
