@@ -1133,7 +1133,7 @@ a {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  padding: 1.5rem;
+  padding: 1rem;
 }
 
 .planetarium-panel-title {
@@ -1168,7 +1168,7 @@ a {
 .planetarium-canvas-wrapper {
   display: flex;
   justify-content: center;
-  margin: 1rem 0;
+  margin: 0.25rem 0 0.75rem;
 }
 
 .planetarium-skymap-legend {

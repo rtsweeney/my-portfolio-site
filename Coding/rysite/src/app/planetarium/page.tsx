@@ -99,7 +99,7 @@ export default function PlanetariumPage() {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const displaySize = Math.min(canvas.parentElement?.clientWidth || 500, 500);
+    const displaySize = Math.min(canvas.parentElement?.clientWidth || 600, 600);
     canvas.style.width = `${displaySize}px`;
     canvas.style.height = `${displaySize}px`;
     canvas.width = displaySize * dpr;
@@ -601,10 +601,6 @@ export default function PlanetariumPage() {
         <div className="planetarium-dashboard">
           {/* Sky Map */}
           <div className="planetarium-skymap-container">
-            <h2 className="planetarium-panel-title">Sky Map</h2>
-            <p className="planetarium-panel-subtitle">
-              Click a constellation or planet to see details
-            </p>
             <div className="planetarium-canvas-wrapper">
               <canvas
                 ref={canvasRef}
