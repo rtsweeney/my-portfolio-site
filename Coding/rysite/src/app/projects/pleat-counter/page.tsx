@@ -6,17 +6,19 @@ import Footer from '@/components/Footer';
 
 type AreaUnit = 'ft²' | 'm²' | 'in²';
 interface Rect { x: number; y: number; w: number; h: number }
+type Pt = [number, number]; // [x, y]
+type Quad = [Pt, Pt, Pt, Pt]; // TL, TR, BR, BL — clockwise
 
 interface PleatResult {
   count: number;
   positions: number[];
   direction: 'h' | 'v';
-  ridgeLines: number[][];   // for each pleat: array of perpendicular positions where ridge was tracked
-  ridgeOffsets: number[][];  // lateral offset at each tracked position (how much ridge wandered)
-  gratingBars: number[];     // positions of detected grating bars (perpendicular to pleats)
-  period: number;            // estimated pleat spacing in pixels
+  ridgeLines: number[][];
+  ridgeOffsets: number[][];
+  gratingBars: number[];
+  period: number;
   gratingDetected: boolean;
-  confidence: number;        // 0-1 confidence in the count
+  confidence: number;
 }
 
 const MAX_DIM = 1000;
@@ -79,68 +81,213 @@ function otsuThreshold(gray: Float32Array): number {
   return threshold;
 }
 
-// ── Enhanced Filter Region Detection ─────────────────────────────────────────
-// Uses gradient energy + brightness to better isolate filter media from frame/background
+// ── Quad Helpers ──────────────────────────────────────────────────────────────
 
-function detectFilterRegion(gray: Float32Array, w: number, h: number): Rect {
-  const blurR = Math.max(2, Math.round(Math.min(w, h) * 0.005));
-  const blurred = boxBlur(gray, w, h, blurR);
-  const t = otsuThreshold(blurred);
+function quadBounds(q: Quad): Rect {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [x, y] of q) {
+    minX = Math.min(minX, x); minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+  }
+  const x = Math.floor(minX), y = Math.floor(minY);
+  return { x, y, w: Math.ceil(maxX) - x, h: Math.ceil(maxY) - y };
+}
 
-  // Compute gradient magnitude for edge-energy based detection
-  const gradEnergy = new Float32Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const gx = blurred[y * w + x + 1] - blurred[y * w + x - 1];
-      const gy = blurred[(y + 1) * w + x] - blurred[(y - 1) * w + x];
-      gradEnergy[y * w + x] = Math.sqrt(gx * gx + gy * gy);
+/** Scanline-fill mask: 1 = inside quad, 0 = outside. */
+function createQuadMask(q: Quad, w: number, h: number): Uint8Array {
+  const mask = new Uint8Array(w * h);
+  const edges: [Pt, Pt][] = [[q[0], q[1]], [q[1], q[2]], [q[2], q[3]], [q[3], q[0]]];
+  let minY = h, maxY = 0;
+  for (const [, y] of q) { minY = Math.min(minY, Math.floor(y)); maxY = Math.max(maxY, Math.ceil(y)); }
+  minY = Math.max(0, minY); maxY = Math.min(h - 1, maxY);
+
+  for (let row = minY; row <= maxY; row++) {
+    const xs: number[] = [];
+    for (const [p1, p2] of edges) {
+      if ((p1[1] <= row && p2[1] > row) || (p2[1] <= row && p1[1] > row)) {
+        const t = (row - p1[1]) / (p2[1] - p1[1]);
+        xs.push(p1[0] + t * (p2[0] - p1[0]));
+      }
+    }
+    if (xs.length < 2) continue;
+    xs.sort((a, b) => a - b);
+    const left = Math.max(0, Math.floor(xs[0]));
+    const right = Math.min(w - 1, Math.ceil(xs[xs.length - 1]));
+    for (let x = left; x <= right; x++) mask[row * w + x] = 1;
+  }
+  return mask;
+}
+
+/** Shrink a quad toward its centroid by a fraction (0-1). */
+function insetQuad(q: Quad, frac: number): Quad {
+  const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4;
+  const cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
+  return q.map(([x, y]) => [x + (cx - x) * frac, y + (cy - y) * frac] as Pt) as Quad;
+}
+
+// ── Theil-Sen Robust Line Fitting ────────────────────────────────────────────
+// Fits y = slope*x + intercept (or x = slope*y + intercept) using median of
+// pairwise slopes — robust to up to ~29% outliers.
+
+function theilSenFit(points: Pt[]): { slope: number; intercept: number } {
+  const n = points.length;
+  if (n === 0) return { slope: 0, intercept: 0 };
+  if (n === 1) return { slope: 0, intercept: points[0][1] };
+
+  const slopes: number[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const dx = points[j][0] - points[i][0];
+      if (Math.abs(dx) > 0.5) slopes.push((points[j][1] - points[i][1]) / dx);
+    }
+  }
+  if (slopes.length === 0) return { slope: 0, intercept: points[0][1] };
+
+  slopes.sort((a, b) => a - b);
+  const slope = slopes[Math.floor(slopes.length / 2)];
+  const intercepts = points.map(([x, y]) => y - slope * x).sort((a, b) => a - b);
+  const intercept = intercepts[Math.floor(intercepts.length / 2)];
+  return { slope, intercept };
+}
+
+/** Intersect two lines.
+ *  lineH: y = sH*x + bH  (roughly horizontal edges — top/bottom)
+ *  lineV: x = sV*y + bV  (roughly vertical edges — left/right)
+ */
+function intersectHV(
+  lineH: { slope: number; intercept: number },
+  lineV: { slope: number; intercept: number },
+): Pt {
+  // y = sH*x + bH  and  x = sV*y + bV
+  // Substitute x into y equation:  y = sH*(sV*y + bV) + bH
+  //   y = sH*sV*y + sH*bV + bH
+  //   y*(1 - sH*sV) = sH*bV + bH
+  const denom = 1 - lineH.slope * lineV.slope;
+  if (Math.abs(denom) < 1e-12) {
+    // Parallel or degenerate — fallback
+    const y = lineH.intercept;
+    return [lineV.slope * y + lineV.intercept, y];
+  }
+  const y = (lineH.slope * lineV.intercept + lineH.intercept) / denom;
+  const x = lineV.slope * y + lineV.intercept;
+  return [x, y];
+}
+
+// ── Perspective-Aware Filter Boundary Detection ──────────────────────────────
+// Detects the filter media as a quadrilateral (handles perspective & tilt).
+// Uses local variance (texture density) to distinguish pleated media from
+// background, then fits 4 edge lines with robust regression.
+
+function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
+  // 1. Compute local variance map (high variance = textured filter media)
+  const varR = Math.max(4, Math.round(Math.min(w, h) * 0.015));
+  const gray2 = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) gray2[i] = gray[i] * gray[i];
+  const meanImg = boxBlur(gray, w, h, varR);
+  const meanSqImg = boxBlur(gray2, w, h, varR);
+  const variance = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) variance[i] = Math.max(0, meanSqImg[i] - meanImg[i] * meanImg[i]);
+
+  // Smooth variance for more stable boundaries
+  const smoothVar = boxBlur(variance, w, h, Math.max(2, Math.round(Math.min(w, h) * 0.01)));
+
+  // 2. Determine threshold — use Otsu on sqrt(variance) scaled to 0-255
+  let maxVar = 0;
+  for (let i = 0; i < w * h; i++) maxVar = Math.max(maxVar, smoothVar[i]);
+  const sqrtScale = maxVar > 0 ? 255 / Math.sqrt(maxVar) : 1;
+  const varScaled = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) varScaled[i] = Math.sqrt(smoothVar[i]) * sqrtScale;
+  const varThresh = otsuThreshold(varScaled);
+
+  // 3. Scan from each side to find boundary points
+  const N = 30; // sample positions per edge
+  const windowSize = Math.max(3, Math.round(Math.min(w, h) * 0.02));
+
+  // Top edge: for each x, scan downward to find where texture begins
+  const topPts: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const x = Math.floor((i + 0.5) * w / N);
+    for (let y = 0; y <= h - windowSize; y++) {
+      let avg = 0;
+      for (let dy = 0; dy < windowSize; dy++) avg += varScaled[(y + dy) * w + x];
+      avg /= windowSize;
+      if (avg > varThresh) { topPts.push([x, y]); break; }
     }
   }
 
-  // Combine brightness and texture (gradient energy) for row/col scoring
-  const rowBright = new Float32Array(h);
-  const colBright = new Float32Array(w);
-  const rowTexture = new Float32Array(h);
-  const colTexture = new Float32Array(w);
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      if (blurred[idx] > t) { rowBright[y]++; colBright[x]++; }
-      rowTexture[y] += gradEnergy[idx];
-      colTexture[x] += gradEnergy[idx];
+  // Bottom edge: scan upward
+  const bottomPts: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const x = Math.floor((i + 0.5) * w / N);
+    for (let y = h - 1; y >= windowSize - 1; y--) {
+      let avg = 0;
+      for (let dy = 0; dy < windowSize; dy++) avg += varScaled[(y - dy) * w + x];
+      avg /= windowSize;
+      if (avg > varThresh) { bottomPts.push([x, y]); break; }
     }
   }
 
-  // Normalize texture scores
-  let maxRowTex = 0, maxColTex = 0;
-  for (let y = 0; y < h; y++) maxRowTex = Math.max(maxRowTex, rowTexture[y]);
-  for (let x = 0; x < w; x++) maxColTex = Math.max(maxColTex, colTexture[x]);
-  if (maxRowTex > 0) for (let y = 0; y < h; y++) rowTexture[y] /= maxRowTex;
-  if (maxColTex > 0) for (let x = 0; x < w; x++) colTexture[x] /= maxColTex;
-
-  // Combined score: brightness coverage + texture presence
-  const rowScore = new Float32Array(h);
-  const colScore = new Float32Array(w);
-  for (let y = 0; y < h; y++) rowScore[y] = (rowBright[y] / w) * 0.6 + rowTexture[y] * 0.4;
-  for (let x = 0; x < w; x++) colScore[x] = (colBright[x] / h) * 0.6 + colTexture[x] * 0.4;
-
-  // Find region boundaries using a threshold on combined score
-  const scoreThreshR = 0.25;
-  const scoreThreshC = 0.25;
-  let top = 0, bottom = h - 1, left = 0, right = w - 1;
-  for (let y = 0; y < h; y++) { if (rowScore[y] >= scoreThreshR) { top = y; break; } }
-  for (let y = h - 1; y >= 0; y--) { if (rowScore[y] >= scoreThreshR) { bottom = y; break; } }
-  for (let x = 0; x < w; x++) { if (colScore[x] >= scoreThreshC) { left = x; break; } }
-  for (let x = w - 1; x >= 0; x--) { if (colScore[x] >= scoreThreshC) { right = x; break; } }
-
-  const rw = right - left + 1, rh = bottom - top + 1;
-  if (rw < w * 0.18 || rh < h * 0.18) {
-    const mx = Math.round(w * 0.075), my = Math.round(h * 0.075);
-    return { x: mx, y: my, w: w - 2 * mx, h: h - 2 * my };
+  // Left edge: for each y, scan rightward
+  const leftPts: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const y = Math.floor((i + 0.5) * h / N);
+    for (let x = 0; x <= w - windowSize; x++) {
+      let avg = 0;
+      for (let dx = 0; dx < windowSize; dx++) avg += varScaled[y * w + x + dx];
+      avg /= windowSize;
+      if (avg > varThresh) { leftPts.push([y, x]); break; } // note: [y, x] for fitting x = f(y)
+    }
   }
-  const ins = Math.round(Math.min(rw, rh) * 0.02);
-  return { x: left + ins, y: top + ins, w: rw - 2 * ins, h: rh - 2 * ins };
+
+  // Right edge: scan leftward
+  const rightPts: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const y = Math.floor((i + 0.5) * h / N);
+    for (let x = w - 1; x >= windowSize - 1; x--) {
+      let avg = 0;
+      for (let dx = 0; dx < windowSize; dx++) avg += varScaled[y * w + x - dx];
+      avg /= windowSize;
+      if (avg > varThresh) { rightPts.push([y, x]); break; } // [y, x]
+    }
+  }
+
+  // 4. Fit lines using Theil-Sen
+  // Top/bottom: y = slope*x + intercept  (points are [x, y])
+  // Left/right: x = slope*y + intercept  (points are [y, x])
+  const minPtsForLine = 4;
+
+  const defaultMargin = Math.round(Math.min(w, h) * 0.05);
+  const topLine = topPts.length >= minPtsForLine
+    ? theilSenFit(topPts) : { slope: 0, intercept: defaultMargin };
+  const bottomLine = bottomPts.length >= minPtsForLine
+    ? theilSenFit(bottomPts) : { slope: 0, intercept: h - defaultMargin };
+  const leftLine = leftPts.length >= minPtsForLine
+    ? theilSenFit(leftPts) : { slope: 0, intercept: defaultMargin };
+  const rightLine = rightPts.length >= minPtsForLine
+    ? theilSenFit(rightPts) : { slope: 0, intercept: w - defaultMargin };
+
+  // 5. Intersect the 4 lines to get corners
+  const tl = intersectHV(topLine, leftLine);
+  const tr = intersectHV(topLine, rightLine);
+  const br = intersectHV(bottomLine, rightLine);
+  const bl = intersectHV(bottomLine, leftLine);
+
+  // 6. Clamp corners to image bounds with margin
+  const clampPt = ([x, y]: Pt): Pt => [
+    Math.max(0, Math.min(w - 1, x)),
+    Math.max(0, Math.min(h - 1, y)),
+  ];
+  let quad: Quad = [clampPt(tl), clampPt(tr), clampPt(br), clampPt(bl)];
+
+  // 7. Validate — if quad is too small or degenerate, fall back to full image with margin
+  const qb = quadBounds(quad);
+  if (qb.w < w * 0.15 || qb.h < h * 0.15) {
+    const m = defaultMargin;
+    quad = [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
+  }
+
+  // 8. Inset slightly to exclude frame edges
+  return insetQuad(quad, 0.015);
 }
 
 // ── Profile Utilities ─────────────────────────────────────────────────────────
@@ -194,12 +341,9 @@ function findPeaks(profile: Float32Array, minProm: number): number[] {
 }
 
 // ── Autocorrelation Period Estimation ─────────────────────────────────────────
-// Finds dominant periodic spacing by computing autocorrelation of a 1D signal.
-// Much more robust to partial occlusion than simple peak counting.
 
 function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPeriod: number): { period: number; strength: number } {
   const n = profile.length;
-  // Normalize
   let mean = 0;
   for (let i = 0; i < n; i++) mean += profile[i];
   mean /= n;
@@ -211,7 +355,6 @@ function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPer
   }
   if (energy < 1e-10) return { period: 0, strength: 0 };
 
-  // Compute autocorrelation for lags in [minPeriod, maxPeriod]
   const minLag = Math.max(2, Math.floor(minPeriod));
   const maxLag = Math.min(Math.floor(n / 2), Math.ceil(maxPeriod));
   const acf = new Float32Array(maxLag + 1);
@@ -221,24 +364,21 @@ function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPer
     acf[lag] = sum / energy;
   }
 
-  // Find first significant peak in autocorrelation
   let bestLag = 0, bestVal = -Infinity;
   for (let lag = minLag + 1; lag < maxLag; lag++) {
     if (acf[lag] > acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestVal) {
       bestVal = acf[lag];
       bestLag = lag;
-      break; // take the first (fundamental) peak
+      break;
     }
   }
 
-  // If no clear peak found, try global max
   if (bestLag === 0) {
     for (let lag = minLag; lag <= maxLag; lag++) {
       if (acf[lag] > bestVal) { bestVal = acf[lag]; bestLag = lag; }
     }
   }
 
-  // Parabolic interpolation for sub-pixel accuracy
   if (bestLag > minLag && bestLag < maxLag) {
     const a = acf[bestLag - 1], b = acf[bestLag], c = acf[bestLag + 1];
     const denom = 2 * (2 * b - a - c);
@@ -251,84 +391,65 @@ function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPer
   return { period: bestLag, strength: Math.max(0, bestVal) };
 }
 
-// ── Grating Detection ────────────────────────────────────────────────────────
-// Detects periodic grating bars running perpendicular to pleats.
-// Returns positions of grating bars and gaps between them.
+// ── Grating Detection (mask-aware) ───────────────────────────────────────────
 
 function detectGrating(
-  gray: Float32Array, imgW: number, region: Rect, pleatDir: 'h' | 'v'
+  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, pleatDir: 'h' | 'v'
 ): { bars: number[]; gaps: Array<[number, number]>; detected: boolean } {
-  // The grating runs perpendicular to pleats.
-  // For horizontal pleats, grating bars are vertical (detected in the vertical profile).
-  // For vertical pleats, grating bars are horizontal (detected in the horizontal profile).
-  const perpLen = pleatDir === 'h' ? region.h : region.w;
-  const paraLen = pleatDir === 'h' ? region.w : region.h;
+  const perpLen = pleatDir === 'h' ? bounds.h : bounds.w;
+  const paraLen = pleatDir === 'h' ? bounds.w : bounds.h;
 
-  // Build profile perpendicular to pleats (averaging along pleat direction)
   const profile = new Float32Array(perpLen);
   const margin = 0.1;
   const paraStart = Math.floor(paraLen * margin);
   const paraEnd = Math.floor(paraLen * (1 - margin));
-  const paraCount = paraEnd - paraStart;
-  if (paraCount <= 0) return { bars: [], gaps: [], detected: false };
+  if (paraEnd <= paraStart) return { bars: [], gaps: [], detected: false };
 
   for (let perp = 0; perp < perpLen; perp++) {
-    let sum = 0;
+    let sum = 0, cnt = 0;
     for (let para = paraStart; para < paraEnd; para++) {
-      const x = pleatDir === 'h' ? region.x + para : region.x + perp;
-      const y = pleatDir === 'h' ? region.y + perp : region.y + para;
-      sum += gray[y * imgW + x];
+      const x = pleatDir === 'h' ? bounds.x + para : bounds.x + perp;
+      const y = pleatDir === 'h' ? bounds.y + perp : bounds.y + para;
+      if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
+        sum += gray[y * imgW + x];
+        cnt++;
+      }
     }
-    profile[perp] = sum / paraCount;
+    profile[perp] = cnt > 0 ? sum / cnt : 0;
   }
 
-  // Smooth and detrend
   const smoothR = Math.max(1, Math.round(perpLen * 0.005));
   const smoothed = smoothProfile(profile, smoothR);
   const det = detrend(smoothed);
 
-  // Look for grating period — grating bars are usually wider-spaced than pleats
   const minGratingPeriod = Math.max(5, perpLen * 0.03);
   const maxGratingPeriod = perpLen * 0.25;
   const { period: gratingPeriod, strength } = estimatePeriodAutocorr(det, minGratingPeriod, maxGratingPeriod);
 
-  // Grating detection threshold: need reasonable periodicity
   if (strength < 0.15 || gratingPeriod < minGratingPeriod) {
     return { bars: [], gaps: [], detected: false };
   }
 
-  // Find the dark bars (grating bars are typically darker)
   const sd = stdDev(det);
-  const barThreshold = -sd * 0.3; // bars are valleys (dark)
+  const barThreshold = -sd * 0.3;
   const bars: number[] = [];
 
-  // Find valleys (dark bars)
   for (let i = 1; i < perpLen - 1; i++) {
     if (det[i] < det[i - 1] && det[i] <= det[i + 1] && det[i] < barThreshold) {
-      // Check it's roughly consistent with the grating period
       if (bars.length === 0 || Math.abs((i - bars[bars.length - 1]) - gratingPeriod) < gratingPeriod * 0.5) {
         bars.push(i);
       }
     }
   }
 
-  // Estimate bar width (typically ~15-30% of grating period)
   const barHalfWidth = Math.max(2, Math.round(gratingPeriod * 0.12));
-
-  // Compute gaps between bars
   const gaps: Array<[number, number]> = [];
   if (bars.length > 0) {
-    // Gap before first bar
-    if (bars[0] > barHalfWidth * 2) {
-      gaps.push([0, bars[0] - barHalfWidth]);
-    }
-    // Gaps between bars
+    if (bars[0] > barHalfWidth * 2) gaps.push([0, bars[0] - barHalfWidth]);
     for (let i = 0; i < bars.length - 1; i++) {
-      const gapStart = bars[i] + barHalfWidth;
-      const gapEnd = bars[i + 1] - barHalfWidth;
-      if (gapEnd > gapStart + 2) gaps.push([gapStart, gapEnd]);
+      const gS = bars[i] + barHalfWidth, gE = bars[i + 1] - barHalfWidth;
+      if (gE > gS + 2) gaps.push([gS, gE]);
     }
-    // Gap after last bar
     if (bars[bars.length - 1] + barHalfWidth * 2 < perpLen) {
       gaps.push([bars[bars.length - 1] + barHalfWidth, perpLen - 1]);
     }
@@ -337,31 +458,26 @@ function detectGrating(
   return { bars, gaps, detected: bars.length >= 2 };
 }
 
-// ── Multi-Strip Profile Extraction ───────────────────────────────────────────
-// Extracts intensity profiles from multiple strips, preferring gaps between grating bars.
+// ── Multi-Strip Profile Extraction (mask-aware) ──────────────────────────────
 
 function extractStripProfiles(
-  gray: Float32Array, imgW: number, region: Rect, dir: 'h' | 'v',
+  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
   gaps: Array<[number, number]> | null, numStrips: number
 ): Float32Array[] {
-  const paraLen = dir === 'h' ? region.w : region.h;
-  const perpLen = dir === 'h' ? region.h : region.w;
+  const paraLen = dir === 'h' ? bounds.w : bounds.h;
+  const perpLen = dir === 'h' ? bounds.h : bounds.w;
   const profiles: Float32Array[] = [];
 
-  // Determine strip positions
   let stripRanges: Array<[number, number]>;
   if (gaps && gaps.length > 0) {
-    // Sample within each gap
     stripRanges = [];
     for (const [gStart, gEnd] of gaps) {
       const gapSize = gEnd - gStart;
       if (gapSize < 3) continue;
-      // Use the middle portion of each gap for cleaner signal
       const margin = Math.max(1, Math.floor(gapSize * 0.15));
       stripRanges.push([gStart + margin, gEnd - margin]);
     }
   } else {
-    // No grating detected — divide into uniform strips
     const stripH = Math.max(3, Math.floor(perpLen / numStrips));
     stripRanges = [];
     for (let s = 0; s < numStrips; s++) {
@@ -373,60 +489,55 @@ function extractStripProfiles(
 
   for (const [stripStart, stripEnd] of stripRanges) {
     const prof = new Float32Array(paraLen);
-    const count = stripEnd - stripStart;
-    if (count <= 0) continue;
+    const counts = new Float32Array(paraLen);
     for (let perp = stripStart; perp < stripEnd; perp++) {
       for (let para = 0; para < paraLen; para++) {
-        const x = dir === 'h' ? region.x + para : region.x + perp;
-        const y = dir === 'h' ? region.y + perp : region.y + para;
-        prof[para] += gray[y * imgW + x];
+        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
+        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
+        if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
+          prof[para] += gray[y * imgW + x];
+          counts[para]++;
+        }
       }
     }
-    for (let i = 0; i < paraLen; i++) prof[i] /= count;
-    profiles.push(prof);
+    let anyData = false;
+    for (let i = 0; i < paraLen; i++) {
+      if (counts[i] > 0) { prof[i] /= counts[i]; anyData = true; }
+    }
+    if (anyData) profiles.push(prof);
   }
 
   return profiles;
 }
 
 // ── Consensus Peak Voting ────────────────────────────────────────────────────
-// Merges peaks from multiple strips using a vote accumulator.
-// Peaks at similar positions across strips reinforce each other.
 
 function consensusPeaks(
   allPeaks: number[][], profileLen: number, expectedPeriod: number
 ): number[] {
   if (allPeaks.length === 0) return [];
 
-  // Create vote accumulator with some tolerance for positional jitter
   const tolerance = Math.max(2, Math.round(expectedPeriod * 0.15));
   const votes = new Float32Array(profileLen);
 
   for (const peaks of allPeaks) {
     for (const p of peaks) {
-      // Gaussian-weighted vote centered on peak position
       for (let d = -tolerance; d <= tolerance; d++) {
         const idx = p + d;
         if (idx >= 0 && idx < profileLen) {
-          const weight = Math.exp(-(d * d) / (2 * (tolerance / 2) ** 2));
-          votes[idx] += weight;
+          votes[idx] += Math.exp(-(d * d) / (2 * (tolerance / 2) ** 2));
         }
       }
     }
   }
 
-  // Smooth the vote accumulator slightly
   const smoothedVotes = smoothProfile(votes, Math.max(1, Math.round(tolerance * 0.3)));
-
-  // Find peaks in vote accumulator
   const minVotes = Math.max(1, allPeaks.length * 0.15);
   const consensusPositions: number[] = [];
   for (let i = 1; i < profileLen - 1; i++) {
     if (smoothedVotes[i] > smoothedVotes[i - 1] && smoothedVotes[i] >= smoothedVotes[i + 1]
         && smoothedVotes[i] >= minVotes) {
-      // Merge with previous if too close
       if (consensusPositions.length > 0 && i - consensusPositions[consensusPositions.length - 1] < expectedPeriod * 0.4) {
-        // Keep the one with more votes
         const prev = consensusPositions[consensusPositions.length - 1];
         if (smoothedVotes[i] > smoothedVotes[prev]) {
           consensusPositions[consensusPositions.length - 1] = i;
@@ -440,19 +551,16 @@ function consensusPeaks(
   return consensusPositions;
 }
 
-// ── Ridge Tracking ───────────────────────────────────────────────────────────
-// For each pleat position, tracks the ridge perpendicular to the pleat direction.
-// Follows the local intensity maximum across grating bars and gaps.
+// ── Ridge Tracking (mask-aware) ──────────────────────────────────────────────
 
 function trackRidges(
-  gray: Float32Array, imgW: number, region: Rect, dir: 'h' | 'v',
+  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
   pleatPositions: number[], period: number, gratingBars: number[]
 ): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
-  const perpLen = dir === 'h' ? region.h : region.w;
+  const perpLen = dir === 'h' ? bounds.h : bounds.w;
   const searchRadius = Math.max(2, Math.round(period * 0.2));
-  const step = Math.max(1, Math.round(perpLen / 100)); // sample every few pixels
+  const step = Math.max(1, Math.round(perpLen / 100));
 
-  // Create grating bar mask for quick lookup
   const barHalfWidth = Math.max(2, Math.round(period * 0.1));
   const isGratingBar = new Uint8Array(perpLen);
   for (const bar of gratingBars) {
@@ -471,33 +579,24 @@ function trackRidges(
     let currentPos = pleatPos;
 
     for (let perp = 0; perp < perpLen; perp += step) {
-      // At this perpendicular position, find the local maximum near expected pleat position
       let bestPos = currentPos;
       let bestVal = -Infinity;
 
       for (let d = -searchRadius; d <= searchRadius; d++) {
         const para = currentPos + d;
-        if (para < 0 || para >= (dir === 'h' ? region.w : region.h)) continue;
-
-        const x = dir === 'h' ? region.x + para : region.x + perp;
-        const y = dir === 'h' ? region.y + perp : region.y + para;
-        const val = gray[y * imgW + x];
-
-        if (val > bestVal) {
-          bestVal = val;
-          bestPos = para;
+        if (para < 0 || para >= (dir === 'h' ? bounds.w : bounds.h)) continue;
+        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
+        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
+        if (mask[y * imgW + x]) {
+          const val = gray[y * imgW + x];
+          if (val > bestVal) { bestVal = val; bestPos = para; }
         }
       }
 
       line.push(perp);
       offsets.push(bestPos - pleatPos);
 
-      // If not on a grating bar, allow the tracker to update position
-      // On grating bars, maintain predicted trajectory to bridge the gap
-      if (!isGratingBar[perp]) {
-        currentPos = bestPos;
-      }
-      // else: keep currentPos as-is, effectively extrapolating through the grating
+      if (!isGratingBar[perp]) currentPos = bestPos;
     }
 
     ridgeLines.push(line);
@@ -508,8 +607,6 @@ function trackRidges(
 }
 
 // ── Grid Extrapolation ───────────────────────────────────────────────────────
-// Uses estimated period to project a regular grid of expected pleat positions.
-// Fills in any pleats missed by peak detection due to occlusion.
 
 function extrapolateGrid(
   detectedPositions: number[], period: number, regionLen: number
@@ -518,8 +615,6 @@ function extrapolateGrid(
     return { gridPositions: detectedPositions, count: detectedPositions.length };
   }
 
-  // Find the best phase alignment by voting
-  // Phase = position mod period
   const phaseBins = Math.max(10, Math.round(period));
   const phaseVotes = new Float32Array(phaseBins);
   for (const pos of detectedPositions) {
@@ -528,28 +623,20 @@ function extrapolateGrid(
     phaseVotes[bin]++;
   }
 
-  // Find best phase
   let bestPhase = 0, bestVotes = 0;
   for (let i = 0; i < phaseBins; i++) {
     if (phaseVotes[i] > bestVotes) { bestVotes = phaseVotes[i]; bestPhase = i; }
   }
   const phaseOffset = (bestPhase / phaseBins) * period;
 
-  // Generate grid: all positions = phaseOffset + n*period within region
   const gridPositions: number[] = [];
   let pos = phaseOffset;
-  // Walk backwards to find the first grid position
   while (pos - period >= 0) pos -= period;
-  // Now walk forwards through the region
   while (pos < regionLen) {
-    if (pos >= 0) {
-      gridPositions.push(Math.round(pos));
-    }
+    if (pos >= 0) gridPositions.push(Math.round(pos));
     pos += period;
   }
 
-  // Validate: each grid position should have a detected peak nearby, or be in a gap
-  // (i.e., the grid should mostly agree with detected peaks)
   let matches = 0;
   const matchTolerance = period * 0.3;
   for (const gp of gridPositions) {
@@ -558,8 +645,6 @@ function extrapolateGrid(
     }
   }
 
-  // If grid matches detected peaks well, use the grid (fills in gaps)
-  // If not, fall back to detected positions
   const matchRatio = detectedPositions.length > 0 ? matches / detectedPositions.length : 0;
   if (matchRatio >= 0.5 && gridPositions.length > 0) {
     return { gridPositions, count: gridPositions.length };
@@ -571,21 +656,19 @@ function extrapolateGrid(
 // ── Main Analysis Pipeline ───────────────────────────────────────────────────
 
 function analyzePleats(
-  gray: Float32Array, imgW: number, imgH: number, region: Rect, sensitivity: number
+  gray: Float32Array, imgW: number, imgH: number, bounds: Rect, mask: Uint8Array, sensitivity: number
 ): PleatResult {
   const pFactor = 0.55 - (sensitivity / 100) * 0.50;
-  const smoothR = Math.max(1, Math.round(Math.max(region.w, region.h) * 0.003));
+  const smoothR = Math.max(1, Math.round(Math.max(bounds.w, bounds.h) * 0.003));
   const numStrips = 12;
 
   function analyzeDirection(dir: 'h' | 'v'): PleatResult {
-    const paraLen = dir === 'h' ? region.w : region.h;
+    const paraLen = dir === 'h' ? bounds.w : bounds.h;
 
-    // Step 1: Detect grating (perpendicular to pleats)
-    const grating = detectGrating(gray, imgW, region, dir);
+    const grating = detectGrating(gray, imgW, bounds, mask, dir);
 
-    // Step 2: Extract profiles from multiple strips (between grating bars if detected)
     const profiles = extractStripProfiles(
-      gray, imgW, region, dir,
+      gray, imgW, bounds, mask, dir,
       grating.detected ? grating.gaps : null,
       numStrips
     );
@@ -595,7 +678,6 @@ function analyzePleats(
                gratingBars: [], period: 0, gratingDetected: false, confidence: 0 };
     }
 
-    // Step 3: Process each strip profile and collect peaks
     const allPeaks: number[][] = [];
     let bestPeriodSum = 0, periodCount = 0;
 
@@ -606,7 +688,6 @@ function analyzePleats(
       const peaks = findPeaks(det, sd * pFactor);
       if (peaks.length >= 2) allPeaks.push(peaks);
 
-      // Estimate period for this strip
       const minPeriod = Math.max(3, paraLen * 0.01);
       const maxPeriod = paraLen * 0.15;
       const { period, strength } = estimatePeriodAutocorr(det, minPeriod, maxPeriod);
@@ -616,7 +697,6 @@ function analyzePleats(
       }
     }
 
-    // Step 4: Get combined profile for global period estimation
     const combinedProfile = new Float32Array(paraLen);
     for (const p of profiles) for (let i = 0; i < paraLen; i++) combinedProfile[i] += p[i];
     for (let i = 0; i < paraLen; i++) combinedProfile[i] /= profiles.length;
@@ -627,58 +707,41 @@ function analyzePleats(
     const maxPeriod = paraLen * 0.15;
     const globalPeriod = estimatePeriodAutocorr(combinedDet, minPeriod, maxPeriod);
 
-    // Best period: prefer per-strip average if available, else global
-    const estPeriod = periodCount > 0
-      ? bestPeriodSum / periodCount
-      : globalPeriod.period;
+    const estPeriod = periodCount > 0 ? bestPeriodSum / periodCount : globalPeriod.period;
 
-    // Step 5: Consensus voting across strips
     let positions: number[];
     if (allPeaks.length >= 2 && estPeriod > 0) {
       positions = consensusPeaks(allPeaks, paraLen, estPeriod);
     } else {
-      // Fall back to combined profile peak detection
       const sd = stdDev(combinedDet);
       positions = findPeaks(combinedDet, sd * pFactor);
     }
 
-    // Step 6: Grid extrapolation to fill gaps from occlusion
     const { gridPositions, count } = extrapolateGrid(positions, estPeriod, paraLen);
 
-    // Step 7: Ridge tracking
     const { ridgeLines, ridgeOffsets } = trackRidges(
-      gray, imgW, region, dir, gridPositions, estPeriod, grating.bars
+      gray, imgW, bounds, mask, dir, gridPositions, estPeriod, grating.bars
     );
 
-    // Confidence scoring
     const periodConfidence = globalPeriod.strength;
     const stripAgreement = allPeaks.length / Math.max(1, profiles.length);
     const confidence = Math.min(1, periodConfidence * 0.5 + stripAgreement * 0.5);
 
     return {
-      count,
-      positions: gridPositions,
-      direction: dir,
-      ridgeLines,
-      ridgeOffsets,
-      gratingBars: grating.bars,
-      period: estPeriod,
-      gratingDetected: grating.detected,
-      confidence,
+      count, positions: gridPositions, direction: dir,
+      ridgeLines, ridgeOffsets, gratingBars: grating.bars,
+      period: estPeriod, gratingDetected: grating.detected, confidence,
     };
   }
 
   const hResult = analyzeDirection('h');
   const vResult = analyzeDirection('v');
 
-  // Score each direction: period strength * count, with bonus for grating detection
   const hScore = hResult.confidence * hResult.count * (hResult.gratingDetected ? 1.2 : 1);
   const vScore = vResult.confidence * vResult.count * (vResult.gratingDetected ? 1.2 : 1);
 
   if (hScore >= vScore && hResult.count > 0) return hResult;
   if (vResult.count > 0) return vResult;
-
-  // Fallback to whichever direction found anything
   if (hResult.count > 0) return hResult;
   return vResult.count > 0 ? vResult : { ...hResult, count: 0, positions: [], direction: 'h' };
 }
@@ -688,7 +751,8 @@ function analyzePleats(
 function drawOverlay(
   canvas: HTMLCanvasElement,
   img: HTMLImageElement,
-  region: Rect,
+  quad: Quad,
+  bounds: Rect,
   result: PleatResult
 ) {
   const ctx = canvas.getContext('2d');
@@ -698,37 +762,58 @@ function drawOverlay(
 
   ctx.drawImage(img, 0, 0, cw, ch);
 
-  // Darken area outside the detected filter region
+  // Darken area outside the quad using evenodd fill
   ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.fillRect(0, 0, cw, region.y);
-  ctx.fillRect(0, region.y + region.h, cw, ch - region.y - region.h);
-  ctx.fillRect(0, region.y, region.x, region.h);
-  ctx.fillRect(region.x + region.w, region.y, cw - region.x - region.w, region.h);
+  ctx.beginPath();
+  ctx.rect(0, 0, cw, ch);
+  // Inner path counter-clockwise to punch hole via evenodd
+  ctx.moveTo(quad[3][0], quad[3][1]);
+  ctx.lineTo(quad[2][0], quad[2][1]);
+  ctx.lineTo(quad[1][0], quad[1][1]);
+  ctx.lineTo(quad[0][0], quad[0][1]);
+  ctx.closePath();
+  ctx.fill('evenodd');
 
-  // Detected filter outline
+  // Quad outline
   ctx.strokeStyle = '#00e676';
   ctx.lineWidth = Math.max(1.5, cw / 400);
   ctx.setLineDash([8, 5]);
-  ctx.strokeRect(region.x, region.y, region.w, region.h);
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  ctx.lineTo(quad[1][0], quad[1][1]);
+  ctx.lineTo(quad[2][0], quad[2][1]);
+  ctx.lineTo(quad[3][0], quad[3][1]);
+  ctx.closePath();
+  ctx.stroke();
   ctx.setLineDash([]);
 
-  // Corner accents
+  // Corner accents at each quad vertex
   const cl = 18;
   ctx.strokeStyle = '#00e676';
   ctx.lineWidth = Math.max(2, cw / 300);
-  ([[region.x, region.y, 1, 1], [region.x + region.w, region.y, -1, 1],
-    [region.x, region.y + region.h, 1, -1], [region.x + region.w, region.y + region.h, -1, -1]] as number[][])
-    .forEach(([cx, cy, dx, dy]) => {
-      ctx.beginPath();
-      ctx.moveTo(cx + dx * cl, cy);
-      ctx.lineTo(cx, cy);
-      ctx.lineTo(cx, cy + dy * cl);
-      ctx.stroke();
-    });
+  for (let i = 0; i < 4; i++) {
+    const curr = quad[i];
+    const prev = quad[(i + 3) % 4];
+    const next = quad[(i + 1) % 4];
+
+    // Direction vectors toward adjacent corners
+    let dpx = prev[0] - curr[0], dpy = prev[1] - curr[1];
+    let dnx = next[0] - curr[0], dny = next[1] - curr[1];
+    const dpLen = Math.sqrt(dpx * dpx + dpy * dpy) || 1;
+    const dnLen = Math.sqrt(dnx * dnx + dny * dny) || 1;
+    dpx = dpx / dpLen * cl; dpy = dpy / dpLen * cl;
+    dnx = dnx / dnLen * cl; dny = dny / dnLen * cl;
+
+    ctx.beginPath();
+    ctx.moveTo(curr[0] + dpx, curr[1] + dpy);
+    ctx.lineTo(curr[0], curr[1]);
+    ctx.lineTo(curr[0] + dnx, curr[1] + dny);
+    ctx.stroke();
+  }
 
   if (positions.length === 0) return;
 
-  // Draw grating bar indicators (if detected)
+  // Grating bar indicators
   if (gratingDetected && gratingBars.length > 0) {
     ctx.strokeStyle = 'rgba(255, 165, 0, 0.3)';
     ctx.lineWidth = Math.max(1, cw / 500);
@@ -736,20 +821,20 @@ function drawOverlay(
     for (const barPos of gratingBars) {
       ctx.beginPath();
       if (dir === 'h') {
-        const y = region.y + barPos;
-        ctx.moveTo(region.x, y);
-        ctx.lineTo(region.x + region.w, y);
+        const y = bounds.y + barPos;
+        ctx.moveTo(bounds.x, y);
+        ctx.lineTo(bounds.x + bounds.w, y);
       } else {
-        const x = region.x + barPos;
-        ctx.moveTo(x, region.y);
-        ctx.lineTo(x, region.y + region.h);
+        const x = bounds.x + barPos;
+        ctx.moveTo(x, bounds.y);
+        ctx.lineTo(x, bounds.y + bounds.h);
       }
       ctx.stroke();
     }
     ctx.setLineDash([]);
   }
 
-  // Draw ridge lines — continuous lines tracking each pleat across the filter
+  // Ridge lines
   if (ridgeLines.length > 0 && ridgeOffsets.length > 0) {
     ctx.lineWidth = Math.max(1, cw / 600);
     for (let p = 0; p < positions.length; p++) {
@@ -763,8 +848,8 @@ function drawOverlay(
       for (let k = 0; k < rLine.length; k++) {
         const para = positions[p] + rOff[k];
         const perp = rLine[k];
-        const x = dir === 'h' ? region.x + para : region.x + perp;
-        const y = dir === 'h' ? region.y + perp : region.y + para;
+        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
+        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
         if (k === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -772,59 +857,58 @@ function drawOverlay(
     }
   }
 
-  // Counting line — a single line across the pleats showing where counting occurs
+  // Counting line — follows perspective by connecting midpoints of opposite quad sides
   ctx.strokeStyle = 'rgba(255, 214, 10, 0.85)';
   ctx.lineWidth = Math.max(2, cw / 350);
   ctx.setLineDash([]);
-  ctx.beginPath();
+  let lineStart: Pt, lineEnd: Pt;
   if (dir === 'h') {
-    const lineY = Math.round(region.y + region.h * 0.5);
-    ctx.moveTo(region.x, lineY);
-    ctx.lineTo(region.x + region.w, lineY);
+    // Connect midpoints of left side (TL-BL) and right side (TR-BR)
+    lineStart = [(quad[0][0] + quad[3][0]) / 2, (quad[0][1] + quad[3][1]) / 2];
+    lineEnd = [(quad[1][0] + quad[2][0]) / 2, (quad[1][1] + quad[2][1]) / 2];
   } else {
-    const lineX = Math.round(region.x + region.w * 0.5);
-    ctx.moveTo(lineX, region.y);
-    ctx.lineTo(lineX, region.y + region.h);
+    // Connect midpoints of top side (TL-TR) and bottom side (BL-BR)
+    lineStart = [(quad[0][0] + quad[1][0]) / 2, (quad[0][1] + quad[1][1]) / 2];
+    lineEnd = [(quad[3][0] + quad[2][0]) / 2, (quad[3][1] + quad[2][1]) / 2];
   }
+  ctx.beginPath();
+  ctx.moveTo(lineStart[0], lineStart[1]);
+  ctx.lineTo(lineEnd[0], lineEnd[1]);
   ctx.stroke();
 
-  // Pleat indicator tick marks along the counting line
+  // Tick marks at pleat positions along the counting line
   ctx.strokeStyle = 'rgba(255, 82, 82, 0.7)';
   ctx.lineWidth = Math.max(1, cw / 600);
-  const tickLen = Math.max(8, Math.min(region.w, region.h) * 0.04);
+  const tickLen = Math.max(8, Math.min(bounds.w, bounds.h) * 0.04);
+  const paraLen = dir === 'h' ? bounds.w : bounds.h;
+
+  // Direction perpendicular to the counting line (for tick orientation)
+  const ldx = lineEnd[0] - lineStart[0], ldy = lineEnd[1] - lineStart[1];
+  const lineLen = Math.sqrt(ldx * ldx + ldy * ldy) || 1;
+  const perpX = -ldy / lineLen, perpY = ldx / lineLen;
+
   for (const pos of positions) {
+    const t = paraLen > 0 ? pos / paraLen : 0;
+    const px = lineStart[0] + t * ldx;
+    const py = lineStart[1] + t * ldy;
+
     ctx.beginPath();
-    if (dir === 'h') {
-      const x = region.x + pos;
-      const midY = region.y + region.h * 0.5;
-      ctx.moveTo(x, midY - tickLen);
-      ctx.lineTo(x, midY + tickLen);
-    } else {
-      const y = region.y + pos;
-      const midX = region.x + region.w * 0.5;
-      ctx.moveTo(midX - tickLen, y);
-      ctx.lineTo(midX + tickLen, y);
-    }
+    ctx.moveTo(px - perpX * tickLen, py - perpY * tickLen);
+    ctx.lineTo(px + perpX * tickLen, py + perpY * tickLen);
     ctx.stroke();
   }
 
-  // Pleat number labels (small, every few pleats to avoid clutter)
+  // Pleat number labels
   const labelEvery = positions.length > 30 ? 5 : positions.length > 15 ? 3 : 2;
   ctx.font = `${Math.max(9, Math.round(cw / 80))}px system-ui, sans-serif`;
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
   ctx.textAlign = 'center';
   for (let i = 0; i < positions.length; i++) {
     if (i % labelEvery !== 0 && i !== positions.length - 1) continue;
-    const pos = positions[i];
-    if (dir === 'h') {
-      const x = region.x + pos;
-      const midY = region.y + region.h * 0.5;
-      ctx.fillText(String(i + 1), x, midY - tickLen - 4);
-    } else {
-      const y = region.y + pos;
-      const midX = region.x + region.w * 0.5;
-      ctx.fillText(String(i + 1), midX + tickLen + 12, y + 3);
-    }
+    const t = paraLen > 0 ? positions[i] / paraLen : 0;
+    const px = lineStart[0] + t * ldx;
+    const py = lineStart[1] + t * ldy;
+    ctx.fillText(String(i + 1), px - perpX * (tickLen + 8), py - perpY * (tickLen + 8));
   }
 }
 
@@ -850,7 +934,9 @@ export default function PleatCounterPage() {
   const fileInputUploadRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const grayRef = useRef<{ gray: Float32Array; w: number; h: number } | null>(null);
-  const regionRef = useRef<Rect | null>(null);
+  const quadRef = useRef<Quad | null>(null);
+  const boundsRef = useRef<Rect | null>(null);
+  const maskRef = useRef<Uint8Array | null>(null);
 
   // Derived values
   const pleatCount = Math.max(0, parseInt(pleatCountStr) || 0);
@@ -869,14 +955,13 @@ export default function PleatCounterPage() {
   function convertArea(mm2: number): number {
     if (areaUnit === 'ft²') return mm2 / 92903.04;
     if (areaUnit === 'm²') return mm2 / 1e6;
-    return mm2 / 645.16; // in²
+    return mm2 / 645.16;
   }
 
   const areaDisplay = areaMm2 !== null ? convertArea(areaMm2) : null;
   const showResults = ppi !== null || areaDisplay !== null;
   const fmt = (n: number, d: number) => n.toFixed(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
-  // CV analysis pipeline — defers heavy work so spinner paints first
   const processImage = useCallback((img: HTMLImageElement, sens: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -893,9 +978,8 @@ export default function PleatCounterPage() {
     canvas.height = ch;
     ctx.drawImage(img, 0, 0, cw, ch);
 
-    setLoadingStatus('Detecting filter region\u2026');
+    setLoadingStatus('Detecting filter boundary\u2026');
 
-    // Yield to the browser so the spinner/status text actually paints
     requestAnimationFrame(() => {
       setTimeout(() => {
         const imageData = ctx.getImageData(0, 0, cw, ch);
@@ -907,10 +991,14 @@ export default function PleatCounterPage() {
 
         requestAnimationFrame(() => {
           setTimeout(() => {
-            const region = detectFilterRegion(gray, cw, ch);
-            regionRef.current = region;
+            const quad = detectFilterQuad(gray, cw, ch);
+            const bounds = quadBounds(quad);
+            const mask = createQuadMask(quad, cw, ch);
+            quadRef.current = quad;
+            boundsRef.current = bounds;
+            maskRef.current = mask;
 
-            const result = analyzePleats(gray, cw, ch, region, sens);
+            const result = analyzePleats(gray, cw, ch, bounds, mask, sens);
             setPleatCountStr(String(result.count));
             setPleatDetected(result.count > 0);
             setAnalysisInfo({
@@ -920,7 +1008,7 @@ export default function PleatCounterPage() {
             });
             setAnalyzing(false);
             setLoadingStatus(null);
-            drawOverlay(canvas, img, region, result);
+            drawOverlay(canvas, img, quad, bounds, result);
           }, 0);
         });
       }, 0);
@@ -929,9 +1017,10 @@ export default function PleatCounterPage() {
 
   const reanalyze = useCallback((sens: number) => {
     const gd = grayRef.current, img = imgRef.current,
-          region = regionRef.current, canvas = canvasRef.current;
-    if (!gd || !img || !region || !canvas) return;
-    const result = analyzePleats(gd.gray, gd.w, gd.h, region, sens);
+          quad = quadRef.current, bounds = boundsRef.current,
+          mask = maskRef.current, canvas = canvasRef.current;
+    if (!gd || !img || !quad || !bounds || !mask || !canvas) return;
+    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sens);
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
     setAnalysisInfo({
@@ -939,23 +1028,21 @@ export default function PleatCounterPage() {
       confidence: result.confidence,
       period: result.period,
     });
-    drawOverlay(canvas, img, region, result);
+    drawOverlay(canvas, img, quad, bounds, result);
   }, []);
 
   const loadFile = useCallback((file: File) => {
-    // Accept image/* plus HEIC/HEIF which iOS may report with non-standard types
     const isImage = file.type.startsWith('image/')
       || /\.(heic|heif|jpg|jpeg|png|webp|avif|bmp|tiff?)$/i.test(file.name);
     if (!isImage) return;
 
     setAnalyzing(true);
     setLoadingStatus('Loading image\u2026');
-    setImageSrc(null); // ensure upload zone disappears on re-upload
+    setImageSrc(null);
     setAnalysisInfo(null);
 
     const url = URL.createObjectURL(file);
 
-    // Show the loading UI immediately, then start decoding
     requestAnimationFrame(() => {
       setImageSrc(url);
       const img = new Image();
@@ -1001,7 +1088,9 @@ export default function PleatCounterPage() {
     setAnalysisInfo(null);
     imgRef.current = null;
     grayRef.current = null;
-    regionRef.current = null;
+    quadRef.current = null;
+    boundsRef.current = null;
+    maskRef.current = null;
   };
 
   const increment = () => setPleatCountStr((s: string) => String((parseInt(s) || 0) + 1));
@@ -1186,7 +1275,7 @@ export default function PleatCounterPage() {
             </div>
           )}
 
-          {/* Analysis info banner (shown after analysis) */}
+          {/* Analysis info banner */}
           {imageSrc && !analyzing && analysisInfo && (
             <div style={{
               marginTop: '1rem', padding: '0.6rem 1rem',
@@ -1209,7 +1298,7 @@ export default function PleatCounterPage() {
             </div>
           )}
 
-          {/* Sensitivity slider (visible after capture) */}
+          {/* Sensitivity slider */}
           {imageSrc && (
             <div style={{
               marginTop: '0.75rem', padding: '0.9rem 1.1rem',
