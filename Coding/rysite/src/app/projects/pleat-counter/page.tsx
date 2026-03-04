@@ -637,6 +637,13 @@ function extrapolateGrid(
     return { gridPositions: detectedPositions, count: detectedPositions.length };
   }
 
+  // Constrain grid to the range where pleats were actually detected, with a
+  // small margin (half a period) to allow filling small gaps at the edges —
+  // but never extrapolate far beyond observed evidence.
+  const sorted = [...detectedPositions].sort((a, b) => a - b);
+  const rangeMin = Math.max(0, sorted[0] - period * 0.5);
+  const rangeMax = Math.min(regionLen, sorted[sorted.length - 1] + period * 0.5);
+
   const phaseBins = Math.max(10, Math.round(period));
   const phaseVotes = new Float32Array(phaseBins);
   for (const pos of detectedPositions) {
@@ -651,11 +658,12 @@ function extrapolateGrid(
   }
   const phaseOffset = (bestPhase / phaseBins) * period;
 
+  // Build grid only within the detected pleat range
   const gridPositions: number[] = [];
   let pos = phaseOffset;
-  while (pos - period >= 0) pos -= period;
-  while (pos < regionLen) {
-    if (pos >= 0) gridPositions.push(Math.round(pos));
+  while (pos - period >= rangeMin) pos -= period;
+  while (pos < rangeMax) {
+    if (pos >= rangeMin) gridPositions.push(Math.round(pos));
     pos += period;
   }
 
@@ -1013,6 +1021,7 @@ export default function PleatCounterPage() {
   const maskRef = useRef<Uint8Array | null>(null);
   const dragIdxRef = useRef(-1); // which corner is being dragged (-1 = none)
   const lastResultRef = useRef<PleatResult | null>(null);
+  const sensitivityRef = useRef(50);
 
   // Derived values
   const pleatCount = Math.max(0, parseInt(pleatCountStr) || 0);
@@ -1120,7 +1129,7 @@ export default function PleatCounterPage() {
     boundsRef.current = bounds;
     maskRef.current = mask;
 
-    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivity);
+    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivityRef.current);
     lastResultRef.current = result;
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
@@ -1130,7 +1139,7 @@ export default function PleatCounterPage() {
       period: result.period,
     });
     drawOverlay(canvas, img, newQuad, bounds, result);
-  }, [sensitivity]);
+  }, []);
 
   const loadFile = useCallback((file: File) => {
     const isImage = file.type.startsWith('image/')
@@ -1147,7 +1156,7 @@ export default function PleatCounterPage() {
     requestAnimationFrame(() => {
       setImageSrc(url);
       const img = new Image();
-      img.onload = () => processImage(img, sensitivity);
+      img.onload = () => processImage(img, sensitivityRef.current);
       img.onerror = () => {
         setAnalyzing(false);
         setLoadingStatus(null);
@@ -1155,7 +1164,7 @@ export default function PleatCounterPage() {
       };
       img.src = url;
     });
-  }, [processImage, sensitivity]);
+  }, [processImage]);
 
   const handleCapture = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1177,6 +1186,7 @@ export default function PleatCounterPage() {
   const handleSensitivityChange = (e: ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     setSensitivity(val);
+    sensitivityRef.current = val;
     reanalyze(val);
   };
 
