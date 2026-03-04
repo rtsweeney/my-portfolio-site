@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, type CSSProperties, type ChangeEvent, type DragEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, type CSSProperties, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react';
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 
@@ -551,54 +551,76 @@ function consensusPeaks(
   return consensusPositions;
 }
 
-// ── Ridge Tracking (mask-aware) ──────────────────────────────────────────────
+// ── Ridge Tracking (consensus-based uniform lean) ────────────────────────────
+// All pleat ridges follow the same global lean trajectory. Individual ridges
+// are NOT allowed to wander independently (which lets grating hijack them).
+// Instead: sample each pleat at its original position, compute median offset
+// across all pleats at each perpendicular step, smooth, and apply uniformly.
 
 function trackRidges(
   gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
-  pleatPositions: number[], period: number, gratingBars: number[]
+  pleatPositions: number[], period: number, _gratingBars: number[]
 ): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
   const perpLen = dir === 'h' ? bounds.h : bounds.w;
-  const searchRadius = Math.max(2, Math.round(period * 0.2));
-  const step = Math.max(1, Math.round(perpLen / 100));
+  const paraLen = dir === 'h' ? bounds.w : bounds.h;
+  const searchRadius = Math.max(2, Math.round(period * 0.15));
+  const step = Math.max(1, Math.round(perpLen / 80));
+  const numSteps = Math.ceil(perpLen / step);
 
-  const barHalfWidth = Math.max(2, Math.round(period * 0.1));
-  const isGratingBar = new Uint8Array(perpLen);
-  for (const bar of gratingBars) {
-    for (let d = -barHalfWidth; d <= barHalfWidth; d++) {
-      const idx = bar + d;
-      if (idx >= 0 && idx < perpLen) isGratingBar[idx] = 1;
-    }
+  if (pleatPositions.length === 0 || numSteps === 0) {
+    return { ridgeLines: [], ridgeOffsets: [] };
   }
 
-  const ridgeLines: number[][] = [];
-  const ridgeOffsets: number[][] = [];
-
+  // Phase 1: For each pleat, sample offset at each perp step WITHOUT drift.
+  // Each pleat searches near its ORIGINAL position only — no accumulation.
+  const rawOffsets: Float32Array[] = [];
   for (const pleatPos of pleatPositions) {
-    const line: number[] = [];
-    const offsets: number[] = [];
-    let currentPos = pleatPos;
-
-    for (let perp = 0; perp < perpLen; perp += step) {
-      let bestPos = currentPos;
+    const offsets = new Float32Array(numSteps);
+    for (let si = 0; si < numSteps; si++) {
+      const perp = Math.min(si * step, perpLen - 1);
+      let bestOff = 0;
       let bestVal = -Infinity;
 
       for (let d = -searchRadius; d <= searchRadius; d++) {
-        const para = currentPos + d;
-        if (para < 0 || para >= (dir === 'h' ? bounds.w : bounds.h)) continue;
+        const para = pleatPos + d;
+        if (para < 0 || para >= paraLen) continue;
         const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
         const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
-        if (mask[y * imgW + x]) {
+        if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
           const val = gray[y * imgW + x];
-          if (val > bestVal) { bestVal = val; bestPos = para; }
+          if (val > bestVal) { bestVal = val; bestOff = d; }
         }
       }
-
-      line.push(perp);
-      offsets.push(bestPos - pleatPos);
-
-      if (!isGratingBar[perp]) currentPos = bestPos;
+      offsets[si] = bestOff;
     }
+    rawOffsets.push(offsets);
+  }
 
+  // Phase 2: Compute median offset at each step across ALL pleats.
+  // This gives the consensus "lean" — the direction all ridges tilt together.
+  const medianLean = new Float32Array(numSteps);
+  const sortBuf: number[] = new Array(pleatPositions.length);
+  for (let si = 0; si < numSteps; si++) {
+    for (let p = 0; p < pleatPositions.length; p++) sortBuf[p] = rawOffsets[p][si];
+    sortBuf.sort((a, b) => a - b);
+    medianLean[si] = sortBuf[Math.floor(pleatPositions.length / 2)];
+  }
+
+  // Phase 3: Smooth the lean to remove noise — the lean should be gentle.
+  const smoothR = Math.max(2, Math.round(numSteps * 0.12));
+  const smoothedLean = smoothProfile(medianLean, smoothR);
+
+  // Phase 4: Apply the same smoothed lean to every pleat.
+  const ridgeLines: number[][] = [];
+  const ridgeOffsets: number[][] = [];
+  for (let p = 0; p < pleatPositions.length; p++) {
+    const line: number[] = [];
+    const offsets: number[] = [];
+    for (let si = 0; si < numSteps; si++) {
+      const perp = Math.min(si * step, perpLen - 1);
+      line.push(perp);
+      offsets.push(smoothedLean[si]);
+    }
     ridgeLines.push(line);
     ridgeOffsets.push(offsets);
   }
@@ -910,6 +932,58 @@ function drawOverlay(
     const py = lineStart[1] + t * ldy;
     ctx.fillText(String(i + 1), px - perpX * (tickLen + 8), py - perpY * (tickLen + 8));
   }
+
+  // Draggable corner handles — drawn last so they sit on top
+  drawCornerHandles(ctx, quad, cw);
+}
+
+/** Draws filled circles at each quad corner as drag handles. */
+function drawCornerHandles(ctx: CanvasRenderingContext2D, quad: Quad, cw: number) {
+  const handleR = Math.max(6, Math.round(cw / 100));
+  for (const [x, y] of quad) {
+    ctx.beginPath();
+    ctx.arc(x, y, handleR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 230, 118, 0.85)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'white';
+    ctx.stroke();
+  }
+}
+
+/** Lightweight redraw for live corner dragging — shows image + quad outline + handles only. */
+function drawQuadPreview(canvas: HTMLCanvasElement, img: HTMLImageElement, quad: Quad) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const { width: cw, height: ch } = canvas;
+
+  ctx.drawImage(img, 0, 0, cw, ch);
+
+  // Darken outside
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.beginPath();
+  ctx.rect(0, 0, cw, ch);
+  ctx.moveTo(quad[3][0], quad[3][1]);
+  ctx.lineTo(quad[2][0], quad[2][1]);
+  ctx.lineTo(quad[1][0], quad[1][1]);
+  ctx.lineTo(quad[0][0], quad[0][1]);
+  ctx.closePath();
+  ctx.fill('evenodd');
+
+  // Quad outline
+  ctx.strokeStyle = '#00e676';
+  ctx.lineWidth = Math.max(1.5, cw / 400);
+  ctx.setLineDash([8, 5]);
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  ctx.lineTo(quad[1][0], quad[1][1]);
+  ctx.lineTo(quad[2][0], quad[2][1]);
+  ctx.lineTo(quad[3][0], quad[3][1]);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  drawCornerHandles(ctx, quad, cw);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -937,6 +1011,8 @@ export default function PleatCounterPage() {
   const quadRef = useRef<Quad | null>(null);
   const boundsRef = useRef<Rect | null>(null);
   const maskRef = useRef<Uint8Array | null>(null);
+  const dragIdxRef = useRef(-1); // which corner is being dragged (-1 = none)
+  const lastResultRef = useRef<PleatResult | null>(null);
 
   // Derived values
   const pleatCount = Math.max(0, parseInt(pleatCountStr) || 0);
@@ -999,6 +1075,7 @@ export default function PleatCounterPage() {
             maskRef.current = mask;
 
             const result = analyzePleats(gray, cw, ch, bounds, mask, sens);
+            lastResultRef.current = result;
             setPleatCountStr(String(result.count));
             setPleatDetected(result.count > 0);
             setAnalysisInfo({
@@ -1021,6 +1098,7 @@ export default function PleatCounterPage() {
           mask = maskRef.current, canvas = canvasRef.current;
     if (!gd || !img || !quad || !bounds || !mask || !canvas) return;
     const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sens);
+    lastResultRef.current = result;
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
     setAnalysisInfo({
@@ -1030,6 +1108,29 @@ export default function PleatCounterPage() {
     });
     drawOverlay(canvas, img, quad, bounds, result);
   }, []);
+
+  // Reanalyze after quad corners are moved by the user
+  const reanalyzeWithQuad = useCallback((newQuad: Quad) => {
+    const gd = grayRef.current, img = imgRef.current, canvas = canvasRef.current;
+    if (!gd || !img || !canvas) return;
+
+    const bounds = quadBounds(newQuad);
+    const mask = createQuadMask(newQuad, gd.w, gd.h);
+    quadRef.current = newQuad;
+    boundsRef.current = bounds;
+    maskRef.current = mask;
+
+    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivity);
+    lastResultRef.current = result;
+    setPleatCountStr(String(result.count));
+    setPleatDetected(result.count > 0);
+    setAnalysisInfo({
+      gratingDetected: result.gratingDetected,
+      confidence: result.confidence,
+      period: result.period,
+    });
+    drawOverlay(canvas, img, newQuad, bounds, result);
+  }, [sensitivity]);
 
   const loadFile = useCallback((file: File) => {
     const isImage = file.type.startsWith('image/')
@@ -1091,7 +1192,120 @@ export default function PleatCounterPage() {
     quadRef.current = null;
     boundsRef.current = null;
     maskRef.current = null;
+    lastResultRef.current = null;
+    dragIdxRef.current = -1;
   };
+
+  // ── Canvas corner drag handlers ──────────────────────────────────────────
+  const canvasToPixel = useCallback((clientX: number, clientY: number): Pt | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return [(clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY];
+  }, []);
+
+  const findNearestCorner = useCallback((px: number, py: number): number => {
+    const quad = quadRef.current;
+    if (!quad) return -1;
+    const canvas = canvasRef.current;
+    const hitR = Math.max(18, (canvas?.width || 500) / 30);
+    let bestIdx = -1, bestDist = hitR * hitR;
+    for (let i = 0; i < 4; i++) {
+      const dx = quad[i][0] - px, dy = quad[i][1] - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist) { bestDist = d2; bestIdx = i; }
+    }
+    return bestIdx;
+  }, []);
+
+  const handlePointerDown = useCallback((px: number, py: number) => {
+    const idx = findNearestCorner(px, py);
+    if (idx >= 0) dragIdxRef.current = idx;
+  }, [findNearestCorner]);
+
+  const handlePointerMove = useCallback((px: number, py: number) => {
+    const idx = dragIdxRef.current;
+    const quad = quadRef.current;
+    const img = imgRef.current;
+    const canvas = canvasRef.current;
+    if (idx < 0 || !quad || !img || !canvas) return;
+
+    // Clamp to canvas bounds
+    const cx = Math.max(0, Math.min(canvas.width - 1, px));
+    const cy = Math.max(0, Math.min(canvas.height - 1, py));
+
+    // Update corner
+    const newQuad: Quad = [...quad] as Quad;
+    newQuad[idx] = [cx, cy];
+    quadRef.current = newQuad;
+
+    // Lightweight preview (no reanalysis during drag)
+    drawQuadPreview(canvas, img, newQuad);
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (dragIdxRef.current < 0) return;
+    dragIdxRef.current = -1;
+    const quad = quadRef.current;
+    if (quad) reanalyzeWithQuad(quad);
+  }, [reanalyzeWithQuad]);
+
+  const onCanvasMouseDown = useCallback((e: ReactMouseEvent<HTMLCanvasElement>) => {
+    const pt = canvasToPixel(e.clientX, e.clientY);
+    if (pt) handlePointerDown(pt[0], pt[1]);
+  }, [canvasToPixel, handlePointerDown]);
+
+  const onCanvasMouseMove = useCallback((e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (dragIdxRef.current < 0) return;
+    e.preventDefault();
+    const pt = canvasToPixel(e.clientX, e.clientY);
+    if (pt) handlePointerMove(pt[0], pt[1]);
+  }, [canvasToPixel, handlePointerMove]);
+
+  const onCanvasMouseUp = useCallback(() => {
+    handlePointerUp();
+  }, [handlePointerUp]);
+
+  const onCanvasTouchStart = useCallback((e: ReactTouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const pt = canvasToPixel(t.clientX, t.clientY);
+    if (pt && findNearestCorner(pt[0], pt[1]) >= 0) {
+      e.preventDefault(); // prevent scroll when starting a corner drag
+      handlePointerDown(pt[0], pt[1]);
+    }
+  }, [canvasToPixel, findNearestCorner, handlePointerDown]);
+
+  const onCanvasTouchMove = useCallback((e: ReactTouchEvent<HTMLCanvasElement>) => {
+    if (dragIdxRef.current < 0 || e.touches.length !== 1) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const pt = canvasToPixel(t.clientX, t.clientY);
+    if (pt) handlePointerMove(pt[0], pt[1]);
+  }, [canvasToPixel, handlePointerMove]);
+
+  const onCanvasTouchEnd = useCallback(() => {
+    handlePointerUp();
+  }, [handlePointerUp]);
+
+  // Attach global mousemove/mouseup so dragging outside the canvas still works
+  useEffect(() => {
+    const onGlobalMouseMove = (e: globalThis.MouseEvent) => {
+      if (dragIdxRef.current < 0) return;
+      e.preventDefault();
+      const pt = canvasToPixel(e.clientX, e.clientY);
+      if (pt) handlePointerMove(pt[0], pt[1]);
+    };
+    const onGlobalMouseUp = () => handlePointerUp();
+    window.addEventListener('mousemove', onGlobalMouseMove);
+    window.addEventListener('mouseup', onGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onGlobalMouseMove);
+      window.removeEventListener('mouseup', onGlobalMouseUp);
+    };
+  }, [canvasToPixel, handlePointerMove, handlePointerUp]);
 
   const increment = () => setPleatCountStr((s: string) => String((parseInt(s) || 0) + 1));
   const decrement = () => setPleatCountStr((s: string) => String(Math.max(0, (parseInt(s) || 0) - 1)));
@@ -1220,7 +1434,13 @@ export default function PleatCounterPage() {
             <div style={{ position: 'relative', marginBottom: '1.75rem' }}>
               <canvas
                 ref={canvasRef}
-                style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block' }}
+                onMouseDown={onCanvasMouseDown}
+                onMouseMove={onCanvasMouseMove}
+                onMouseUp={onCanvasMouseUp}
+                onTouchStart={onCanvasTouchStart}
+                onTouchMove={onCanvasTouchMove}
+                onTouchEnd={onCanvasTouchEnd}
+                style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block', touchAction: 'none', cursor: 'default' }}
               />
               {analyzing && (
                 <div style={{
