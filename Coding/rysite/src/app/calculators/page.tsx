@@ -3,6 +3,13 @@ import Footer from '@/components/Footer';
 
 const calculators = [
   {
+    name: 'Machine-Vision Media Area',
+    description: 'Photograph a pleated filter panel — auto-counts pleats and calculates useable media area and pleats per inch.',
+    href: '/calculators/filter-pleat-counter',
+    icon: '&#128247;',
+    accent: 'card-accent-teal',
+  },
+  {
     name: 'Beers Per Beer',
     description: 'Find out how many standard beers (4.2%, 12 oz) are in any beverage by ABV and volume.',
     href: '/calculators/beers-per-beer',
@@ -14,14 +21,14 @@ const calculators = [
     description: 'Convert between common units of length, weight, temperature, and more.',
     href: '/calculators/unit-converter',
     icon: '&#128207;',
-    accent: 'card-accent-teal',
+    accent: 'card-accent-purple',
   },
   {
     name: 'Air Density',
     description: 'Calculate the density of air from temperature, relative humidity, and altitude using the ISA atmosphere model.',
     href: '/calculators/air-density',
     icon: '&#127756;',
-    accent: 'card-accent-purple',
+    accent: 'card-accent-pink',
   },
 ];
 

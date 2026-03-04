@@ -42,6 +42,30 @@ export default async function ProjectsPage() {
         </div>
 
         <div className="projects-grid">
+          {/* Machine-Vision Media Area — built-in project */}
+          <Link href="/calculators/filter-pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-teal" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#128247;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Machine-Vision Media Area
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>Photograph a pleated filter panel and let the browser do the rest — auto-detects the panel boundary, counts pleats via edge-frequency analysis, and calculates useable media area and pleats per inch. No server, no ML model, pure canvas.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Computer Vision</span>
+                <span className="project-tech-tag">Canvas API</span>
+                <span className="project-tech-tag">Next.js</span>
+                <span className="project-tech-tag">Mobile Camera</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* Planetarium — built-in interactive project */}
           <Link href="/planetarium" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-purple" style={{ height: '100%', cursor: 'pointer' }}>
