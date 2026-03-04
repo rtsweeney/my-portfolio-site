@@ -559,7 +559,7 @@ function consensusPeaks(
 
 function trackRidges(
   gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
-  pleatPositions: number[], period: number, _gratingBars: number[]
+  pleatPositions: number[], period: number
 ): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
   const perpLen = dir === 'h' ? bounds.h : bounds.w;
   const paraLen = dir === 'h' ? bounds.w : bounds.h;
@@ -742,7 +742,7 @@ function analyzePleats(
     const { gridPositions, count } = extrapolateGrid(positions, estPeriod, paraLen);
 
     const { ridgeLines, ridgeOffsets } = trackRidges(
-      gray, imgW, bounds, mask, dir, gridPositions, estPeriod, grating.bars
+      gray, imgW, bounds, mask, dir, gridPositions, estPeriod
     );
 
     const periodConfidence = globalPeriod.strength;
