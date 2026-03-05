@@ -407,7 +407,7 @@ export default function PlanetariumPage() {
 
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.parentElement?.clientWidth ?? 600;
-    const H = 88;
+    const H = 60;
     canvas.style.width = `${W}px`;
     canvas.style.height = `${H}px`;
     canvas.width = W * dpr;
@@ -443,16 +443,16 @@ export default function PlanetariumPage() {
       let lw = 0.5;
 
       if (m % 60 === 0) {
-        tickH = 32;
-        alpha = 0.85;
+        tickH = 22;
+        alpha = 0.8;
         lw = 1.5;
       } else if (m % 15 === 0) {
-        tickH = 21;
-        alpha = 0.5;
+        tickH = 14;
+        alpha = 0.48;
         lw = 1;
       } else if (m % 5 === 0) {
-        tickH = 13;
-        alpha = 0.32;
+        tickH = 9;
+        alpha = 0.3;
         lw = 0.75;
       }
 
@@ -468,19 +468,14 @@ export default function PlanetariumPage() {
         const distFromCenter = Math.abs(x - cx);
 
         if (distFromCenter > 44) {
-          const label = `${String(tickDate.getHours()).padStart(2, '0')}:00`;
-          ctx.font = '500 10px system-ui, sans-serif';
-          ctx.fillStyle = `rgba(108, 92, 231, 0.82)`;
+          const label = tickDate.getHours() === 0
+            ? tickDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : `${String(tickDate.getHours()).padStart(2, '0')}:00`;
+          ctx.font = tickDate.getHours() === 0 ? '600 9px system-ui, sans-serif' : '500 9px system-ui, sans-serif';
+          ctx.fillStyle = tickDate.getHours() === 0 ? 'rgba(0, 184, 148, 0.8)' : 'rgba(108, 92, 231, 0.72)';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.fillText(label, x, H - tickH - 3);
-
-          if (tickDate.getHours() === 0) {
-            const dl = tickDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            ctx.font = '600 9px system-ui, sans-serif';
-            ctx.fillStyle = 'rgba(0, 184, 148, 0.75)';
-            ctx.fillText(dl, x, H - tickH - 16);
-          }
+          ctx.fillText(label, x, H - tickH - 2);
         }
       }
     }
@@ -499,29 +494,23 @@ export default function PlanetariumPage() {
     ctx.stroke();
 
     // Downward triangle pointer at top center
-    ctx.fillStyle = 'rgba(108, 92, 231, 0.9)';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.85)';
     ctx.beginPath();
-    ctx.moveTo(cx - 5, 0);
-    ctx.lineTo(cx + 5, 0);
-    ctx.lineTo(cx, 8);
+    ctx.moveTo(cx - 4, 0);
+    ctx.lineTo(cx + 4, 0);
+    ctx.lineTo(cx, 6);
     ctx.closePath();
     ctx.fill();
 
-    // Current time/date label centered near top
+    // Current time label — compact, just above the triangle's tip
     const timeLabel = `${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
-    const dateStr = centerDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const fullLabel = `${dateStr}  ${timeLabel}`;
-    ctx.font = 'bold 12px system-ui, sans-serif';
-    const tg = ctx.createLinearGradient(cx - 80, 0, cx + 80, 0);
-    tg.addColorStop(0, '#6c5ce7');
-    tg.addColorStop(0.5, '#00b894');
-    tg.addColorStop(1, '#e84393');
-    ctx.fillStyle = tg;
+    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.85)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(fullLabel, cx, 10);
+    ctx.fillText(timeLabel, cx, 8);
 
-    // Edge fades
+    // Edge fades + drag hint chevrons
     const fw = Math.min(80, W * 0.12);
     const lf = ctx.createLinearGradient(0, 0, fw, 0);
     lf.addColorStop(0, 'rgba(255, 255, 255, 1)');
@@ -533,6 +522,14 @@ export default function PlanetariumPage() {
     rf.addColorStop(1, 'rgba(240, 239, 248, 1)');
     ctx.fillStyle = rf;
     ctx.fillRect(W - fw, 0, fw, H);
+
+    // Drag hint chevrons (drawn after fades so they sit on top)
+    ctx.font = 'bold 14px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.3)';
+    ctx.fillText('‹', fw * 0.5, H / 2 + 2);
+    ctx.fillText('›', W - fw * 0.5, H / 2 + 2);
   }, [date, time]);
 
   // Keep refs pointed at latest draw functions so the animation loop never restarts
@@ -777,11 +774,9 @@ export default function PlanetariumPage() {
           </div>
         </div>
 
-        {/* Time Wheel Slider */}
-        <div className="planetarium-wheel-container">
-          <div className="planetarium-wheel-label">Time scrubber — drag to travel through time</div>
-          <div
-            className="planetarium-wheel-track"
+        {/* Time Wheel */}
+        <div
+          className="planetarium-wheel-track"
             onPointerDown={(e) => {
               if (wheelMomentumRef.current !== null) {
                 cancelAnimationFrame(wheelMomentumRef.current);
@@ -814,7 +809,6 @@ export default function PlanetariumPage() {
             }}
           >
             <canvas ref={wheelCanvasRef} />
-          </div>
         </div>
 
         {/* Main Dashboard */}
