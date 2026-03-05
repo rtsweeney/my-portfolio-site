@@ -1546,6 +1546,11 @@ a {
   background: #e84393;
 }
 
+.planetarium-legend-dot--moon {
+  background: #c8c8d8;
+  box-shadow: 0 0 6px rgba(180, 180, 210, 0.5);
+}
+
 .planetarium-legend-dot--sun {
   background: #f9ca24;
   box-shadow: 0 0 6px rgba(249, 202, 36, 0.6);
@@ -1587,12 +1592,22 @@ a {
   background: rgba(249, 202, 36, 0.04);
 }
 
+.planetarium-body-card--selected.planetarium-body-card--moon {
+  border-color: #b0b0cc;
+  box-shadow: 0 2px 12px rgba(160, 160, 200, 0.18);
+  background: rgba(160, 160, 200, 0.04);
+}
+
 .planetarium-body-card--planet {
   border-left: 3px solid #e84393;
 }
 
 .planetarium-body-card--sun {
   border-left: 3px solid #f9ca24;
+}
+
+.planetarium-body-card--moon {
+  border-left: 3px solid #b0b0cc;
 }
 
 .planetarium-body-card--below {
@@ -1651,6 +1666,22 @@ a {
 .planetarium-body-detail-symbol--sun {
   color: #f9ca24;
   text-shadow: 0 0 12px rgba(249, 202, 36, 0.5);
+}
+
+.planetarium-body-detail-symbol--moon {
+  color: #a0a0c0;
+  text-shadow: 0 0 10px rgba(160, 160, 200, 0.4);
+}
+
+.planetarium-moon-phase-card {
+  margin-top: 0.75rem;
+}
+
+.planetarium-moon-phase-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
 }
 
 .planetarium-facts-list {
