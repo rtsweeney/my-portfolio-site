@@ -276,7 +276,7 @@ export default function PlanetariumPage() {
       }
     }
 
-    // Planets & Sun
+    // Planets, Moon & Sun
     for (const body of celestialBodies) {
       const proj = projectToSkyMap(body.ra, body.dec, location.lat, lst);
       if (!proj) continue;
@@ -308,6 +308,58 @@ export default function PlanetariumPage() {
         ctx.beginPath();
         ctx.arc(bx, by, 5, 0, Math.PI * 2);
         ctx.fill();
+      } else if (body.isMoon) {
+        // Moon — silver with phase visualization
+        const moonR = 6;
+        const glowR = isBodySelected ? 20 : 13;
+
+        // Silvery glow
+        const moonGlow = ctx.createRadialGradient(bx, by, 0, bx, by, glowR);
+        moonGlow.addColorStop(0, isBodySelected ? 'rgba(190, 190, 215, 0.65)' : 'rgba(190, 190, 215, 0.38)');
+        moonGlow.addColorStop(1, 'rgba(190, 190, 215, 0)');
+        ctx.fillStyle = moonGlow;
+        ctx.beginPath();
+        ctx.arc(bx, by, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Phase disk — clip to the disk then draw lit + shadow
+        const phi = (body.phaseAngle ?? 0) * (Math.PI / 180);
+        const termX = Math.cos(phi) * moonR;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(bx, by, moonR, 0, Math.PI * 2);
+        ctx.clip();
+
+        // Lit side (cream-white)
+        ctx.fillStyle = '#f0f0e6';
+        ctx.fillRect(bx - moonR, by - moonR, moonR * 2, moonR * 2);
+
+        // Shadow overlay
+        ctx.fillStyle = 'rgba(38, 38, 58, 0.84)';
+        ctx.beginPath();
+        const pa = body.phaseAngle ?? 0;
+        if (pa < 180) {
+          // Waxing: shadow on left
+          ctx.arc(bx, by, moonR, -Math.PI / 2, Math.PI / 2, true);       // top → left → bottom
+          ctx.ellipse(bx, by, Math.max(0.01, Math.abs(termX)), moonR, 0, Math.PI / 2, -Math.PI / 2, termX > 0);
+        } else {
+          // Waning: shadow on right
+          ctx.arc(bx, by, moonR, -Math.PI / 2, Math.PI / 2, false);      // top → right → bottom
+          ctx.ellipse(bx, by, Math.max(0.01, Math.abs(termX)), moonR, 0, Math.PI / 2, -Math.PI / 2, termX < 0);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        // Selection ring
+        if (isBodySelected) {
+          ctx.strokeStyle = 'rgba(160, 160, 190, 0.9)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(bx, by, moonR + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       } else {
         // Planets — pink with subtle glow
         const glowRadius = isBodySelected ? 18 : 12;
@@ -336,10 +388,10 @@ export default function PlanetariumPage() {
       // Label for selected body
       if (isBodySelected) {
         ctx.font = '700 11px system-ui, sans-serif';
-        ctx.fillStyle = body.isSun ? '#c17d10' : '#c0287a';
+        ctx.fillStyle = body.isSun ? '#c17d10' : body.isMoon ? '#8888aa' : '#c0287a';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(body.name, bx, by - (body.isSun ? 14 : 12));
+        ctx.fillText(body.name, bx, by - (body.isSun ? 14 : body.isMoon ? 14 : 12));
       }
     }
 
@@ -840,6 +892,10 @@ export default function PlanetariumPage() {
                 Planet
               </span>
               <span className="planetarium-legend-item">
+                <span className="planetarium-legend-dot planetarium-legend-dot--moon" />
+                Moon
+              </span>
+              <span className="planetarium-legend-item">
                 <span className="planetarium-legend-dot planetarium-legend-dot--sun" />
                 Sun
               </span>
@@ -851,10 +907,10 @@ export default function PlanetariumPage() {
             {selectedBody ? (
               <div className="planetarium-detail-content">
                 <div className="planetarium-body-detail-header">
-                  <span className={`planetarium-body-detail-symbol ${selectedBody.isSun ? 'planetarium-body-detail-symbol--sun' : ''}`}>{selectedBody.symbol}</span>
+                  <span className={`planetarium-body-detail-symbol ${selectedBody.isSun ? 'planetarium-body-detail-symbol--sun' : selectedBody.isMoon ? 'planetarium-body-detail-symbol--moon' : ''}`}>{selectedBody.symbol}</span>
                   <div>
                     <h2 className="planetarium-detail-name">{selectedBody.name}</h2>
-                    <p className="planetarium-detail-abbr">{selectedBody.isSun ? 'Star' : 'Planet'}</p>
+                    <p className="planetarium-detail-abbr">{selectedBody.isSun ? 'Star' : selectedBody.isMoon ? "Earth's Moon" : 'Planet'}</p>
                   </div>
                 </div>
 
@@ -873,6 +929,16 @@ export default function PlanetariumPage() {
                     </div>
                   </div>
                 </div>
+
+                {selectedBody.isMoon && (
+                  <div className="planetarium-direction-card planetarium-moon-phase-card">
+                    <div className="planetarium-direction-label">Current Phase</div>
+                    <div className="planetarium-moon-phase-name">{selectedBody.phaseName}</div>
+                    <div className="planetarium-direction-hint">
+                      {Math.round((selectedBody.phase ?? 0) * 100)}% illuminated
+                    </div>
+                  </div>
+                )}
 
                 <p className="planetarium-detail-desc">{selectedBody.description}</p>
 
@@ -962,8 +1028,8 @@ export default function PlanetariumPage() {
             ) : (
               <div className="planetarium-detail-empty">
                 <div className="planetarium-detail-empty-icon">&#127776;</div>
-                <h3>Select a Constellation or Planet</h3>
-                <p>Click on a constellation or planet in the sky map, or choose one from the lists below to see detailed viewing information.</p>
+                <h3>Select a Constellation or Solar System Body</h3>
+                <p>Click on a constellation, planet, moon, or the sun in the sky map, or choose one from the lists below to see detailed viewing information.</p>
               </div>
             )}
           </div>
@@ -1015,7 +1081,7 @@ export default function PlanetariumPage() {
 
         {/* Planets & Sun */}
         <div className="planetarium-list-section">
-          <h2 className="planetarium-panel-title">Planets &amp; Sun</h2>
+          <h2 className="planetarium-panel-title">Planets, Moon &amp; Sun</h2>
           <p className="planetarium-panel-subtitle">
             Solar system bodies computed from orbital mechanics
           </p>
@@ -1023,7 +1089,7 @@ export default function PlanetariumPage() {
             {celestialBodies.map(body => (
               <button
                 key={body.name}
-                className={`planetarium-body-card ${body.isSun ? 'planetarium-body-card--sun' : 'planetarium-body-card--planet'} ${body.altitude > 0 ? '' : 'planetarium-body-card--below'} ${selectedBody?.name === body.name ? 'planetarium-body-card--selected' : ''}`}
+                className={`planetarium-body-card ${body.isSun ? 'planetarium-body-card--sun' : body.isMoon ? 'planetarium-body-card--moon' : 'planetarium-body-card--planet'} ${body.altitude > 0 ? '' : 'planetarium-body-card--below'} ${selectedBody?.name === body.name ? 'planetarium-body-card--selected' : ''}`}
                 onClick={() => {
                   setSelectedBody(selectedBody?.name === body.name ? null : body);
                   setSelectedConstellation(null);

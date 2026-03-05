@@ -866,12 +866,16 @@ export interface CelestialBody {
   description: string;
   facts: string[];
   isSun: boolean;
+  isMoon?: boolean;
   ra: number;   // hours
   dec: number;  // degrees
   altitude: number;
   azimuth: number;
   compass: string;
   directionHint: string;
+  phase?: number;       // 0–1 illumination fraction
+  phaseAngle?: number;  // 0–360° (0=new, 90=first quarter, 180=full, 270=last quarter)
+  phaseName?: string;
 }
 
 interface OrbitalElements {
@@ -988,6 +992,66 @@ const PLANET_INFO: Record<string, { symbol: string; description: string; facts: 
   },
 };
 
+function norm360(x: number): number {
+  return ((x % 360) + 360) % 360;
+}
+
+/**
+ * Compute the Moon's geocentric ecliptic longitude and latitude (degrees).
+ * Uses a simplified version of Brown's lunar theory (Meeus, Astronomical Algorithms ch. 47).
+ * Accuracy: ~1° in longitude, ~0.3° in latitude.
+ * d = days since J2000.0 (JD - 2451545.0)
+ */
+function computeLunarEcliptic(d: number): { lon: number; lat: number } {
+  const L  = norm360(218.3164477 + 13.17639648 * d); // Moon mean longitude
+  const D  = norm360(297.8501921 + 12.19074912 * d); // Mean elongation
+  const M  = norm360(357.5291092 +  0.98560028 * d); // Sun mean anomaly
+  const Mp = norm360(134.9633964 + 13.06499295 * d); // Moon mean anomaly
+  const F  = norm360( 93.2720950 + 13.22935024 * d); // Argument of latitude
+
+  const Dr = D  * DEG2RAD;
+  const Mr = M  * DEG2RAD;
+  const Mpr = Mp * DEG2RAD;
+  const Fr = F  * DEG2RAD;
+
+  // Ecliptic longitude correction (degrees) — top 16 terms from Meeus Table 47.A
+  const lon = L
+    + 6.288774 * Math.sin(Mpr)
+    + 1.274027 * Math.sin(2*Dr - Mpr)
+    + 0.658314 * Math.sin(2*Dr)
+    + 0.213618 * Math.sin(2*Mpr)
+    - 0.185116 * Math.sin(Mr)
+    - 0.114332 * Math.sin(2*Fr)
+    + 0.058793 * Math.sin(2*Dr - 2*Mpr)
+    + 0.057066 * Math.sin(2*Dr - Mr - Mpr)
+    + 0.053322 * Math.sin(2*Dr + Mpr)
+    + 0.045758 * Math.sin(2*Dr - Mr)
+    - 0.040923 * Math.sin(Mr - Mpr)
+    - 0.034720 * Math.sin(Dr)
+    - 0.030383 * Math.sin(Mr + Mpr)
+    + 0.015327 * Math.sin(2*Dr - 2*Fr)
+    - 0.012528 * Math.sin(Mpr + 2*Fr)
+    - 0.010980 * Math.sin(Mpr - 2*Fr);
+
+  // Ecliptic latitude (degrees) — top 13 terms from Meeus Table 47.B
+  const lat =
+    + 5.128122 * Math.sin(Fr)
+    + 0.280602 * Math.sin(Mpr + Fr)
+    + 0.277693 * Math.sin(Mpr - Fr)
+    + 0.173237 * Math.sin(2*Dr - Fr)
+    + 0.055413 * Math.sin(2*Dr - Mpr + Fr)
+    - 0.046271 * Math.sin(2*Dr - Mpr - Fr)
+    + 0.032573 * Math.sin(2*Dr + Fr)
+    + 0.017198 * Math.sin(2*Mpr + Fr)
+    + 0.009267 * Math.sin(2*Dr + Mpr - Fr)
+    + 0.008823 * Math.sin(2*Mpr - Fr)
+    - 0.008247 * Math.sin(2*Dr - Mr - Fr)
+    + 0.004323 * Math.sin(2*Dr - Fr - 2*Mpr)
+    + 0.004200 * Math.sin(2*Dr + Mpr + Fr);
+
+  return { lon: norm360(lon), lat };
+}
+
 function computeHeliocentricEcliptic(name: string, T: number): { x: number; y: number; z: number } {
   const el = ORBITAL_ELEMENTS[name];
   const a = el.a + el.aRate * T;
@@ -1040,7 +1104,8 @@ function eclipticToRaDec(xGeo: number, yGeo: number, zGeo: number, obliquity: nu
 
 export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): CelestialBody[] {
   const jd = dateToJulianDay(date);
-  const T = (jd - 2451545.0) / 36525; // centuries since J2000.0
+  const d = jd - 2451545.0;            // days since J2000.0
+  const T = d / 36525;                  // centuries since J2000.0
   const obliquity = (23.439291 - 0.0130042 * T) * DEG2RAD;
   const lst = localSiderealTime(date, lonDeg);
 
@@ -1075,6 +1140,55 @@ export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): 
     directionHint: sunAltAz.altitude > 0
       ? `The Sun is ${sunAltAz.altitude.toFixed(0)}° above the ${azimuthToCompass(sunAltAz.azimuth)} horizon`
       : `The Sun is below the horizon (${sunAltAz.altitude.toFixed(0)}°)`,
+  });
+
+  // Moon
+  const moonEcl = computeLunarEcliptic(d);
+  const moonLonRad = moonEcl.lon * DEG2RAD;
+  const moonLatRad = moonEcl.lat * DEG2RAD;
+  const moonX = Math.cos(moonLatRad) * Math.cos(moonLonRad);
+  const moonY = Math.cos(moonLatRad) * Math.sin(moonLonRad);
+  const moonZ = Math.sin(moonLatRad);
+  const moonRaDec = eclipticToRaDec(moonX, moonY, moonZ, obliquity);
+  const moonAltAz = raDecToAltAz(moonRaDec.ra, moonRaDec.dec, latDeg, lst);
+
+  // Phase angle: angular separation between Moon and Sun in ecliptic longitude
+  const sunLon = norm360(Math.atan2(-earth.y, -earth.x) * RAD2DEG);
+  const phaseAngle = norm360(moonEcl.lon - sunLon);
+  const phase = (1 - Math.cos(phaseAngle * DEG2RAD)) / 2;
+  const phaseName =
+    phaseAngle < 22.5   ? 'New Moon'        :
+    phaseAngle < 67.5   ? 'Waxing Crescent' :
+    phaseAngle < 112.5  ? 'First Quarter'   :
+    phaseAngle < 157.5  ? 'Waxing Gibbous'  :
+    phaseAngle < 202.5  ? 'Full Moon'       :
+    phaseAngle < 247.5  ? 'Waning Gibbous'  :
+    phaseAngle < 292.5  ? 'Last Quarter'    : 'Waning Crescent';
+
+  bodies.push({
+    name: 'Moon',
+    symbol: '☽',
+    description: "Earth's only natural satellite, roughly 384,400 km away. Its gravity drives Earth's ocean tides and its reflected sunlight has guided human activity for millennia.",
+    facts: [
+      "The Moon is slowly drifting away from Earth at about 3.8 cm per year — roughly the rate your fingernails grow.",
+      "The Moon stabilizes Earth's axial tilt, preventing extreme climate swings that would make complex life far more difficult.",
+      "A lunar day (one rotation relative to the Sun) is 29.5 Earth days — identical to its orbital period, which is why we always see the same face.",
+      "The Moon has no atmosphere, so surface temperatures swing from 127 °C (261 °F) in sunlight to −173 °C (−279 °F) in shadow.",
+      "Twelve humans have walked on the Moon, all during NASA's Apollo program between July 1969 and December 1972.",
+    ],
+    isSun: false,
+    isMoon: true,
+    ra: moonRaDec.ra,
+    dec: moonRaDec.dec,
+    altitude: moonAltAz.altitude,
+    azimuth: moonAltAz.azimuth,
+    compass: azimuthToCompass(moonAltAz.azimuth),
+    directionHint: moonAltAz.altitude > 0
+      ? `Look ${azimuthToCompass(moonAltAz.azimuth)} at about ${moonAltAz.altitude.toFixed(0)}° above the horizon`
+      : `Currently below the horizon (${moonAltAz.altitude.toFixed(0)}°)`,
+    phase,
+    phaseAngle,
+    phaseName,
   });
 
   // Planets
