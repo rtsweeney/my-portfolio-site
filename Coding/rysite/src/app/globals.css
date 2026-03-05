@@ -1810,6 +1810,11 @@ a {
     max-height: none;
   }
 
+  .planetarium-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .planetarium-control-group {
     width: 100%;
     flex-direction: column;
@@ -1818,6 +1823,18 @@ a {
   .planetarium-control-group .calc-field {
     flex: 1;
     min-width: unset;
+    width: 100%;
+  }
+
+  .planetarium-location {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .planetarium-skymap-legend {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
   }
 
   .planetarium-constellation-grid {
