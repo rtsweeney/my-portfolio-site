@@ -1682,6 +1682,30 @@ a {
 }
 
 /* ============================================
+   Time Wheel Slider
+   ============================================ */
+
+.planetarium-wheel-track {
+  width: 100%;
+  height: 60px;
+  margin-bottom: 2rem;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+}
+
+.planetarium-wheel-track:active {
+  cursor: grabbing;
+}
+
+.planetarium-wheel-track canvas {
+  display: block;
+}
+
+/* ============================================
    Responsive
    ============================================ */
 

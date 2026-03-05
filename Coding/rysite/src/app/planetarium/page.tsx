@@ -15,6 +15,9 @@ import {
   type CelestialBody,
 } from './constellations';
 
+// Pixels of drag per minute of time — controls scrub sensitivity
+const PIXELS_PER_MINUTE = 3;
+
 interface VisibleConstellation extends Constellation {
   altitude: number;
   azimuth: number;
@@ -49,6 +52,14 @@ export default function PlanetariumPage() {
   const [selectedBody, setSelectedBody] = useState<CelestialBody | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gradientAngleRef = useRef(0);
+  const wheelCanvasRef = useRef<HTMLCanvasElement>(null);
+  const drawSkyMapRef = useRef<() => void>(() => {});
+  const drawWheelRef = useRef<() => void>(() => {});
+  const wheelDraggingRef = useRef(false);
+  const wheelLastXRef = useRef(0);
+  const wheelVelocityRef = useRef(0);
+  const wheelMomentumRef = useRef<number | null>(null);
+  const wheelMsRef = useRef<number>(Date.now());
 
   // Get user's geolocation on mount
   useEffect(() => {
@@ -363,23 +374,189 @@ export default function PlanetariumPage() {
     ctx.stroke();
   }, [date, time, location, selectedConstellation, visibleConstellations, expandedStar, celestialBodies, selectedBody]);
 
+  // Apply a timestamp (ms) to the date/time state
+  const applyMs = useCallback((ms: number) => {
+    const dt = new Date(ms);
+    const newDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const newTime = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+    setDate(newDate);
+    setTime(newTime);
+  }, []);
+
+  // Spin the wheel with momentum after release
+  const startMomentum = useCallback(() => {
+    const frame = () => {
+      wheelVelocityRef.current *= 0.92;
+      if (Math.abs(wheelVelocityRef.current) < 0.3) {
+        wheelMomentumRef.current = null;
+        return;
+      }
+      wheelMsRef.current += (wheelVelocityRef.current / PIXELS_PER_MINUTE) * 60000;
+      applyMs(Math.round(wheelMsRef.current));
+      wheelMomentumRef.current = requestAnimationFrame(frame);
+    };
+    wheelMomentumRef.current = requestAnimationFrame(frame);
+  }, [applyMs]);
+
+  // Draw the horizontal time wheel
+  const drawWheel = useCallback(() => {
+    const canvas = wheelCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.parentElement?.clientWidth ?? 600;
+    const H = 60;
+    canvas.style.width = `${W}px`;
+    canvas.style.height = `${H}px`;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Light background
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#ffffff');
+    bgGrad.addColorStop(1, '#f0eff8');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Parse center time
+    const [yr, mo, dy] = date.split('-').map(Number);
+    const [hr, mn] = time.split(':').map(Number);
+    const centerDate = new Date(yr, mo - 1, dy, hr, mn);
+    const centerMs = centerDate.getTime();
+    const cx = W / 2;
+
+    // Visible range in minutes
+    const halfVisMin = (W / 2) / PIXELS_PER_MINUTE + 2;
+    const startMin = Math.floor(centerMs / 60000 - halfVisMin);
+    const endMin = Math.ceil(centerMs / 60000 + halfVisMin);
+
+    // Tick marks
+    for (let m = startMin; m <= endMin; m++) {
+      const mMs = m * 60000;
+      const x = cx + ((mMs - centerMs) / 60000) * PIXELS_PER_MINUTE;
+
+      let tickH = 6;
+      let alpha = 0.18;
+      let lw = 0.5;
+
+      if (m % 60 === 0) {
+        tickH = 22;
+        alpha = 0.8;
+        lw = 1.5;
+      } else if (m % 15 === 0) {
+        tickH = 14;
+        alpha = 0.48;
+        lw = 1;
+      } else if (m % 5 === 0) {
+        tickH = 9;
+        alpha = 0.3;
+        lw = 0.75;
+      }
+
+      ctx.strokeStyle = `rgba(108, 92, 231, ${alpha})`;
+      ctx.lineWidth = lw;
+      ctx.beginPath();
+      ctx.moveTo(x, H - tickH);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+
+      if (m % 60 === 0) {
+        const tickDate = new Date(mMs);
+        const distFromCenter = Math.abs(x - cx);
+
+        if (distFromCenter > 44) {
+          const label = tickDate.getHours() === 0
+            ? tickDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : `${String(tickDate.getHours()).padStart(2, '0')}:00`;
+          ctx.font = tickDate.getHours() === 0 ? '600 9px system-ui, sans-serif' : '500 9px system-ui, sans-serif';
+          ctx.fillStyle = tickDate.getHours() === 0 ? 'rgba(0, 184, 148, 0.8)' : 'rgba(108, 92, 231, 0.72)';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(label, x, H - tickH - 2);
+        }
+      }
+    }
+
+    // Center line (gradient)
+    const cg = ctx.createLinearGradient(cx, 0, cx, H);
+    cg.addColorStop(0, 'rgba(108, 92, 231, 0)');
+    cg.addColorStop(0.25, 'rgba(108, 92, 231, 0.9)');
+    cg.addColorStop(0.6, 'rgba(0, 184, 148, 0.9)');
+    cg.addColorStop(1, 'rgba(232, 67, 147, 0.9)');
+    ctx.strokeStyle = cg;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, H);
+    ctx.stroke();
+
+    // Downward triangle pointer at top center
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.85)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, 0);
+    ctx.lineTo(cx + 4, 0);
+    ctx.lineTo(cx, 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Current time label — compact, just above the triangle's tip
+    const timeLabel = `${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.85)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(timeLabel, cx, 8);
+
+    // Edge fades + drag hint chevrons
+    const fw = Math.min(80, W * 0.12);
+    const lf = ctx.createLinearGradient(0, 0, fw, 0);
+    lf.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    lf.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = lf;
+    ctx.fillRect(0, 0, fw, H);
+    const rf = ctx.createLinearGradient(W - fw, 0, W, 0);
+    rf.addColorStop(0, 'rgba(240, 239, 248, 0)');
+    rf.addColorStop(1, 'rgba(240, 239, 248, 1)');
+    ctx.fillStyle = rf;
+    ctx.fillRect(W - fw, 0, fw, H);
+
+    // Drag hint chevrons (drawn after fades so they sit on top)
+    ctx.font = 'bold 14px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(108, 92, 231, 0.3)';
+    ctx.fillText('‹', fw * 0.5, H / 2 + 2);
+    ctx.fillText('›', W - fw * 0.5, H / 2 + 2);
+  }, [date, time]);
+
+  // Keep refs pointed at latest draw functions so the animation loop never restarts
+  useEffect(() => { drawSkyMapRef.current = drawSkyMap; }, [drawSkyMap]);
+  useEffect(() => { drawWheelRef.current = drawWheel; }, [drawWheel]);
+
+  // Single stable animation loop — never torn down/restarted on state changes
   useEffect(() => {
     let frameId: number;
     const animate = () => {
-      // 6-second rotation cycle to match the gradient-text animation
       gradientAngleRef.current = ((Date.now() % 6000) / 6000) * Math.PI * 2;
-      drawSkyMap();
+      drawSkyMapRef.current();
+      drawWheelRef.current();
       frameId = requestAnimationFrame(animate);
     };
     frameId = requestAnimationFrame(animate);
 
-    const handleResize = () => drawSkyMap();
+    const handleResize = () => {
+      drawSkyMapRef.current();
+      drawWheelRef.current();
+    };
     window.addEventListener('resize', handleResize);
     return () => {
       cancelAnimationFrame(frameId);
       window.removeEventListener('resize', handleResize);
     };
-  }, [drawSkyMap]);
+  }, []);
 
   // Handle canvas click to select constellations
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -595,6 +772,43 @@ export default function PlanetariumPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Time Wheel */}
+        <div
+          className="planetarium-wheel-track"
+            onPointerDown={(e) => {
+              if (wheelMomentumRef.current !== null) {
+                cancelAnimationFrame(wheelMomentumRef.current);
+                wheelMomentumRef.current = null;
+              }
+              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+              const [y, mo, d] = date.split('-').map(Number);
+              const [h, mi] = time.split(':').map(Number);
+              wheelMsRef.current = new Date(y, mo - 1, d, h, mi).getTime();
+              wheelDraggingRef.current = true;
+              wheelLastXRef.current = e.clientX;
+              wheelVelocityRef.current = 0;
+            }}
+            onPointerMove={(e) => {
+              if (!wheelDraggingRef.current) return;
+              const dx = e.clientX - wheelLastXRef.current;
+              wheelLastXRef.current = e.clientX;
+              wheelVelocityRef.current = dx;
+              wheelMsRef.current += (dx / PIXELS_PER_MINUTE) * 60000;
+              applyMs(Math.round(wheelMsRef.current));
+            }}
+            onPointerUp={() => {
+              if (!wheelDraggingRef.current) return;
+              wheelDraggingRef.current = false;
+              startMomentum();
+            }}
+            onPointerCancel={() => {
+              wheelDraggingRef.current = false;
+              wheelVelocityRef.current = 0;
+            }}
+          >
+            <canvas ref={wheelCanvasRef} />
         </div>
 
         {/* Main Dashboard */}
