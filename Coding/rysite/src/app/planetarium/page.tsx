@@ -414,8 +414,11 @@ export default function PlanetariumPage() {
     canvas.height = H * dpr;
     ctx.scale(dpr, dpr);
 
-    // Dark background
-    ctx.fillStyle = 'rgba(14, 12, 32, 0.97)';
+    // Light background
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#ffffff');
+    bgGrad.addColorStop(1, '#f0eff8');
+    ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
     // Parse center time
@@ -521,13 +524,13 @@ export default function PlanetariumPage() {
     // Edge fades
     const fw = Math.min(80, W * 0.12);
     const lf = ctx.createLinearGradient(0, 0, fw, 0);
-    lf.addColorStop(0, 'rgba(14, 12, 32, 1)');
-    lf.addColorStop(1, 'rgba(14, 12, 32, 0)');
+    lf.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    lf.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = lf;
     ctx.fillRect(0, 0, fw, H);
     const rf = ctx.createLinearGradient(W - fw, 0, W, 0);
-    rf.addColorStop(0, 'rgba(14, 12, 32, 0)');
-    rf.addColorStop(1, 'rgba(14, 12, 32, 1)');
+    rf.addColorStop(0, 'rgba(240, 239, 248, 0)');
+    rf.addColorStop(1, 'rgba(240, 239, 248, 1)');
     ctx.fillStyle = rf;
     ctx.fillRect(W - fw, 0, fw, H);
   }, [date, time]);
