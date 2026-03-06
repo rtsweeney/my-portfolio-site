@@ -144,6 +144,13 @@ function showHud() {
 viewport.addEventListener('mousemove', showHud);
 viewport.addEventListener('touchstart', showHud);
 
+// ── Mouse click as beat (when mic is off) ────────────
+viewport.addEventListener('click', () => {
+  if (activeVisual && activeVisual.registerMouseClick) {
+    activeVisual.registerMouseClick();
+  }
+});
+
 // ── Keyboard shortcuts ─────────────────────────────────
 document.addEventListener('keydown', e => {
   if (!activeVisual) return;

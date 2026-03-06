@@ -162,19 +162,45 @@ class Fish {
     this.x = this.dir > 0 ? -80 : cw + 80;
     this.y = ch * (0.15 + Math.random() * 0.60);
     this.baseSpeed = 0.7 + Math.random() * 1.2;
-    this.scale = 1 + Math.floor(Math.random() * 2);  // 1x or 2x
+    this.scale = 1 + Math.floor(Math.random() * 2);
     this.colorIdx = Math.floor(Math.random() * FISH_COLORS.length);
     this.wobblePhase = Math.random() * Math.PI * 2;
     this.cw = cw;
     this.ch = ch;
+    this.panicMode = false;
+    this.panicTimer = 0;
   }
 
-  update(cw, ch, bpmFactor) {
+  update(cw, ch, bpmFactor, sharks) {
     this.wobblePhase += 0.065;
-    this.x += this.dir * this.baseSpeed * bpmFactor;
-    this.y += Math.sin(this.wobblePhase * 0.5) * 0.25;
     this.cw = cw;
     this.ch = ch;
+
+    // Check for nearby sharks
+    this.panicMode = false;
+    for (const shark of sharks) {
+      const dx = shark.x - this.x;
+      const dy = shark.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 250) {
+        this.panicMode = true;
+        this.panicTimer = 60;
+        // Reverse direction away from shark
+        if (dx < 0) this.dir = 1;
+        else this.dir = -1;
+        break;
+      }
+    }
+
+    if (this.panicMode && this.panicTimer > 0) {
+      this.panicTimer--;
+    } else {
+      this.panicMode = false;
+    }
+
+    const speedMult = this.panicMode ? 2.2 : 1;
+    this.x += this.dir * this.baseSpeed * bpmFactor * speedMult;
+    this.y += Math.sin(this.wobblePhase * 0.5) * 0.25;
 
     if (this.dir > 0 && this.x > cw + 120) {
       this.x = -80;
@@ -186,28 +212,25 @@ class Fish {
   }
 
   draw(ctx) {
-    const { px, x, y, dir, scale } = this;
+    const { px, x, y, dir, scale, panicMode } = this;
     const s = px * scale;
     const { body, fin } = FISH_COLORS[this.colorIdx];
-    // tail wag: ±1.2 pixels at scale
     const wag = Math.sin(this.wobblePhase * 1.5) * 1.2;
 
-    ctx.globalAlpha = 0.88;
+    ctx.globalAlpha = panicMode ? 0.95 : 0.88;
 
-    // Helper: place a pixel block at (col, row) offsets from center, facing right.
-    // dir flips the x axis for left-swimming fish.
     const B = (col, row, color) => {
       pxRect(ctx, x + col * s * dir - s / 2, y + row * s - s / 2, s, s, color);
     };
 
-    // Body — diamond/oval shape
+    // Body
     B(0, -2, body);
     B(-1, -1, body); B(0, -1, body); B(1, -1, body);
     B(-2, 0, body);  B(-1, 0, body); B(0, 0, body);  B(1, 0, body); B(2, 0, body);
     B(-1, 1, body);  B(0, 1, body);  B(1, 1, body);
     B(0, 2, body);
 
-    // Tail (V-shape, wags)
+    // Tail
     B(-3 + wag,  -1, fin);
     B(-3,         0, fin);
     B(-3 - wag,   1, fin);
@@ -218,9 +241,151 @@ class Fish {
     B(0, -3, fin);
     B(1, -3, fin);
 
-    // Eye (solid dark, no globalAlpha adjustment)
     ctx.globalAlpha = 1;
     pxRect(ctx, x + 2 * s * dir - s * 0.35, y - s * 0.35, Math.round(s * 0.55), Math.round(s * 0.55), '#0a0a18');
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Shark ──────────────────────────────────────────────
+class Shark {
+  constructor(cw, ch, px) {
+    this.px = px;
+    this.x = Math.random() * cw;
+    this.y = ch * (0.25 + Math.random() * 0.45);
+    this.dir = Math.random() > 0.5 ? 1 : -1;
+    this.speed = 0.4 + Math.random() * 0.6;
+    this.wobblePhase = Math.random() * Math.PI * 2;
+    this.cw = cw;
+    this.ch = ch;
+  }
+
+  update(cw, ch) {
+    this.wobblePhase += 0.04;
+    this.x += this.dir * this.speed;
+    this.y += Math.sin(this.wobblePhase * 0.3) * 0.15;
+    this.cw = cw;
+    this.ch = ch;
+
+    if (this.dir > 0 && this.x > cw + 200) {
+      this.x = -200;
+      this.y = ch * (0.25 + Math.random() * 0.45);
+    } else if (this.dir < 0 && this.x < -200) {
+      this.x = cw + 200;
+      this.y = ch * (0.25 + Math.random() * 0.45);
+    }
+  }
+
+  draw(ctx) {
+    const { px, x, y, dir } = this;
+    const s = px * 2;
+    ctx.globalAlpha = 0.75;
+
+    const B = (col, row, color) => {
+      pxRect(ctx, x + col * s * dir - s / 2, y + row * s - s / 2, s, s, color);
+    };
+
+    // Shark body (pointed snout, dorsal fin, tail)
+    // Snout
+    B(2, 0, '#404050');
+    B(3, -1, '#303040');
+    B(3, 1, '#303040');
+
+    // Body
+    B(0, -1, '#505060');
+    B(0, 0, '#505060');
+    B(0, 1, '#505060');
+    B(-1, -1, '#505060');
+    B(-1, 0, '#505060');
+    B(-1, 1, '#505060');
+    B(-2, -1, '#505060');
+    B(-2, 0, '#505060');
+    B(-2, 1, '#505060');
+
+    // Dorsal fin
+    B(-1, -2, '#606070');
+    B(-1, -3, '#606070');
+
+    // Tail (pointed)
+    B(-3, -2, '#303040');
+    B(-3, -1, '#303040');
+    B(-3, 0, '#303040');
+    B(-3, 1, '#303040');
+    B(-3, 2, '#303040');
+
+    // Eye
+    ctx.globalAlpha = 1;
+    pxRect(ctx, x + 1 * s * dir - s * 0.3, y - s * 0.3, Math.round(s * 0.5), Math.round(s * 0.5), '#ffff00');
+
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Crab ───────────────────────────────────────────────
+class Crab {
+  constructor(cw, ch, px) {
+    this.px = px;
+    this.x = Math.random() * cw;
+    this.floorY = ch - px * 3.5;
+    this.y = this.floorY;
+    this.dir = Math.random() > 0.5 ? 1 : -1;
+    this.speed = 0.12 + Math.random() * 0.08;
+    this.walkPhase = Math.random() * Math.PI * 2;
+    this.cw = cw;
+    this.ch = ch;
+  }
+
+  update(cw, ch) {
+    this.walkPhase += 0.035;
+    this.x += this.dir * this.speed;
+    this.cw = cw;
+    this.ch = ch;
+
+    // Wrap around
+    if (this.dir > 0 && this.x > cw + 40) {
+      this.x = -40;
+      this.dir = Math.random() > 0.5 ? 1 : -1;
+    } else if (this.dir < 0 && this.x < -40) {
+      this.x = cw + 40;
+      this.dir = Math.random() > 0.5 ? 1 : -1;
+    }
+  }
+
+  draw(ctx) {
+    const { px, x, walkPhase, dir, floorY } = this;
+    const s = px;
+    const wiggle = Math.sin(walkPhase) * s * 0.4;
+
+    ctx.globalAlpha = 0.78;
+
+    // Body (brownish shell)
+    const bx = x - s * 1.5;
+    const by = floorY;
+    pxRect(ctx, bx - s / 2, by - s / 2, s * 2, s, '#8b6f47');
+    pxRect(ctx, bx, by - s * 1.5, s, s, '#a0826d');
+
+    // Legs (3 on each side, wave up/down)
+    const legPositions = [-1, 0, 1];
+    for (const legIdx of legPositions) {
+      const legX = bx + legIdx * s;
+      const legWave = Math.sin(walkPhase + legIdx * Math.PI / 3) * s * 0.6;
+
+      // Left side legs
+      pxRect(ctx, legX - s * 1.5 * dir - s / 2, by + legWave + s * 0.2, s, s, '#6b5437');
+      // Right side legs
+      pxRect(ctx, legX + s * 1.5 * dir - s / 2, by + legWave + s * 0.2, s, s, '#6b5437');
+    }
+
+    // Claws (pinchers)
+    const clawY = by - s * 0.5;
+    pxRect(ctx, x - s * 2.2 * dir - s / 2, clawY - s / 2, s, s, '#9b7f57');
+    pxRect(ctx, x + s * 2.2 * dir - s / 2, clawY - s / 2, s, s, '#9b7f57');
+    pxRect(ctx, x - s * 2.8 * dir - s / 2, clawY - s * 0.8, s * 0.8, s * 0.8, '#8b6f47');
+    pxRect(ctx, x + s * 2.8 * dir - s / 2, clawY - s * 0.8, s * 0.8, s * 0.8, '#8b6f47');
+
+    // Eyes
+    pxRect(ctx, x - s * 0.5 * dir - s * 0.25, by - s, s * 0.5, s * 0.5, '#000000');
+    pxRect(ctx, x + s * 0.5 * dir - s * 0.25, by - s, s * 0.5, s * 0.5, '#000000');
 
     ctx.globalAlpha = 1;
   }
@@ -228,15 +393,16 @@ class Fish {
 
 // ── Kelp ───────────────────────────────────────────────
 class Kelp {
-  constructor(cw, ch, px) {
+  constructor(cw, ch, px, scale = 1) {
     this.px = px;
     this.x = 40 + Math.random() * (cw - 80);
-    this.baseY = ch;
-    this.height = 10 + Math.floor(Math.random() * 14);  // segments
+    this.baseY = ch - px * 3.5;
+    this.height = (10 + Math.floor(Math.random() * 14)) * scale;
     this.phase = Math.random() * Math.PI * 2;
-    this.swaySpeed = 0.008 + Math.random() * 0.007;
+    this.swaySpeed = (0.008 + Math.random() * 0.007) * (1 / scale);
     this.color = KELP_COLORS[Math.floor(Math.random() * KELP_COLORS.length)];
-    this.width = 1 + Math.floor(Math.random() * 2);     // 1 or 2 px wide
+    this.width = (1 + Math.floor(Math.random() * 2)) * scale;
+    this.scale = scale;
   }
 
   update() {
@@ -244,13 +410,13 @@ class Kelp {
   }
 
   draw(ctx) {
-    const { px, x, baseY, height, phase, color, width } = this;
-    ctx.globalAlpha = 0.72;
+    const { px, x, baseY, height, phase, color, width, scale } = this;
+    ctx.globalAlpha = scale > 1 ? 0.85 : 0.72;
     for (let seg = 0; seg < height; seg++) {
-      const t = seg / height;  // 0 = bottom, 1 = top
-      const sway = Math.sin(phase + t * 2.8) * px * 2.8 * t;
-      const by = baseY - seg * px * 1.7;
-      pxRect(ctx, x + sway - (px * width) / 2, by, px * width, px * 1.7, color);
+      const t = seg / height;
+      const sway = Math.sin(phase + t * 2.8) * px * 2.8 * t * scale;
+      const by = baseY - seg * px * 1.7 * scale;
+      pxRect(ctx, x + sway - (px * width) / 2, by, px * width, px * 1.7 * scale, color);
     }
     ctx.globalAlpha = 1;
   }
@@ -301,10 +467,11 @@ function drawCaustics(ctx, cw, ch, time, px) {
 
 // ── Sand floor ─────────────────────────────────────────
 function drawFloor(ctx, cw, ch, px) {
+  const floorTop = ch - px * 3.5;
   ctx.globalAlpha = 0.35;
-  pxRect(ctx, 0, ch - px * 3, cw, px * 3, '#c8a84a');
+  pxRect(ctx, 0, floorTop, cw, px * 3.5, '#c8a84a');
   ctx.globalAlpha = 0.2;
-  pxRect(ctx, 0, ch - px * 2, cw, px * 2, '#e0c06a');
+  pxRect(ctx, 0, floorTop + px, cw, px * 2.5, '#e0c06a');
   ctx.globalAlpha = 1;
 }
 
@@ -318,14 +485,24 @@ export const meta = {
 let jellies = [];
 let bubbles = [];
 let kelps = [];
+let kelpsBackground = [];
 let fish = [];
+let sharks = [];
+let crab = null;
 let time = 0;
 let px = PX;
+let mouseClickedThisFrame = false;
 
 export function init(canvas) {
   const ctx = canvas.getContext('2d');
   resize(canvas);
   return ctx;
+}
+
+export function registerMouseClick() {
+  if (!isEnabled()) {
+    mouseClickedThisFrame = true;
+  }
 }
 
 export function resize(canvas) {
@@ -347,10 +524,18 @@ export function resize(canvas) {
     bubbles.push(new Bubble(canvas.width, canvas.height, px));
   }
 
+  // Regular kelp (background)
   kelps = [];
   const kelpCount = Math.floor(5 + canvas.width / 160);
   for (let i = 0; i < kelpCount; i++) {
-    kelps.push(new Kelp(canvas.width, canvas.height, px));
+    kelps.push(new Kelp(canvas.width, canvas.height, px, 1));
+  }
+
+  // Bigger foreground kelp
+  kelpsBackground = [];
+  const bgKelpCount = Math.floor(2 + canvas.width / 300);
+  for (let i = 0; i < bgKelpCount; i++) {
+    kelpsBackground.push(new Kelp(canvas.width, canvas.height, px, 2.5));
   }
 
   fish = [];
@@ -358,6 +543,15 @@ export function resize(canvas) {
   for (let i = 0; i < fishCount; i++) {
     fish.push(new Fish(canvas.width, canvas.height, px));
   }
+
+  // Occasional sharks
+  sharks = [];
+  if (Math.random() > 0.5) {
+    sharks.push(new Shark(canvas.width, canvas.height, px));
+  }
+
+  // Single crab
+  crab = new Crab(canvas.width, canvas.height, px);
 }
 
 export function draw(ctx, canvas) {
@@ -368,6 +562,13 @@ export function draw(ctx, canvas) {
   const beat = sample();
   const bpm = getBPM();
   const bpmFactor = (isEnabled() && bpm > 40) ? Math.sqrt(bpm / 80) : 1;
+
+  // Apply mouse click as beat when mic is off
+  let effectiveBeat = beat;
+  if (!isEnabled() && mouseClickedThisFrame) {
+    effectiveBeat = { ...beat, kick: true };
+    mouseClickedThisFrame = false;
+  }
 
   // Background — bright shallow aquarium
   const grad = ctx.createLinearGradient(0, 0, 0, ch);
@@ -380,7 +581,13 @@ export function draw(ctx, canvas) {
   drawCaustics(ctx, cw, ch, time, px);
   drawFloor(ctx, cw, ch, px);
 
-  // Kelp (behind everything else)
+  // Background kelp (behind fish)
+  for (const k of kelpsBackground) {
+    k.update();
+    k.draw(ctx);
+  }
+
+  // Regular kelp (behind fish)
   for (const k of kelps) {
     k.update();
     k.draw(ctx);
@@ -392,15 +599,27 @@ export function draw(ctx, canvas) {
     b.draw(ctx);
   }
 
-  // Fish
+  // Sharks
+  for (const s of sharks) {
+    s.update(cw, ch);
+    s.draw(ctx);
+  }
+
+  // Fish (they react to sharks)
   for (const f of fish) {
-    f.update(cw, ch, bpmFactor);
+    f.update(cw, ch, bpmFactor, sharks);
     f.draw(ctx);
+  }
+
+  // Crab (crawls on floor)
+  if (crab) {
+    crab.update(cw, ch);
+    crab.draw(ctx);
   }
 
   // Jellyfish (on top)
   for (const j of jellies) {
-    j.update(cw, ch, beat);
+    j.update(cw, ch, effectiveBeat);
     j.draw(ctx);
   }
 }
@@ -462,19 +681,46 @@ export function preview(ctx, w, h) {
     ctx.globalAlpha = 1;
   }
 
-  // Fish thumbnail
+  // Shark thumbnail (top)
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = '#505060';
+  ctx.fillRect(w * 0.8, h * 0.12, prevPx * 5, prevPx * 2);
+  ctx.fillStyle = '#606070';
+  ctx.fillRect(w * 0.8 + prevPx, h * 0.05, prevPx, prevPx);
+  ctx.fillStyle = '#ffff00';
+  ctx.fillRect(w * 0.85, h * 0.13, prevPx * 0.6, prevPx * 0.6);
+  ctx.globalAlpha = 1;
+
+  // Fish thumbnail (middle)
   ctx.globalAlpha = 0.8;
   ctx.fillStyle = '#ff7c35';
-  ctx.fillRect(w * 0.55, h * 0.28, prevPx * 4, prevPx * 2);
+  ctx.fillRect(w * 0.1, h * 0.4, prevPx * 4, prevPx * 2);
   ctx.fillStyle = '#c44a10';
-  ctx.fillRect(w * 0.55 - prevPx, h * 0.28, prevPx, prevPx * 2);
+  ctx.fillRect(w * 0.1 - prevPx, h * 0.4, prevPx, prevPx * 2);
+  ctx.globalAlpha = 1;
+
+  // Crab thumbnail (floor)
+  ctx.globalAlpha = 0.75;
+  const crabX = w * 0.75;
+  const crabY = h - prevPx * 4;
+  ctx.fillStyle = '#8b6f47';
+  ctx.fillRect(crabX, crabY - prevPx, prevPx * 2, prevPx);
+  ctx.fillStyle = '#a0826d';
+  ctx.fillRect(crabX + prevPx * 0.5, crabY - prevPx * 2, prevPx, prevPx);
+  ctx.fillStyle = '#9b7f57';
+  ctx.fillRect(crabX - prevPx * 0.8, crabY, prevPx * 0.7, prevPx * 0.7);
+  ctx.fillRect(crabX + prevPx * 2, crabY, prevPx * 0.7, prevPx * 0.7);
+  ctx.fillStyle = '#6b5437';
+  ctx.fillRect(crabX - prevPx * 0.2, crabY + prevPx * 0.3, prevPx * 0.5, prevPx * 0.5);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(crabX + prevPx * 0.2, crabY - prevPx * 0.3, prevPx * 0.4, prevPx * 0.4);
   ctx.globalAlpha = 1;
 
   // Bubbles
   ctx.globalAlpha = 0.25;
   ctx.fillStyle = '#cceeff';
   ctx.fillRect(w * 0.5, h * 0.2, prevPx, prevPx);
-  ctx.fillRect(w * 0.8, h * 0.35, prevPx, prevPx);
-  ctx.fillRect(w * 0.15, h * 0.5, prevPx, prevPx);
+  ctx.fillRect(w * 0.3, h * 0.6, prevPx, prevPx);
+  ctx.fillRect(w * 0.9, h * 0.75, prevPx, prevPx);
   ctx.globalAlpha = 1;
 }
