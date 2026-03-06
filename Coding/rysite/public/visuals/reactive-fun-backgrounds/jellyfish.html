@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jellyfish Aquarium</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <!-- Visual launches directly — no selection screen -->
+  <div id="visual-viewport">
+    <canvas id="visual-canvas"></canvas>
+
+    <!-- Floating HUD – auto-hides after inactivity -->
+    <div id="hud">
+      <button id="btn-mic" title="Enable microphone for beat detection">Mic: OFF</button>
+      <button id="btn-fullscreen" title="Toggle fullscreen">Fullscreen</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/jellyfish-app.js"></script>
+</body>
+</html>
