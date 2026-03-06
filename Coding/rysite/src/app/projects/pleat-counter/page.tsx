@@ -174,9 +174,13 @@ function intersectHV(
 }
 
 // ── Perspective-Aware Filter Boundary Detection ──────────────────────────────
-// Detects the filter media as a quadrilateral (handles perspective & tilt).
-// Uses local variance (texture density) to distinguish pleated media from
-// background, then fits 4 edge lines with robust regression.
+// Detects the pleated filter *media* as a quadrilateral (handles perspective &
+// tilt).  Uses a two-pass "media-first" strategy:
+//   Pass 1 – find the overall textured region (filter + frame)
+//   Pass 2 – within that region, isolate the dense pleated media core by
+//            applying morphological opening (erode → dilate) to strip away thin
+//            high-variance edges from the frame, then re-scan for boundaries.
+// This targets the inner media boundary rather than the outer filter edge.
 
 function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   // 1. Compute local variance map (high variance = textured filter media)
@@ -191,25 +195,58 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   // Smooth variance for more stable boundaries
   const smoothVar = boxBlur(variance, w, h, Math.max(2, Math.round(Math.min(w, h) * 0.01)));
 
-  // 2. Determine threshold — use Otsu on sqrt(variance) scaled to 0-255
+  // 2. Scale to 0-255 and compute initial Otsu threshold
   let maxVar = 0;
   for (let i = 0; i < w * h; i++) maxVar = Math.max(maxVar, smoothVar[i]);
   const sqrtScale = maxVar > 0 ? 255 / Math.sqrt(maxVar) : 1;
   const varScaled = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) varScaled[i] = Math.sqrt(smoothVar[i]) * sqrtScale;
-  const varThresh = otsuThreshold(varScaled);
 
-  // 3. Scan from each side to find boundary points
+  // 3. Media-first: morphological opening to keep only bulk media texture.
+  //    Erode (min-filter via negated boxBlur trick) then dilate.  We approximate
+  //    an erode by thresholding after a box-blur of the binary mask — pixels
+  //    that survive are far from the boundary (= media core).
+  const otsuT = otsuThreshold(varScaled);
+  // Binary mask: 1 where variance exceeds Otsu, 0 otherwise
+  const binaryMask = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) binaryMask[i] = varScaled[i] > otsuT ? 1 : 0;
+
+  // Erode: blur the binary mask and threshold at a high fraction (0.85) —
+  // only pixels surrounded by other "on" pixels survive.
+  const erodeR = Math.max(3, Math.round(Math.min(w, h) * 0.025));
+  const eroded = boxBlur(binaryMask, w, h, erodeR);
+  const erodedBin = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) erodedBin[i] = eroded[i] > 0.85 ? 1 : 0;
+
+  // Dilate: blur the eroded mask and threshold at a low fraction (0.15) —
+  // expands back to roughly original size but without thin frame edges.
+  const dilated = boxBlur(erodedBin, w, h, erodeR);
+  const mediaMask = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) mediaMask[i] = dilated[i] > 0.15 ? varScaled[i] : 0;
+
+  // Re-threshold on the cleaned media mask.  Use a raised threshold (Otsu on
+  // the surviving pixels) to tightly hug the media boundary.
+  const mediaThresh = otsuThreshold(mediaMask);
+  // Blend: use the higher of original Otsu and media-specific threshold so we
+  // don't accidentally expand beyond the outer edge.
+  const varThresh = Math.max(otsuT, mediaThresh * 0.9);
+
+  // Build the final scan target — zero out pixels outside the media core so
+  // edge scanning only locks on to the media, not the frame.
+  const scanMap = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) scanMap[i] = mediaMask[i] > 0 ? varScaled[i] : 0;
+
+  // 4. Scan from each side to find boundary points (on the media scanMap)
   const N = 30; // sample positions per edge
   const windowSize = Math.max(3, Math.round(Math.min(w, h) * 0.02));
 
-  // Top edge: for each x, scan downward to find where texture begins
+  // Top edge: for each x, scan downward to find where media texture begins
   const topPts: Pt[] = [];
   for (let i = 0; i < N; i++) {
     const x = Math.floor((i + 0.5) * w / N);
     for (let y = 0; y <= h - windowSize; y++) {
       let avg = 0;
-      for (let dy = 0; dy < windowSize; dy++) avg += varScaled[(y + dy) * w + x];
+      for (let dy = 0; dy < windowSize; dy++) avg += scanMap[(y + dy) * w + x];
       avg /= windowSize;
       if (avg > varThresh) { topPts.push([x, y]); break; }
     }
@@ -221,7 +258,7 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
     const x = Math.floor((i + 0.5) * w / N);
     for (let y = h - 1; y >= windowSize - 1; y--) {
       let avg = 0;
-      for (let dy = 0; dy < windowSize; dy++) avg += varScaled[(y - dy) * w + x];
+      for (let dy = 0; dy < windowSize; dy++) avg += scanMap[(y - dy) * w + x];
       avg /= windowSize;
       if (avg > varThresh) { bottomPts.push([x, y]); break; }
     }
@@ -233,7 +270,7 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
     const y = Math.floor((i + 0.5) * h / N);
     for (let x = 0; x <= w - windowSize; x++) {
       let avg = 0;
-      for (let dx = 0; dx < windowSize; dx++) avg += varScaled[y * w + x + dx];
+      for (let dx = 0; dx < windowSize; dx++) avg += scanMap[y * w + x + dx];
       avg /= windowSize;
       if (avg > varThresh) { leftPts.push([y, x]); break; } // note: [y, x] for fitting x = f(y)
     }
@@ -245,13 +282,13 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
     const y = Math.floor((i + 0.5) * h / N);
     for (let x = w - 1; x >= windowSize - 1; x--) {
       let avg = 0;
-      for (let dx = 0; dx < windowSize; dx++) avg += varScaled[y * w + x - dx];
+      for (let dx = 0; dx < windowSize; dx++) avg += scanMap[y * w + x - dx];
       avg /= windowSize;
       if (avg > varThresh) { rightPts.push([y, x]); break; } // [y, x]
     }
   }
 
-  // 4. Fit lines using Theil-Sen
+  // 5. Fit lines using Theil-Sen
   // Top/bottom: y = slope*x + intercept  (points are [x, y])
   // Left/right: x = slope*y + intercept  (points are [y, x])
   const minPtsForLine = 4;
@@ -266,28 +303,28 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const rightLine = rightPts.length >= minPtsForLine
     ? theilSenFit(rightPts) : { slope: 0, intercept: w - defaultMargin };
 
-  // 5. Intersect the 4 lines to get corners
+  // 6. Intersect the 4 lines to get corners
   const tl = intersectHV(topLine, leftLine);
   const tr = intersectHV(topLine, rightLine);
   const br = intersectHV(bottomLine, rightLine);
   const bl = intersectHV(bottomLine, leftLine);
 
-  // 6. Clamp corners to image bounds with margin
+  // 7. Clamp corners to image bounds with margin
   const clampPt = ([x, y]: Pt): Pt => [
     Math.max(0, Math.min(w - 1, x)),
     Math.max(0, Math.min(h - 1, y)),
   ];
   let quad: Quad = [clampPt(tl), clampPt(tr), clampPt(br), clampPt(bl)];
 
-  // 7. Validate — if quad is too small or degenerate, fall back to full image with margin
+  // 8. Validate — if quad is too small or degenerate, fall back to full image with margin
   const qb = quadBounds(quad);
   if (qb.w < w * 0.15 || qb.h < h * 0.15) {
     const m = defaultMargin;
     quad = [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
   }
 
-  // 8. Inset slightly to exclude frame edges
-  return insetQuad(quad, 0.015);
+  // 9. Small inset to ensure we're inside the media, not on the frame edge
+  return insetQuad(quad, 0.01);
 }
 
 // ── Profile Utilities ─────────────────────────────────────────────────────────
@@ -688,8 +725,11 @@ function extrapolateGrid(
 function analyzePleats(
   gray: Float32Array, imgW: number, imgH: number, bounds: Rect, mask: Uint8Array, sensitivity: number
 ): PleatResult {
-  const pFactor = 0.55 - (sensitivity / 100) * 0.50;
-  const smoothR = Math.max(1, Math.round(Math.max(bounds.w, bounds.h) * 0.003));
+  // pFactor controls peak prominence threshold: lower = more sensitive.
+  // Range: ~0.57 at 5% sensitivity down to ~0.02 at 95% sensitivity.
+  const pFactor = 0.60 - (sensitivity / 100) * 0.58;
+  // Adaptive smoothing: use smaller radius so high-density pleats aren't blurred
+  const smoothR = Math.max(1, Math.round(Math.max(bounds.w, bounds.h) * 0.002));
   const numStrips = 12;
 
   function analyzeDirection(dir: 'h' | 'v'): PleatResult {
@@ -718,8 +758,9 @@ function analyzePleats(
       const peaks = findPeaks(det, sd * pFactor);
       if (peaks.length >= 2) allPeaks.push(peaks);
 
-      const minPeriod = Math.max(3, paraLen * 0.01);
-      const maxPeriod = paraLen * 0.15;
+      // Wider period range: lower min for high-density (~8ppi), higher max for low-density
+      const minPeriod = Math.max(2, paraLen * 0.005);
+      const maxPeriod = paraLen * 0.25;
       const { period, strength } = estimatePeriodAutocorr(det, minPeriod, maxPeriod);
       if (strength > 0.1 && period > 0) {
         bestPeriodSum += period;
@@ -733,8 +774,8 @@ function analyzePleats(
     const combinedSmooth = smoothProfile(combinedProfile, smoothR);
     const combinedDet = detrend(combinedSmooth);
 
-    const minPeriod = Math.max(3, paraLen * 0.01);
-    const maxPeriod = paraLen * 0.15;
+    const minPeriod = Math.max(2, paraLen * 0.005);
+    const maxPeriod = paraLen * 0.25;
     const globalPeriod = estimatePeriodAutocorr(combinedDet, minPeriod, maxPeriod);
 
     const estPeriod = periodCount > 0 ? bestPeriodSum / periodCount : globalPeriod.period;
@@ -1544,7 +1585,7 @@ export default function PleatCounterPage() {
                 </span>
               </div>
               <input
-                type="range" min={10} max={90} step={5}
+                type="range" min={5} max={95} step={5}
                 value={sensitivity}
                 onChange={handleSensitivityChange}
                 style={{ width: '100%', accentColor: 'var(--accent-secondary)', cursor: 'pointer' }}
