@@ -1518,66 +1518,71 @@ export default function PleatCounterPage() {
               </div>
             </div>
           ) : (
-            <div style={{ position: 'relative', marginBottom: '1.75rem' }}>
-              <canvas
-                ref={canvasRef}
-                onMouseDown={onCanvasMouseDown}
-                onMouseMove={onCanvasMouseMove}
-                onMouseUp={onCanvasMouseUp}
-                onTouchStart={onCanvasTouchStart}
-                onTouchMove={onCanvasTouchMove}
-                onTouchEnd={onCanvasTouchEnd}
-                style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block', touchAction: 'none', cursor: 'default' }}
-              />
-              {analyzing && (
-                <div style={{
-                  position: 'absolute', inset: 0, display: 'flex',
-                  flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  background: 'rgba(26,26,46,0.6)', borderRadius: 'var(--radius-md)',
-                  gap: '0.75rem',
-                }}>
-                  <div style={{ width: 36, height: 36, border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#00e676', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  <p style={{ color: 'white', fontWeight: 600, fontSize: '0.95rem' }}>{loadingStatus || 'Analyzing pleats\u2026'}</p>
-                </div>
-              )}
-              <button
-                onClick={handleReset}
-                style={{
-                  position: 'absolute', top: 10, right: 10,
-                  background: 'rgba(26,26,46,0.65)', color: 'white',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 'var(--radius-sm)', padding: '0.35rem 0.75rem',
-                  cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
-                  backdropFilter: 'blur(8px)', letterSpacing: '0.02em',
-                }}
-              >
-                Retake
-              </button>
-
-              {/* Legend */}
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.6rem', fontSize: '0.72rem', color: 'var(--text-muted)', flexWrap: 'wrap', position: 'absolute', bottom: -24, left: 0 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 12, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
-                  Filter boundary
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 12, height: 2, background: 'rgba(0,191,255,0.6)', borderRadius: 2, display: 'inline-block' }} />
-                  Ridge lines
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 12, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
-                  Counting line
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 12, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
-                  Detected pleats
-                </span>
-                {analysisInfo?.gratingDetected && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 12, height: 2, background: 'rgba(255,165,0,0.5)', borderRadius: 2, display: 'inline-block' }} />
-                    Grating bars
-                  </span>
+            <div style={{ marginBottom: '0.5rem' }}>
+              {/* Canvas */}
+              <div style={{ position: 'relative' }}>
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={onCanvasMouseDown}
+                  onMouseMove={onCanvasMouseMove}
+                  onMouseUp={onCanvasMouseUp}
+                  onTouchStart={onCanvasTouchStart}
+                  onTouchMove={onCanvasTouchMove}
+                  onTouchEnd={onCanvasTouchEnd}
+                  style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block', touchAction: 'none', cursor: 'default' }}
+                />
+                {analyzing && (
+                  <div style={{
+                    position: 'absolute', inset: 0, display: 'flex',
+                    flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(26,26,46,0.6)', borderRadius: 'var(--radius-md)',
+                    gap: '0.75rem',
+                  }}>
+                    <div style={{ width: 36, height: 36, border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#00e676', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    <p style={{ color: 'white', fontWeight: 600, fontSize: '0.95rem' }}>{loadingStatus || 'Analyzing pleats\u2026'}</p>
+                  </div>
                 )}
+              </div>
+
+              {/* Legend + Retake row — below the image, never overlapping corner handles */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.72rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 12, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
+                    Filter boundary
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 12, height: 2, background: 'rgba(0,191,255,0.6)', borderRadius: 2, display: 'inline-block' }} />
+                    Ridge lines
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 12, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
+                    Counting line
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 12, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
+                    Detected pleats
+                  </span>
+                  {analysisInfo?.gratingDetected && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span style={{ width: 12, height: 2, background: 'rgba(255,165,0,0.5)', borderRadius: 2, display: 'inline-block' }} />
+                      Grating bars
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={handleReset}
+                  style={{
+                    flexShrink: 0,
+                    background: 'var(--surface)', color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)', padding: '0.3rem 0.75rem',
+                    cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Retake
+                </button>
               </div>
             </div>
           )}
