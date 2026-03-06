@@ -443,7 +443,7 @@ export default function PlanetariumPage() {
         wheelMomentumRef.current = null;
         return;
       }
-      wheelMsRef.current += (wheelVelocityRef.current / PIXELS_PER_MINUTE) * 60000;
+      wheelMsRef.current -= (wheelVelocityRef.current / PIXELS_PER_MINUTE) * 60000;
       applyMs(Math.round(wheelMsRef.current));
       wheelMomentumRef.current = requestAnimationFrame(frame);
     };
@@ -847,7 +847,7 @@ export default function PlanetariumPage() {
               const dx = e.clientX - wheelLastXRef.current;
               wheelLastXRef.current = e.clientX;
               wheelVelocityRef.current = dx;
-              wheelMsRef.current += (dx / PIXELS_PER_MINUTE) * 60000;
+              wheelMsRef.current -= (dx / PIXELS_PER_MINUTE) * 60000;
               applyMs(Math.round(wheelMsRef.current));
             }}
             onPointerUp={() => {
