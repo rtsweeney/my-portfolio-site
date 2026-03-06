@@ -722,6 +722,129 @@ function extrapolateGrid(
   return { gridPositions: detectedPositions, count: detectedPositions.length };
 }
 
+// ── Edge-Zone Multi-Line Max Counting ─────────────────────────────────────────
+// Pleats near the filter frame edges are often partially hidden by the border.
+// Instead of averaging, scan multiple individual lines in the top and bottom
+// thirds and take the UNION of all detected peaks (if ANY line sees a pleat at
+// position X, it counts). This maximises recall at the edges where some pleats
+// are only visible on certain scan lines.
+
+function edgeZoneMaxPeaks(
+  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array,
+  dir: 'h' | 'v', smoothR: number, pFactor: number, detectBright: boolean,
+  expectedPeriod: number
+): number[] {
+  const paraLen = dir === 'h' ? bounds.w : bounds.h;
+  const perpLen = dir === 'h' ? bounds.h : bounds.w;
+  const thirdSize = Math.floor(perpLen / 3);
+  const numLines = Math.max(3, Math.min(8, Math.floor(thirdSize / 2)));
+
+  // Define zones: top third and bottom third of the perpendicular axis
+  const zones: Array<[number, number]> = [
+    [0, thirdSize],                          // top third
+    [perpLen - thirdSize, perpLen],           // bottom third
+  ];
+
+  const tolerance = Math.max(2, Math.round(expectedPeriod * 0.25));
+  // Collect all peak positions from all scan lines in both edge zones
+  const seenPositions = new Uint8Array(paraLen);
+
+  for (const [zStart, zEnd] of zones) {
+    const zoneSpan = zEnd - zStart;
+    const step = Math.max(1, Math.floor(zoneSpan / numLines));
+
+    for (let lineIdx = 0; lineIdx < numLines; lineIdx++) {
+      const perp = zStart + Math.min(Math.floor(lineIdx * step + step / 2), zoneSpan - 1);
+      // Extract a single scan line (with a narrow 3-pixel band for noise reduction)
+      const bandHalf = 1;
+      const prof = new Float32Array(paraLen);
+      const counts = new Float32Array(paraLen);
+      for (let dp = -bandHalf; dp <= bandHalf; dp++) {
+        const p = perp + dp;
+        if (p < 0 || p >= perpLen) continue;
+        for (let para = 0; para < paraLen; para++) {
+          const x = dir === 'h' ? bounds.x + para : bounds.x + p;
+          const y = dir === 'h' ? bounds.y + p : bounds.y + para;
+          if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
+            prof[para] += gray[y * imgW + x];
+            counts[para]++;
+          }
+        }
+      }
+      let anyData = false;
+      for (let i = 0; i < paraLen; i++) {
+        if (counts[i] > 0) { prof[i] /= counts[i]; anyData = true; }
+      }
+      if (!anyData) continue;
+
+      const smooth = smoothProfile(prof, smoothR);
+      const det = detrend(smooth);
+      const oriented = detectBright ? det : det.map(v => -v) as Float32Array;
+      const sd = stdDev(oriented);
+      const peaks = findPeaks(oriented, sd * pFactor);
+      for (const pk of peaks) {
+        // Mark the position and a small tolerance window
+        for (let d = -tolerance; d <= tolerance; d++) {
+          const idx = pk + d;
+          if (idx >= 0 && idx < paraLen) seenPositions[idx] = 1;
+        }
+      }
+    }
+  }
+
+  // Convert the seen-positions bitmap back to peak positions: find cluster centers
+  const edgePeaks: number[] = [];
+  let i = 0;
+  while (i < paraLen) {
+    if (seenPositions[i]) {
+      let sum = 0, count = 0;
+      while (i < paraLen && seenPositions[i]) { sum += i; count++; i++; }
+      edgePeaks.push(Math.round(sum / count));
+    } else {
+      i++;
+    }
+  }
+  return edgePeaks;
+}
+
+// Merge edge-zone peaks into existing positions: add only peaks that are
+// consistent with the detected period (near a grid line) but were missed
+// by the main consensus pipeline.
+function mergeEdgePeaks(
+  mainPositions: number[], edgePeaks: number[], period: number, regionLen: number
+): number[] {
+  if (period <= 0 || edgePeaks.length === 0) return mainPositions;
+
+  const merged = [...mainPositions];
+  const minSep = period * 0.4;  // must be at least this far from existing peaks
+
+  for (const ep of edgePeaks) {
+    // Check it doesn't duplicate an existing position
+    let tooClose = false;
+    for (const mp of merged) {
+      if (Math.abs(ep - mp) < minSep) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+
+    // Check it aligns with the grid: distance to nearest grid multiple should
+    // be within 30% of the period
+    if (mainPositions.length >= 2) {
+      let bestDist = Infinity;
+      for (const mp of mainPositions) {
+        const dist = Math.abs(ep - mp);
+        const gridDist = dist % period;
+        bestDist = Math.min(bestDist, Math.min(gridDist, period - gridDist));
+      }
+      if (bestDist > period * 0.3) continue;
+    }
+
+    if (ep >= 0 && ep < regionLen) merged.push(ep);
+  }
+
+  merged.sort((a, b) => a - b);
+  return merged;
+}
+
 // ── Main Analysis Pipeline ───────────────────────────────────────────────────
 
 function analyzePleats(
@@ -794,10 +917,18 @@ function analyzePleats(
       positions = findPeaks(combinedOriented, sd * pFactor);
     }
 
-    const { gridPositions, count } = extrapolateGrid(positions, estPeriod, paraLen);
+    const { gridPositions } = extrapolateGrid(positions, estPeriod, paraLen);
+
+    // Edge-zone multi-line max counting: scan top & bottom thirds to catch
+    // pleats that are hidden by the filter frame on some scan lines.
+    const edgePeaks = estPeriod > 0 ? edgeZoneMaxPeaks(
+      gray, imgW, bounds, mask, dir, smoothR, pFactor, detectBright, estPeriod
+    ) : [];
+    const finalPositions = mergeEdgePeaks(gridPositions, edgePeaks, estPeriod, paraLen);
+    const count = finalPositions.length;
 
     const { ridgeLines, ridgeOffsets } = trackRidges(
-      gray, imgW, bounds, mask, dir, gridPositions, estPeriod, detectBright
+      gray, imgW, bounds, mask, dir, finalPositions, estPeriod, detectBright
     );
 
     const periodConfidence = globalPeriod.strength;
@@ -805,7 +936,7 @@ function analyzePleats(
     const confidence = Math.min(1, periodConfidence * 0.5 + stripAgreement * 0.5);
 
     return {
-      count, positions: gridPositions, direction: dir,
+      count, positions: finalPositions, direction: dir,
       ridgeLines, ridgeOffsets, gratingBars: grating.bars,
       period: estPeriod, gratingDetected: grating.detected, confidence,
     };
