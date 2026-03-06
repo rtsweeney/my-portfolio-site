@@ -141,7 +141,13 @@ function showHud() {
   hudTimer = setTimeout(() => hud.classList.add('fade'), 3000);
 }
 
-viewport.addEventListener('mousemove', showHud);
+viewport.addEventListener('mousemove', e => {
+  showHud();
+  if (activeVisual && activeVisual.registerMouseMove) {
+    const rect = canvas.getBoundingClientRect();
+    activeVisual.registerMouseMove(e.clientX - rect.left, e.clientY - rect.top);
+  }
+});
 viewport.addEventListener('touchstart', showHud);
 
 // ── Mouse click as beat (when mic is off) ────────────

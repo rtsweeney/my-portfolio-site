@@ -169,33 +169,86 @@ class Fish {
     this.ch = ch;
     this.panicMode = false;
     this.panicTimer = 0;
+    // Random turn timer: frames until next spontaneous turn (5–15s at 60fps)
+    this.turnTimer = Math.floor(300 + Math.random() * 600);
+    // Nibble state
+    this.nibbleMode = false;
+    this.nibbleTimer = 0;
+    this.nibblePhase = 0;
+    this.nibbleCooldown = Math.floor(400 + Math.random() * 800);
   }
 
-  update(cw, ch, bpmFactor, sharks) {
+  update(cw, ch, bpmFactor, sharks, mouseX, mouseY) {
     this.wobblePhase += 0.065;
     this.cw = cw;
     this.ch = ch;
 
-    // Check for nearby sharks
-    this.panicMode = false;
+    // Check for nearby sharks — overrides everything else
+    let sharkNearby = false;
     for (const shark of sharks) {
       const dx = shark.x - this.x;
       const dy = shark.y - this.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 250) {
-        this.panicMode = true;
-        this.panicTimer = 60;
-        // Reverse direction away from shark
-        if (dx < 0) this.dir = 1;
-        else this.dir = -1;
+      if (Math.sqrt(dx * dx + dy * dy) < 280) {
+        sharkNearby = true;
+        if (this.panicTimer <= 0) {
+          // Flip away from shark
+          this.dir = dx < 0 ? 1 : -1;
+        }
+        this.panicTimer = 90;
         break;
       }
     }
 
-    if (this.panicMode && this.panicTimer > 0) {
+    if (this.panicTimer > 0) {
       this.panicTimer--;
+      this.panicMode = this.panicTimer > 0;
     } else {
       this.panicMode = false;
+    }
+
+    // Nibble cursor logic (only when not panicking)
+    if (!this.panicMode) {
+      if (this.nibbleCooldown > 0) {
+        this.nibbleCooldown--;
+      } else if (!this.nibbleMode && mouseX !== null) {
+        // Decide to swim toward cursor
+        this.nibbleMode = true;
+        this.nibbleTimer = 180; // up to 3s to reach and nibble
+        this.nibblePhase = 0;
+      }
+
+      if (this.nibbleMode) {
+        this.nibbleTimer--;
+        const dx = mouseX - this.x;
+        const dy = mouseY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Face the cursor
+        this.dir = dx > 0 ? 1 : -1;
+
+        if (dist > 30) {
+          // Swim toward cursor eagerly
+          this.x += (dx / dist) * this.baseSpeed * 1.5;
+          this.y += (dy / dist) * this.baseSpeed * 0.8;
+        } else {
+          // Nibbling! Oscillate mouth
+          this.nibblePhase += 0.35;
+          this.x += Math.cos(this.nibblePhase * 2) * 1.2;
+        }
+
+        if (this.nibbleTimer <= 0 || dist < 5) {
+          this.nibbleMode = false;
+          this.nibbleCooldown = Math.floor(500 + Math.random() * 900);
+        }
+        return; // skip normal movement while nibbling
+      }
+
+      // Spontaneous random turn
+      this.turnTimer--;
+      if (this.turnTimer <= 0) {
+        this.dir *= -1;
+        this.turnTimer = Math.floor(300 + Math.random() * 600);
+      }
     }
 
     const speedMult = this.panicMode ? 2.2 : 1;
@@ -205,14 +258,16 @@ class Fish {
     if (this.dir > 0 && this.x > cw + 120) {
       this.x = -80;
       this.y = ch * (0.15 + Math.random() * 0.60);
+      this.nibbleMode = false;
     } else if (this.dir < 0 && this.x < -120) {
       this.x = cw + 80;
       this.y = ch * (0.15 + Math.random() * 0.60);
+      this.nibbleMode = false;
     }
   }
 
   draw(ctx) {
-    const { px, x, y, dir, scale, panicMode } = this;
+    const { px, x, y, dir, scale, panicMode, nibbleMode, nibblePhase } = this;
     const s = px * scale;
     const { body, fin } = FISH_COLORS[this.colorIdx];
     const wag = Math.sin(this.wobblePhase * 1.5) * 1.2;
@@ -241,6 +296,14 @@ class Fish {
     B(0, -3, fin);
     B(1, -3, fin);
 
+    // Nibble open mouth
+    if (nibbleMode) {
+      const mouthOpen = Math.max(0, Math.sin(nibblePhase * 2)) > 0.3;
+      if (mouthOpen) {
+        pxRect(ctx, x + 3 * s * dir - s * 0.3, y - s * 0.6, Math.round(s * 0.5), Math.round(s * 0.8), '#ffddcc');
+      }
+    }
+
     ctx.globalAlpha = 1;
     pxRect(ctx, x + 2 * s * dir - s * 0.35, y - s * 0.35, Math.round(s * 0.55), Math.round(s * 0.55), '#0a0a18');
     ctx.globalAlpha = 1;
@@ -251,71 +314,93 @@ class Fish {
 class Shark {
   constructor(cw, ch, px) {
     this.px = px;
-    this.x = Math.random() * cw;
-    this.y = ch * (0.25 + Math.random() * 0.45);
+    // Enter from one side
     this.dir = Math.random() > 0.5 ? 1 : -1;
-    this.speed = 0.4 + Math.random() * 0.6;
+    this.x = this.dir > 0 ? -300 : cw + 300;
+    this.y = ch * (0.2 + Math.random() * 0.5);
+    this.speed = 0.55 + Math.random() * 0.4;
     this.wobblePhase = Math.random() * Math.PI * 2;
-    this.cw = cw;
-    this.ch = ch;
+    this.done = false; // true once it exits the other side
   }
 
   update(cw, ch) {
-    this.wobblePhase += 0.04;
+    this.wobblePhase += 0.025;
     this.x += this.dir * this.speed;
-    this.y += Math.sin(this.wobblePhase * 0.3) * 0.15;
-    this.cw = cw;
-    this.ch = ch;
+    this.y += Math.sin(this.wobblePhase * 0.25) * 0.2;
 
-    if (this.dir > 0 && this.x > cw + 200) {
-      this.x = -200;
-      this.y = ch * (0.25 + Math.random() * 0.45);
-    } else if (this.dir < 0 && this.x < -200) {
-      this.x = cw + 200;
-      this.y = ch * (0.25 + Math.random() * 0.45);
-    }
+    // Mark done once it swims fully off the opposite side
+    if (this.dir > 0 && this.x > cw + 300) this.done = true;
+    if (this.dir < 0 && this.x < -300) this.done = true;
   }
 
   draw(ctx) {
-    const { px, x, y, dir } = this;
-    const s = px * 2;
-    ctx.globalAlpha = 0.75;
+    const { px, x, y, dir, wobblePhase } = this;
+    const s = px * 3; // 3× smallest fish
+    ctx.globalAlpha = 0.82;
 
     const B = (col, row, color) => {
       pxRect(ctx, x + col * s * dir - s / 2, y + row * s - s / 2, s, s, color);
     };
 
-    // Shark body (pointed snout, dorsal fin, tail)
-    // Snout
-    B(2, 0, '#404050');
-    B(3, -1, '#303040');
-    B(3, 1, '#303040');
+    const belly   = '#e8eef4'; // very light gray belly
+    const body    = '#c0ccd8'; // light blue-gray
+    const shadow  = '#a0adb8'; // slightly darker for fins/back
+    const dark    = '#7a8898'; // tail / snout tip
 
-    // Body
-    B(0, -1, '#505060');
-    B(0, 0, '#505060');
-    B(0, 1, '#505060');
-    B(-1, -1, '#505060');
-    B(-1, 0, '#505060');
-    B(-1, 1, '#505060');
-    B(-2, -1, '#505060');
-    B(-2, 0, '#505060');
-    B(-2, 1, '#505060');
+    // Tail — wide fan
+    B(-4, -2, dark);
+    B(-4, -1, dark);
+    B(-4,  0, dark);
+    B(-4,  1, dark);
+    B(-4,  2, dark);
+    B(-3, -1, shadow);
+    B(-3,  1, shadow);
+
+    // Rear body
+    B(-2, -1, body);
+    B(-2,  0, body);
+    B(-2,  1, body);
+
+    // Mid body (widest)
+    B(-1, -2, body);
+    B(-1, -1, body);
+    B(-1,  0, belly);
+    B(-1,  1, body);
+    B(-1,  2, body);
+
+    // Front body
+    B(0, -2, body);
+    B(0, -1, body);
+    B(0,  0, belly);
+    B(0,  1, body);
+    B(0,  2, body);
+
+    // Pectoral fin (cute stubby wing)
+    B(0,  3, shadow);
+    B(1,  3, shadow);
+
+    // Snout
+    B(1, -1, body);
+    B(1,  0, belly);
+    B(1,  1, body);
+    B(2,  0, body);
+    B(2, -1, dark);
+    B(2,  1, dark);
 
     // Dorsal fin
-    B(-1, -2, '#606070');
-    B(-1, -3, '#606070');
+    B(-1, -3, shadow);
+    B(-1, -4, shadow);
+    B(0,  -3, shadow);
 
-    // Tail (pointed)
-    B(-3, -2, '#303040');
-    B(-3, -1, '#303040');
-    B(-3, 0, '#303040');
-    B(-3, 1, '#303040');
-    B(-3, 2, '#303040');
-
-    // Eye
+    // Eye — big cute dark circle
     ctx.globalAlpha = 1;
-    pxRect(ctx, x + 1 * s * dir - s * 0.3, y - s * 0.3, Math.round(s * 0.5), Math.round(s * 0.5), '#ffff00');
+    pxRect(ctx, x + 1 * s * dir - s * 0.45, y - s * 0.45, Math.round(s * 0.7), Math.round(s * 0.7), '#1a2030');
+    // Cute eye shine
+    pxRect(ctx, x + 1 * s * dir - s * 0.2, y - s * 0.5, Math.round(s * 0.25), Math.round(s * 0.25), '#ffffff');
+
+    // Smile
+    const smileX = x + 2 * s * dir;
+    pxRect(ctx, smileX - s * 0.3, y + s * 0.3, Math.round(s * 0.6), Math.round(s * 0.2), dark);
 
     ctx.globalAlpha = 1;
   }
@@ -492,6 +577,10 @@ let crab = null;
 let time = 0;
 let px = PX;
 let mouseClickedThisFrame = false;
+let mouseX = null;
+let mouseY = null;
+// Shark spawns: one per 1–2 minutes, tracked in frames at ~60fps
+let sharkSpawnTimer = Math.floor(1800 + Math.random() * 1800);
 
 export function init(canvas) {
   const ctx = canvas.getContext('2d');
@@ -544,14 +633,17 @@ export function resize(canvas) {
     fish.push(new Fish(canvas.width, canvas.height, px));
   }
 
-  // Occasional sharks
+  // Sharks start empty; they arrive on a timer in draw()
   sharks = [];
-  if (Math.random() > 0.5) {
-    sharks.push(new Shark(canvas.width, canvas.height, px));
-  }
+  sharkSpawnTimer = Math.floor(1800 + Math.random() * 1800);
 
   // Single crab
   crab = new Crab(canvas.width, canvas.height, px);
+}
+
+export function registerMouseMove(x, y) {
+  mouseX = x;
+  mouseY = y;
 }
 
 export function draw(ctx, canvas) {
@@ -599,15 +691,23 @@ export function draw(ctx, canvas) {
     b.draw(ctx);
   }
 
-  // Sharks
+  // Shark spawn timer — one shark visits every 1–2 minutes, swims through, then leaves
+  if (sharks.length === 0) {
+    sharkSpawnTimer--;
+    if (sharkSpawnTimer <= 0) {
+      sharks.push(new Shark(cw, ch, px));
+      sharkSpawnTimer = Math.floor(3600 + Math.random() * 3600);
+    }
+  }
   for (const s of sharks) {
     s.update(cw, ch);
     s.draw(ctx);
   }
+  sharks = sharks.filter(s => !s.done);
 
   // Fish (they react to sharks)
   for (const f of fish) {
-    f.update(cw, ch, bpmFactor, sharks);
+    f.update(cw, ch, bpmFactor, sharks, mouseX, mouseY);
     f.draw(ctx);
   }
 
