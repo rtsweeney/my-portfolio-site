@@ -596,7 +596,7 @@ function consensusPeaks(
 
 function trackRidges(
   gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
-  pleatPositions: number[], period: number
+  pleatPositions: number[], period: number, findBright = true
 ): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
   const perpLen = dir === 'h' ? bounds.h : bounds.w;
   const paraLen = dir === 'h' ? bounds.w : bounds.h;
@@ -625,7 +625,9 @@ function trackRidges(
         const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
         if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
           const val = gray[y * imgW + x];
-          if (val > bestVal) { bestVal = val; bestOff = d; }
+          // findBright=true → track brightest pixel (pleat tip facing camera)
+          // findBright=false → track darkest pixel (pleat valley)
+          if (findBright ? val > bestVal : val < bestVal) { bestVal = val; bestOff = d; }
         }
       }
       offsets[si] = bestOff;
@@ -723,7 +725,8 @@ function extrapolateGrid(
 // ── Main Analysis Pipeline ───────────────────────────────────────────────────
 
 function analyzePleats(
-  gray: Float32Array, imgW: number, imgH: number, bounds: Rect, mask: Uint8Array, sensitivity: number
+  gray: Float32Array, imgW: number, imgH: number, bounds: Rect, mask: Uint8Array,
+  sensitivity: number, detectBright = true
 ): PleatResult {
   // pFactor controls peak prominence threshold: lower = more sensitive.
   // Range: ~0.57 at 5% sensitivity down to ~0.02 at 95% sensitivity.
@@ -753,15 +756,17 @@ function analyzePleats(
 
     for (const rawProfile of profiles) {
       const smooth = smoothProfile(rawProfile, smoothR);
+      // Optionally invert so findPeaks (which finds maxima) targets dark valleys
       const det = detrend(smooth);
-      const sd = stdDev(det);
-      const peaks = findPeaks(det, sd * pFactor);
+      const oriented = detectBright ? det : det.map(v => -v) as Float32Array;
+      const sd = stdDev(oriented);
+      const peaks = findPeaks(oriented, sd * pFactor);
       if (peaks.length >= 2) allPeaks.push(peaks);
 
       // Wider period range: lower min for high-density (~8ppi), higher max for low-density
       const minPeriod = Math.max(2, paraLen * 0.005);
       const maxPeriod = paraLen * 0.25;
-      const { period, strength } = estimatePeriodAutocorr(det, minPeriod, maxPeriod);
+      const { period, strength } = estimatePeriodAutocorr(oriented, minPeriod, maxPeriod);
       if (strength > 0.1 && period > 0) {
         bestPeriodSum += period;
         periodCount++;
@@ -773,10 +778,11 @@ function analyzePleats(
     for (let i = 0; i < paraLen; i++) combinedProfile[i] /= profiles.length;
     const combinedSmooth = smoothProfile(combinedProfile, smoothR);
     const combinedDet = detrend(combinedSmooth);
+    const combinedOriented = detectBright ? combinedDet : combinedDet.map(v => -v) as Float32Array;
 
     const minPeriod = Math.max(2, paraLen * 0.005);
     const maxPeriod = paraLen * 0.25;
-    const globalPeriod = estimatePeriodAutocorr(combinedDet, minPeriod, maxPeriod);
+    const globalPeriod = estimatePeriodAutocorr(combinedOriented, minPeriod, maxPeriod);
 
     const estPeriod = periodCount > 0 ? bestPeriodSum / periodCount : globalPeriod.period;
 
@@ -784,14 +790,14 @@ function analyzePleats(
     if (allPeaks.length >= 2 && estPeriod > 0) {
       positions = consensusPeaks(allPeaks, paraLen, estPeriod);
     } else {
-      const sd = stdDev(combinedDet);
-      positions = findPeaks(combinedDet, sd * pFactor);
+      const sd = stdDev(combinedOriented);
+      positions = findPeaks(combinedOriented, sd * pFactor);
     }
 
     const { gridPositions, count } = extrapolateGrid(positions, estPeriod, paraLen);
 
     const { ridgeLines, ridgeOffsets } = trackRidges(
-      gray, imgW, bounds, mask, dir, gridPositions, estPeriod
+      gray, imgW, bounds, mask, dir, gridPositions, estPeriod, detectBright
     );
 
     const periodConfidence = globalPeriod.strength;
@@ -824,7 +830,8 @@ function drawOverlay(
   img: HTMLImageElement,
   quad: Quad,
   bounds: Rect,
-  result: PleatResult
+  result: PleatResult,
+  showOverlay = true
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -832,6 +839,12 @@ function drawOverlay(
   const { positions, direction: dir, ridgeLines, ridgeOffsets, gratingBars, gratingDetected } = result;
 
   ctx.drawImage(img, 0, 0, cw, ch);
+
+  // When overlay is hidden, still show corner handles so the quad is draggable
+  if (!showOverlay) {
+    drawCornerHandles(ctx, quad, cw);
+    return;
+  }
 
   // Darken area outside the quad using evenodd fill
   ctx.fillStyle = 'rgba(0,0,0,0.38)';
@@ -1051,6 +1064,8 @@ export default function PleatCounterPage() {
   const [panels, setPanels] = useState('1');
   const [areaUnit, setAreaUnit] = useState<AreaUnit>('ft²');
   const [analysisInfo, setAnalysisInfo] = useState<{ gratingDetected: boolean; confidence: number; period: number } | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [detectBright, setDetectBright] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1063,6 +1078,8 @@ export default function PleatCounterPage() {
   const dragIdxRef = useRef(-1); // which corner is being dragged (-1 = none)
   const lastResultRef = useRef<PleatResult | null>(null);
   const sensitivityRef = useRef(50);
+  const showOverlayRef = useRef(true);
+  const detectBrightRef = useRef(true);
 
   // Derived values
   const pleatCount = Math.max(0, parseInt(pleatCountStr) || 0);
@@ -1124,7 +1141,7 @@ export default function PleatCounterPage() {
             boundsRef.current = bounds;
             maskRef.current = mask;
 
-            const result = analyzePleats(gray, cw, ch, bounds, mask, sens);
+            const result = analyzePleats(gray, cw, ch, bounds, mask, sens, detectBrightRef.current);
             lastResultRef.current = result;
             setPleatCountStr(String(result.count));
             setPleatDetected(result.count > 0);
@@ -1135,7 +1152,7 @@ export default function PleatCounterPage() {
             });
             setAnalyzing(false);
             setLoadingStatus(null);
-            drawOverlay(canvas, img, quad, bounds, result);
+            drawOverlay(canvas, img, quad, bounds, result, showOverlayRef.current);
           }, 0);
         });
       }, 0);
@@ -1147,7 +1164,7 @@ export default function PleatCounterPage() {
           quad = quadRef.current, bounds = boundsRef.current,
           mask = maskRef.current, canvas = canvasRef.current;
     if (!gd || !img || !quad || !bounds || !mask || !canvas) return;
-    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sens);
+    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sens, detectBrightRef.current);
     lastResultRef.current = result;
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
@@ -1156,7 +1173,7 @@ export default function PleatCounterPage() {
       confidence: result.confidence,
       period: result.period,
     });
-    drawOverlay(canvas, img, quad, bounds, result);
+    drawOverlay(canvas, img, quad, bounds, result, showOverlayRef.current);
   }, []);
 
   // Reanalyze after quad corners are moved by the user
@@ -1170,7 +1187,7 @@ export default function PleatCounterPage() {
     boundsRef.current = bounds;
     maskRef.current = mask;
 
-    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivityRef.current);
+    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivityRef.current, detectBrightRef.current);
     lastResultRef.current = result;
     setPleatCountStr(String(result.count));
     setPleatDetected(result.count > 0);
@@ -1179,7 +1196,7 @@ export default function PleatCounterPage() {
       confidence: result.confidence,
       period: result.period,
     });
-    drawOverlay(canvas, img, newQuad, bounds, result);
+    drawOverlay(canvas, img, newQuad, bounds, result, showOverlayRef.current);
   }, []);
 
   const loadFile = useCallback((file: File) => {
@@ -1229,6 +1246,25 @@ export default function PleatCounterPage() {
     setSensitivity(val);
     sensitivityRef.current = val;
     reanalyze(val);
+  };
+
+  const handleToggleOverlay = () => {
+    const next = !showOverlayRef.current;
+    showOverlayRef.current = next;
+    setShowOverlay(next);
+    // Redraw without re-analyzing
+    const canvas = canvasRef.current, img = imgRef.current,
+          quad = quadRef.current, bounds = boundsRef.current,
+          result = lastResultRef.current;
+    if (canvas && img && quad && bounds && result) {
+      drawOverlay(canvas, img, quad, bounds, result, next);
+    }
+  };
+
+  const handleToggleDetectBright = (bright: boolean) => {
+    detectBrightRef.current = bright;
+    setDetectBright(bright);
+    reanalyze(sensitivityRef.current);
   };
 
   const handleReset = () => {
@@ -1569,31 +1605,92 @@ export default function PleatCounterPage() {
             </div>
           )}
 
-          {/* Sensitivity slider */}
+          {/* Detection controls */}
           {imageSrc && (
             <div style={{
               marginTop: '0.75rem', padding: '0.9rem 1.1rem',
               background: 'var(--surface)', borderRadius: 'var(--radius-md)',
               border: '1px solid var(--border-subtle)',
+              display: 'flex', flexDirection: 'column', gap: '0.75rem',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Detection Sensitivity
-                </label>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                  {sensitivity}%
+
+              {/* Sensitivity slider */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Detection Sensitivity
+                  </label>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                    {sensitivity}%
+                  </span>
+                </div>
+                <input
+                  type="range" min={5} max={95} step={5}
+                  value={sensitivity}
+                  onChange={handleSensitivityChange}
+                  style={{ width: '100%', accentColor: 'var(--accent-secondary)', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  <span>Selective (strong pleats only)</span>
+                  <span>Sensitive (catches subtle pleats)</span>
+                </div>
+              </div>
+
+              {/* Pleat feature toggle: bright tips vs dark valleys */}
+              <div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+                  Count Feature
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {([true, false] as const).map((bright) => (
+                    <button
+                      key={String(bright)}
+                      onClick={() => handleToggleDetectBright(bright)}
+                      style={{
+                        flex: 1, padding: '0.35rem 0.5rem',
+                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                        borderRadius: 'var(--radius-sm)',
+                        border: detectBright === bright
+                          ? '1.5px solid var(--accent-secondary)'
+                          : '1.5px solid var(--border-subtle)',
+                        background: detectBright === bright
+                          ? 'rgba(0,184,148,0.12)'
+                          : 'transparent',
+                        color: detectBright === bright
+                          ? 'var(--accent-secondary)'
+                          : 'var(--text-muted)',
+                      }}
+                    >
+                      {bright ? 'Bright peaks (pleat tips)' : 'Dark valleys'}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                  {detectBright
+                    ? 'Lines snap to bright pleat tips facing the camera'
+                    : 'Lines snap to dark valleys between pleats'}
+                </div>
+              </div>
+
+              {/* Overlay visibility toggle */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  Show Overlay
                 </span>
+                <button
+                  onClick={handleToggleOverlay}
+                  style={{
+                    padding: '0.3rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
+                    cursor: 'pointer', borderRadius: 'var(--radius-sm)',
+                    border: '1.5px solid var(--border-subtle)',
+                    background: showOverlay ? 'rgba(0,184,148,0.12)' : 'transparent',
+                    color: showOverlay ? 'var(--accent-secondary)' : 'var(--text-muted)',
+                  }}
+                >
+                  {showOverlay ? 'On' : 'Off'}
+                </button>
               </div>
-              <input
-                type="range" min={5} max={95} step={5}
-                value={sensitivity}
-                onChange={handleSensitivityChange}
-                style={{ width: '100%', accentColor: 'var(--accent-secondary)', cursor: 'pointer' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                <span>Selective (strong pleats only)</span>
-                <span>Sensitive (catches subtle pleats)</span>
-              </div>
+
             </div>
           )}
 
