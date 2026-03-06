@@ -625,9 +625,7 @@ export function init(canvas) {
 }
 
 export function registerMouseClick() {
-  if (!isEnabled()) {
-    mouseClickedThisFrame = true;
-  }
+  mouseClickedThisFrame = true;
 }
 
 export function resize(canvas) {
@@ -694,7 +692,7 @@ export function draw(ctx, canvas) {
   // Apply mouse click as beat when mic is off
   let effectiveBeat = beat;
   if (!isEnabled() && mouseClickedThisFrame) {
-    effectiveBeat = { ...beat, kick: true };
+    effectiveBeat = { energy: 1, kick: true };
     mouseClickedThisFrame = false;
   }
 
