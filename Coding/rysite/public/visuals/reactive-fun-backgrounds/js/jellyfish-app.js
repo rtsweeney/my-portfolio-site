@@ -34,16 +34,23 @@ window.addEventListener('resize', () => {
 });
 
 // ── Fullscreen ─────────────────────────────────────────
-btnFullscreen.addEventListener('click', () => {
+btnFullscreen.addEventListener('click', (e) => {
+  e.stopPropagation();
   if (!document.fullscreenElement) {
-    viewport.requestFullscreen().catch(() => {});
+    // Try document.documentElement for broader browser support inside iframes
+    (viewport || document.documentElement).requestFullscreen().catch(() => {
+      // Fallback: try webkit
+      const el = viewport || document.documentElement;
+      if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    });
   } else {
     document.exitFullscreen();
   }
 });
 
 // ── Mic toggle ─────────────────────────────────────────
-btnMic.addEventListener('click', async () => {
+btnMic.addEventListener('click', async (e) => {
+  e.stopPropagation();
   if (isEnabled()) {
     stopMic();
   } else {
@@ -77,7 +84,7 @@ viewport.addEventListener('mousemove', e => {
 viewport.addEventListener('touchstart', showHud);
 
 // ── Mouse click as beat (when mic is off) ────────────
-viewport.addEventListener('click', () => {
+canvas.addEventListener('click', () => {
   if (jellyfish.registerMouseClick) {
     jellyfish.registerMouseClick();
   }
