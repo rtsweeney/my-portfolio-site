@@ -92,6 +92,30 @@ export default async function ProjectsPage() {
             </div>
           </Link>
 
+          {/* Reactive Fun Backgrounds — party visuals & screensavers */}
+          <Link href="/projects/reactive-fun-backgrounds" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-cyan" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#127961;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Reactive Fun Backgrounds
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>Pick a visual. Go fullscreen. Vibe. Reactive party animations and screensavers that respond to microphone input and beat detection. Start with the pixelated jellyfish aquarium.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Canvas API</span>
+                <span className="project-tech-tag">Web Audio API</span>
+                <span className="project-tech-tag">Beat Detection</span>
+                <span className="project-tech-tag">Fullscreen</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* Sanity-managed projects */}
           {projects.map((project) => (
             <div key={project._id} className="card">
