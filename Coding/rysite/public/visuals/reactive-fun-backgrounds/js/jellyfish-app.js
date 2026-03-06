@@ -83,11 +83,15 @@ viewport.addEventListener('mousemove', e => {
 });
 viewport.addEventListener('touchstart', showHud);
 
-// ── Mouse click as beat (when mic is off) ────────────
-canvas.addEventListener('click', () => {
-  if (jellyfish.registerMouseClick) {
-    jellyfish.registerMouseClick();
-  }
+// ── Mouse/touch click as beat (when mic is off) ────────────
+canvas.addEventListener('click', (e) => {
+  // Don't trigger if it came from a button
+  if (e.target !== canvas) return;
+  jellyfish.registerMouseClick();
+});
+canvas.addEventListener('touchend', (e) => {
+  if (e.target !== canvas) return;
+  jellyfish.registerMouseClick();
 });
 
 // ── Keyboard shortcuts ─────────────────────────────────
