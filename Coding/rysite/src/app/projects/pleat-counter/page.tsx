@@ -917,7 +917,7 @@ function analyzePleats(
       positions = findPeaks(combinedOriented, sd * pFactor);
     }
 
-    const { gridPositions, count: gridCount } = extrapolateGrid(positions, estPeriod, paraLen);
+    const { gridPositions } = extrapolateGrid(positions, estPeriod, paraLen);
 
     // Edge-zone multi-line max counting: scan top & bottom thirds to catch
     // pleats that are hidden by the filter frame on some scan lines.
