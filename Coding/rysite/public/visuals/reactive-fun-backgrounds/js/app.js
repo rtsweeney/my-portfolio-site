@@ -151,7 +151,7 @@ viewport.addEventListener('mousemove', e => {
 viewport.addEventListener('touchstart', showHud);
 
 // ── Mouse click as beat (when mic is off) ────────────
-viewport.addEventListener('click', () => {
+canvas.addEventListener('click', () => {
   if (activeVisual && activeVisual.registerMouseClick) {
     activeVisual.registerMouseClick();
   }
