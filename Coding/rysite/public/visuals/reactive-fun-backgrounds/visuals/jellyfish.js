@@ -175,7 +175,7 @@ class Fish {
     this.nibbleMode = false;
     this.nibbleTimer = 0;
     this.nibblePhase = 0;
-    this.nibbleCooldown = Math.floor(400 + Math.random() * 800);
+    this.nibbleCooldown = Math.floor(1200 + Math.random() * 2400);
   }
 
   update(cw, ch, bpmFactor, sharks, mouseX, mouseY) {
@@ -238,7 +238,7 @@ class Fish {
 
         if (this.nibbleTimer <= 0 || dist < 5) {
           this.nibbleMode = false;
-          this.nibbleCooldown = Math.floor(500 + Math.random() * 900);
+          this.nibbleCooldown = Math.floor(1800 + Math.random() * 3600);
         }
         return; // skip normal movement while nibbling
       }
@@ -314,13 +314,13 @@ class Fish {
 class Shark {
   constructor(cw, ch, px) {
     this.px = px;
-    // Enter from one side
+    // Enter from one side, never turns around
     this.dir = Math.random() > 0.5 ? 1 : -1;
-    this.x = this.dir > 0 ? -300 : cw + 300;
+    this.x = this.dir > 0 ? -600 : cw + 600;
     this.y = ch * (0.2 + Math.random() * 0.5);
     this.speed = 0.55 + Math.random() * 0.4;
     this.wobblePhase = Math.random() * Math.PI * 2;
-    this.done = false; // true once it exits the other side
+    this.done = false;
   }
 
   update(cw, ch) {
@@ -328,79 +328,110 @@ class Shark {
     this.x += this.dir * this.speed;
     this.y += Math.sin(this.wobblePhase * 0.25) * 0.2;
 
-    // Mark done once it swims fully off the opposite side
-    if (this.dir > 0 && this.x > cw + 300) this.done = true;
-    if (this.dir < 0 && this.x < -300) this.done = true;
+    if (this.dir > 0 && this.x > cw + 600) this.done = true;
+    if (this.dir < 0 && this.x < -600) this.done = true;
   }
 
   draw(ctx) {
-    const { px, x, y, dir, wobblePhase } = this;
-    const s = px * 3; // 3× smallest fish
+    const { px, x, y, dir } = this;
+    const s = px * 3; // block size
     ctx.globalAlpha = 0.82;
 
     const B = (col, row, color) => {
       pxRect(ctx, x + col * s * dir - s / 2, y + row * s - s / 2, s, s, color);
     };
 
-    const belly   = '#e8eef4'; // very light gray belly
-    const body    = '#c0ccd8'; // light blue-gray
-    const shadow  = '#a0adb8'; // slightly darker for fins/back
-    const dark    = '#7a8898'; // tail / snout tip
+    const belly  = '#e8eef4';
+    const body   = '#c0ccd8';
+    const shadow = '#a0adb8';
+    const dark   = '#7a8898';
 
-    // Tail — wide fan
-    B(-4, -2, dark);
-    B(-4, -1, dark);
-    B(-4,  0, dark);
-    B(-4,  1, dark);
-    B(-4,  2, dark);
-    B(-3, -1, shadow);
-    B(-3,  1, shadow);
+    // ── Tail — wide fan ──
+    B(-10, -3, dark);
+    B(-10, -2, dark);
+    B(-10, -1, dark);
+    B(-10,  0, dark);
+    B(-10,  1, dark);
+    B(-10,  2, dark);
+    B(-10,  3, dark);
+    B(-9, -2, shadow);
+    B(-9, -1, shadow);
+    B(-9,  0, shadow);
+    B(-9,  1, shadow);
+    B(-9,  2, shadow);
 
-    // Rear body
-    B(-2, -1, body);
-    B(-2,  0, body);
-    B(-2,  1, body);
+    // ── Rear taper ──
+    B(-8, -2, body);
+    B(-8, -1, body);
+    B(-8,  0, body);
+    B(-8,  1, body);
+    B(-8,  2, body);
+    B(-7, -2, body);
+    B(-7, -1, body);
+    B(-7,  0, belly);
+    B(-7,  1, body);
+    B(-7,  2, body);
 
-    // Mid body (widest)
+    // ── Mid body (widest) ──
+    for (let c = -6; c <= -2; c++) {
+      B(c, -3, body);
+      B(c, -2, body);
+      B(c, -1, body);
+      B(c,  0, belly);
+      B(c,  1, body);
+      B(c,  2, body);
+      B(c,  3, body);
+    }
+
+    // ── Front body ──
     B(-1, -2, body);
     B(-1, -1, body);
     B(-1,  0, belly);
     B(-1,  1, body);
     B(-1,  2, body);
 
-    // Front body
     B(0, -2, body);
     B(0, -1, body);
     B(0,  0, belly);
     B(0,  1, body);
     B(0,  2, body);
 
-    // Pectoral fin (cute stubby wing)
-    B(0,  3, shadow);
-    B(1,  3, shadow);
-
-    // Snout
+    // ── Snout (tapers to point) ──
     B(1, -1, body);
     B(1,  0, belly);
     B(1,  1, body);
     B(2,  0, body);
     B(2, -1, dark);
     B(2,  1, dark);
+    B(3,  0, dark);
 
-    // Dorsal fin
-    B(-1, -3, shadow);
-    B(-1, -4, shadow);
-    B(0,  -3, shadow);
+    // ── Dorsal fin (tall) ──
+    B(-4, -4, shadow);
+    B(-4, -5, shadow);
+    B(-3, -4, shadow);
+    B(-3, -5, shadow);
+    B(-3, -6, shadow);
+    B(-2, -4, shadow);
 
-    // Eye — big cute dark circle
+    // ── Pectoral fins (both sides) ──
+    B(-2,  4, shadow);
+    B(-1,  4, shadow);
+    B(-2, -4, shadow);
+
+    // ── Ventral fin ──
+    B(-5,  4, shadow);
+
+    // ── Eye — big cute dark circle ──
     ctx.globalAlpha = 1;
-    pxRect(ctx, x + 1 * s * dir - s * 0.45, y - s * 0.45, Math.round(s * 0.7), Math.round(s * 0.7), '#1a2030');
+    const eyeSize = Math.round(s * 0.8);
+    pxRect(ctx, x + 0 * s * dir - eyeSize * 0.5, y - s * 0.5, eyeSize, eyeSize, '#1a2030');
     // Cute eye shine
-    pxRect(ctx, x + 1 * s * dir - s * 0.2, y - s * 0.5, Math.round(s * 0.25), Math.round(s * 0.25), '#ffffff');
+    const shineSize = Math.round(s * 0.3);
+    pxRect(ctx, x + 0 * s * dir - eyeSize * 0.15, y - s * 0.6, shineSize, shineSize, '#ffffff');
 
-    // Smile
-    const smileX = x + 2 * s * dir;
-    pxRect(ctx, smileX - s * 0.3, y + s * 0.3, Math.round(s * 0.6), Math.round(s * 0.2), dark);
+    // ── Smile ──
+    ctx.globalAlpha = 0.9;
+    pxRect(ctx, x + 1.5 * s * dir - s * 0.4, y + s * 0.4, Math.round(s * 0.8), Math.round(s * 0.25), dark);
 
     ctx.globalAlpha = 1;
   }
