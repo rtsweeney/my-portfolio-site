@@ -46,8 +46,9 @@ export default function JellyfishAquariumPage() {
               border: 'none',
             }}
             title="Jellyfish Aquarium"
-            allow="microphone; fullscreen"
+            allow="microphone; fullscreen; autoplay"
             allowFullScreen
+            sandbox="allow-scripts allow-same-origin allow-popups"
           />
         </div>
 
