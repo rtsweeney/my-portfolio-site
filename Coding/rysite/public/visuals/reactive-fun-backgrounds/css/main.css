@@ -8,6 +8,9 @@ body {
   overflow: hidden;
   height: 100vh;
   width: 100vw;
+  /* Prevent iOS bounce/overscroll inside iframe */
+  -webkit-overflow-scrolling: touch;
+  touch-action: none;
 }
 
 /* ── Selection Screen ────────────────────────────────── */
@@ -101,6 +104,7 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 100;
+  touch-action: none;
 }
 #visual-viewport.hidden { display: none; }
 
@@ -112,11 +116,12 @@ h1 {
   display: block;
   background: #1080b0;
   cursor: pointer;
+  touch-action: none;
 }
 
 /* ── HUD ─────────────────────────────────────────────── */
 #hud {
-  position: fixed;
+  position: absolute;
   bottom: 1.5rem;
   left: 50%;
   transform: translateX(-50%);
@@ -141,11 +146,33 @@ h1 {
   font-size: 0.85rem;
   cursor: pointer;
   transition: background 0.2s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
 }
 #hud button:hover { background: rgba(0, 80, 160, 0.15); }
-#hud button { pointer-events: auto; }
 #hud button.active {
   background: rgba(120, 115, 245, 0.25);
   border-color: #7873f5;
   color: #4440c0;
+}
+
+/* ── Mobile: bigger tap targets, always-visible HUD ─── */
+@media (hover: none) and (pointer: coarse) {
+  #hud {
+    bottom: 0.75rem;
+    padding: 0.6rem 1.2rem;
+    gap: 0.5rem;
+  }
+  #hud button {
+    padding: 0.7rem 1.2rem;
+    font-size: 1rem;
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Never auto-hide on touch devices */
+  #hud.fade {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

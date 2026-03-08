@@ -14,6 +14,8 @@ const hud = document.getElementById('hud');
 const btnMic = document.getElementById('btn-mic');
 const btnFullscreen = document.getElementById('btn-fullscreen');
 
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
 let ctx = null;
 let rafId = null;
 
@@ -26,7 +28,6 @@ function loop() {
   rafId = requestAnimationFrame(loop);
 }
 rafId = requestAnimationFrame(loop);
-showHud();
 
 // ── Resize handling ────────────────────────────────────
 window.addEventListener('resize', () => {
@@ -34,22 +35,30 @@ window.addEventListener('resize', () => {
 });
 
 // ── Fullscreen ─────────────────────────────────────────
+function tryFullscreen() {
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen
+    || el.webkitRequestFullscreen
+    || el.mozRequestFullScreen
+    || el.msRequestFullscreen;
+  if (rfs) {
+    rfs.call(el).catch(() => {});
+  }
+}
+
 btnFullscreen.addEventListener('click', (e) => {
+  e.preventDefault();
   e.stopPropagation();
-  if (!document.fullscreenElement) {
-    // Try document.documentElement for broader browser support inside iframes
-    (viewport || document.documentElement).requestFullscreen().catch(() => {
-      // Fallback: try webkit
-      const el = viewport || document.documentElement;
-      if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    });
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    tryFullscreen();
   } else {
-    document.exitFullscreen();
+    (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
   }
 });
 
 // ── Mic toggle ─────────────────────────────────────────
 btnMic.addEventListener('click', async (e) => {
+  e.preventDefault();
   e.stopPropagation();
   if (isEnabled()) {
     stopMic();
@@ -59,21 +68,50 @@ btnMic.addEventListener('click', async (e) => {
   updateMicButton();
 });
 
+// Also listen for touchend on buttons (more reliable on mobile)
+btnMic.addEventListener('touchend', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (isEnabled()) {
+    stopMic();
+  } else {
+    await startMic();
+  }
+  updateMicButton();
+});
+
+btnFullscreen.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    tryFullscreen();
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
+  }
+});
+
 function updateMicButton() {
   const on = isEnabled();
   btnMic.textContent = on ? 'Mic: ON' : 'Mic: OFF';
   btnMic.classList.toggle('active', on);
 }
 
-// ── HUD auto-hide on mouse inactivity ──────────────────
+// ── HUD visibility ────────────────────────────────────
+// On touch devices the HUD stays visible always (CSS handles this).
+// On desktop it auto-hides after mouse inactivity.
 let hudTimer = null;
 
 function showHud() {
   hud.classList.remove('fade');
   clearTimeout(hudTimer);
-  hudTimer = setTimeout(() => hud.classList.add('fade'), 3000);
+  if (!isTouchDevice) {
+    hudTimer = setTimeout(() => hud.classList.add('fade'), 3000);
+  }
 }
 
+showHud();
+
+// Desktop: mouse tracking
 viewport.addEventListener('mousemove', e => {
   showHud();
   if (jellyfish.registerMouseMove) {
@@ -81,18 +119,18 @@ viewport.addEventListener('mousemove', e => {
     jellyfish.registerMouseMove(e.clientX - rect.left, e.clientY - rect.top);
   }
 });
-viewport.addEventListener('touchstart', showHud);
 
-// ── Mouse/touch click as beat (when mic is off) ────────────
-canvas.addEventListener('click', (e) => {
-  // Don't trigger if it came from a button
-  if (e.target !== canvas) return;
+// ── Beat on click/tap (canvas only) ────────────────────
+canvas.addEventListener('click', () => {
   jellyfish.registerMouseClick();
 });
-canvas.addEventListener('touchend', (e) => {
-  if (e.target !== canvas) return;
-  jellyfish.registerMouseClick();
-});
+
+canvas.addEventListener('touchstart', (e) => {
+  // Only fire beat if the touch is on the canvas (not a button)
+  if (e.target === canvas) {
+    jellyfish.registerMouseClick();
+  }
+}, { passive: true });
 
 // ── Keyboard shortcuts ─────────────────────────────────
 document.addEventListener('keydown', e => {
