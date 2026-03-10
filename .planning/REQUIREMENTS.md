@@ -58,33 +58,31 @@
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HOME-01 | — | Pending |
-| HOME-02 | — | Pending |
-| HOME-03 | — | Pending |
-| CONC-01 | — | Pending |
-| CONC-02 | — | Pending |
-| CONC-03 | — | Pending |
-| CONC-04 | — | Pending |
-| CONC-05 | — | Pending |
-| TRVL-01 | — | Pending |
-| TRVL-02 | — | Pending |
-| TRVL-03 | — | Pending |
-| TRVL-04 | — | Pending |
-| TRVL-05 | — | Pending |
-| TRVL-06 | — | Pending |
-| NAV-01 | — | Pending |
-| NAV-02 | — | Pending |
-| NAV-03 | — | Pending |
+| HOME-01 | Phase 3 | Pending |
+| HOME-02 | Phase 3 | Pending |
+| HOME-03 | Phase 3 | Pending |
+| CONC-01 | Phase 1 | Pending |
+| CONC-02 | Phase 1 | Pending |
+| CONC-03 | Phase 1 | Pending |
+| CONC-04 | Phase 1 | Pending |
+| CONC-05 | Phase 1 | Pending |
+| TRVL-01 | Phase 2 | Pending |
+| TRVL-02 | Phase 2 | Pending |
+| TRVL-03 | Phase 2 | Pending |
+| TRVL-04 | Phase 2 | Pending |
+| TRVL-05 | Phase 2 | Pending |
+| TRVL-06 | Phase 2 | Pending |
+| NAV-01 | Phase 3 | Pending |
+| NAV-02 | Phase 3 | Pending |
+| NAV-03 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️ (traceability filled by roadmapper)
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-10*
-*Last updated: 2026-03-10 after initial definition*
+*Last updated: 2026-03-10 — traceability filled by roadmapper*
