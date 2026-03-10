@@ -28,7 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Visitor can sort the feed by star rating and the order updates without a page reload
   4. Ryan can create, edit, and delete concert entries in Sanity Studio at /studio
   5. New or edited concerts appear on /concerts within 60 seconds (ISR revalidation)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Sanity concert schema and Studio registration
+- [ ] 01-02-PLAN.md — /concerts page, ConcertFeed client component, and CSS
 
 ### Phase 2: Travel
 **Goal**: Visitors can explore an interactive map of cities Ryan has personally visited, click any pin to zoom in, and read a detail card with photos, description, date, and rating — and Ryan can manage entries in Sanity Studio
