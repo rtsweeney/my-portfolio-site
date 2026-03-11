@@ -70,5 +70,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Concerts | 2/2 | Complete    | 2026-03-11 |
-| 2. Travel | 2/2 | Complete   | 2026-03-11 |
+| 2. Travel | 2/2 | Complete    | 2026-03-11 |
 | 3. Homepage and Navigation | TBD | Not started | - |
