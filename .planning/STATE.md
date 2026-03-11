@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 01-02-PLAN.md — /concerts feed page verified and approved
-last_updated: "2026-03-11T04:56:01.638Z"
+stopped_at: Completed 02-01-PLAN.md — Travel Sanity schema created and registered
+last_updated: "2026-03-11T12:47:03.039Z"
 last_activity: "2026-03-11 — Plan 01-02 complete: /concerts feed page built and human-verified"
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 100
 ---
 
@@ -46,6 +46,7 @@ Progress: [██████████] 100%
 | 01-concerts | 2/2 | ~7 min | ~4 min |
 
 *Updated after each plan completion*
+| Phase 02-travel P01 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,8 @@ Recent decisions affecting current work:
 - [01-01]: Rating uses number type with options.list [1-5] for dropdown — consistent with existing dropdown patterns in codebase
 - [Phase 01-concerts]: Interfaces declared locally in page.tsx and ConcertFeed.tsx to keep Client Component self-contained
 - [Phase 01-concerts]: Date order comes from GROQ order(date desc); chronological sort is no-op, only rating sort triggers JS re-sort
+- [Phase 02-travel]: geopoint built-in Sanity type used for coordinates — renders map picker in Studio, stores lat/lng/alt natively
+- [Phase 02-travel]: description uses text type (not portable text) — keeps schema simple, consistent with concert caption field
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11T04:49:47.818Z
-Stopped at: Completed 01-02-PLAN.md — /concerts feed page verified and approved
+Last session: 2026-03-11T12:47:03.036Z
+Stopped at: Completed 02-01-PLAN.md — Travel Sanity schema created and registered
 Resume file: None
