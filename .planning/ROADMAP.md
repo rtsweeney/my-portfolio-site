@@ -31,8 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Sanity concert schema and Studio registration
-- [ ] 01-02-PLAN.md — /concerts page, ConcertFeed client component, and CSS
+- [x] 01-01-PLAN.md — Sanity concert schema and Studio registration
+- [x] 01-02-PLAN.md — /concerts page, ConcertFeed client component, and CSS
 
 ### Phase 2: Travel
 **Goal**: Visitors can explore an interactive map of cities Ryan has personally visited, click any pin to zoom in, and read a detail card with photos, description, date, and rating — and Ryan can manage entries in Sanity Studio
@@ -47,8 +47,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Sanity travel schema (travel.ts) and Studio registration
-- [ ] 02-02-PLAN.md — react-leaflet dependencies, TravelMap component, /travel page, and CSS
+- [x] 02-01-PLAN.md — Sanity travel schema (travel.ts) and Studio registration
+- [x] 02-02-PLAN.md — react-leaflet dependencies, TravelMap component, /travel page, and CSS
 
 ### Phase 3: Homepage and Navigation
 **Goal**: The homepage clearly communicates what the site is and one-click navigation reaches all major sections; /blog is retired in favor of /concerts and /travel
@@ -60,7 +60,10 @@ Plans:
   3. The homepage feels personal and well-crafted — not a generic developer portfolio template
   4. Site navigation includes visible links to /concerts and /travel
   5. Visiting /blog redirects or returns a 404; the route is no longer a live feed
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 03-01-PLAN.md — Homepage cards + hero copy, Navigation update, /blog retirement
 
 ## Progress
 
@@ -71,4 +74,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Concerts | 2/2 | Complete    | 2026-03-11 |
 | 2. Travel | 2/2 | Complete    | 2026-03-11 |
-| 3. Homepage and Navigation | TBD | Not started | - |
+| 3. Homepage and Navigation | 0/1 | Planned | - |
