@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 3 plan created — 03-01-PLAN.md ready for execution
-last_updated: "2026-03-11T14:00:00.000Z"
+status: Phase 3 plan created — 03-01-PLAN.md ready for execution
+stopped_at: Completed 03-01-PLAN.md — homepage/nav updated, /blog retired; awaiting human visual verify checkpoint
+last_updated: "2026-03-11T19:36:32.592Z"
 last_activity: "2026-03-11 — Phase 3 plan created: homepage + nav update ready to execute"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -47,6 +47,7 @@ Progress: [██████████] 100%
 | 02-travel | 2/2 | ~20 min | ~10 min |
 
 *Updated after each plan completion*
+| Phase 03-homepage-and-navigation P01 | 5 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,7 @@ Recent decisions affecting current work:
 - [Phase 01-concerts]: Date order comes from GROQ order(date desc); chronological sort is no-op, only rating sort triggers JS re-sort
 - [Phase 02-travel]: geopoint built-in Sanity type used for coordinates — renders map picker in Studio, stores lat/lng/alt natively
 - [Phase 02-travel]: description uses text type (not portable text) — keeps schema simple, consistent with concert caption field
+- [Phase 03-homepage-and-navigation]: card-accent-pink reused for /concerts card; /blog retired via permanentRedirect() + next.config.mjs belt-and-suspenders redirect
 
 ### Pending Todos
 
@@ -75,6 +77,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-11T13:30:00.000Z
-Stopped at: Completed 02-02-PLAN.md — /travel interactive map page built and human-verified
+Last session: 2026-03-11T19:36:32.589Z
+Stopped at: Completed 03-01-PLAN.md — homepage/nav updated, /blog retired; awaiting human visual verify checkpoint
 Resume file: None
