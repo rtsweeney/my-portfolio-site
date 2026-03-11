@@ -432,6 +432,7 @@ a {
 .card-accent-purple { border-top: 3px solid var(--accent-primary); }
 .card-accent-pink { border-top: 3px solid var(--accent-warm); }
 .card-accent-gold { border-top: 3px solid var(--accent-gold); }
+.card-accent-orange { border-top: 3px solid var(--accent-orange); }
 
 /* ============================================
    Section Home Cards Grid
