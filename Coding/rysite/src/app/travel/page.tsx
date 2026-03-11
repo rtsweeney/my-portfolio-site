@@ -1,7 +1,7 @@
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 import { safeFetch } from '@/sanity/lib/client';
+import TravelMapLoader from '@/components/TravelMapLoader';
 
 export const revalidate = 60;
 
@@ -26,13 +26,6 @@ const TRAVEL_QUERY = `*[_type == "travel"] | order(date desc) {
   description,
   photos[] { asset, alt }
 }`;
-
-// Dynamic import with ssr: false — required because Leaflet accesses window at module load time.
-// Without this, Next.js build throws: ReferenceError: window is not defined
-const TravelMap = dynamic(() => import('@/components/TravelMap'), {
-  ssr: false,
-  loading: () => <div className="map-loading">Loading map…</div>,
-});
 
 export default async function TravelPage() {
   const entries = await safeFetch<TravelEntry[]>(TRAVEL_QUERY, []);
@@ -59,7 +52,7 @@ export default async function TravelPage() {
             </p>
           </div>
         ) : (
-          <TravelMap entries={entries} />
+          <TravelMapLoader entries={entries} />
         )}
       </div>
       <Footer />

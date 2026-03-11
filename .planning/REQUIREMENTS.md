@@ -25,8 +25,8 @@
 - [x] **TRVL-02**: Map supports both US and international locations with city-level pins
 - [x] **TRVL-03**: Clicking a pin zooms the map into that location
 - [x] **TRVL-04**: Clicking a pin shows a detail card (below or alongside map) with photos, description, date visited, and rating
-- [ ] **TRVL-05**: Travel entries are managed via Sanity Studio (create, edit, delete)
-- [ ] **TRVL-06**: Travel schema in Sanity includes: city, country, coordinates, date, photos, description, rating
+- [x] **TRVL-05**: Travel entries are managed via Sanity Studio (create, edit, delete)
+- [x] **TRVL-06**: Travel schema in Sanity includes: city, country, coordinates, date, photos, description, rating
 
 ### Navigation
 
@@ -72,8 +72,8 @@
 | TRVL-02 | Phase 2 | Complete |
 | TRVL-03 | Phase 2 | Complete |
 | TRVL-04 | Phase 2 | Complete |
-| TRVL-05 | Phase 2 | Pending |
-| TRVL-06 | Phase 2 | Pending |
+| TRVL-05 | Phase 2 | Complete |
+| TRVL-06 | Phase 2 | Complete |
 | NAV-01 | Phase 3 | Pending |
 | NAV-02 | Phase 3 | Pending |
 | NAV-03 | Phase 3 | Pending |
