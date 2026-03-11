@@ -13,7 +13,7 @@ Three phases add the two missing content sections (concerts and travel) and then
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Concerts** - Sanity schema, GROQ query, and /concerts feed page with photo/rating/caption display and sort-by-rating (completed 2026-03-11)
-- [ ] **Phase 2: Travel** - Sanity schema, GROQ query, and /travel interactive map page with city-level pins and detail cards
+- [x] **Phase 2: Travel** - Sanity schema, GROQ query, and /travel interactive map page with city-level pins and detail cards (completed 2026-03-11)
 - [ ] **Phase 3: Homepage and Navigation** - Redesign homepage, add /concerts and /travel to site nav, retire /blog
 
 ## Phase Details
@@ -70,5 +70,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Concerts | 2/2 | Complete    | 2026-03-11 |
-| 2. Travel | 1/2 | In Progress|  |
+| 2. Travel | 2/2 | Complete   | 2026-03-11 |
 | 3. Homepage and Navigation | TBD | Not started | - |

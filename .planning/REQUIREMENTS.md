@@ -21,10 +21,10 @@
 
 ### Travel
 
-- [ ] **TRVL-01**: Visitor sees an interactive map showing cities Ryan has personally visited
-- [ ] **TRVL-02**: Map supports both US and international locations with city-level pins
-- [ ] **TRVL-03**: Clicking a pin zooms the map into that location
-- [ ] **TRVL-04**: Clicking a pin shows a detail card (below or alongside map) with photos, description, date visited, and rating
+- [x] **TRVL-01**: Visitor sees an interactive map showing cities Ryan has personally visited
+- [x] **TRVL-02**: Map supports both US and international locations with city-level pins
+- [x] **TRVL-03**: Clicking a pin zooms the map into that location
+- [x] **TRVL-04**: Clicking a pin shows a detail card (below or alongside map) with photos, description, date visited, and rating
 - [ ] **TRVL-05**: Travel entries are managed via Sanity Studio (create, edit, delete)
 - [ ] **TRVL-06**: Travel schema in Sanity includes: city, country, coordinates, date, photos, description, rating
 
@@ -68,10 +68,10 @@
 | CONC-03 | Phase 1 | Complete |
 | CONC-04 | Phase 1 | Complete |
 | CONC-05 | Phase 1 | Complete |
-| TRVL-01 | Phase 2 | Pending |
-| TRVL-02 | Phase 2 | Pending |
-| TRVL-03 | Phase 2 | Pending |
-| TRVL-04 | Phase 2 | Pending |
+| TRVL-01 | Phase 2 | Complete |
+| TRVL-02 | Phase 2 | Complete |
+| TRVL-03 | Phase 2 | Complete |
+| TRVL-04 | Phase 2 | Complete |
 | TRVL-05 | Phase 2 | Pending |
 | TRVL-06 | Phase 2 | Pending |
 | NAV-01 | Phase 3 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 02-01-PLAN.md — Travel Sanity schema created and registered
-last_updated: "2026-03-11T12:47:03.039Z"
-last_activity: "2026-03-11 — Plan 01-02 complete: /concerts feed page built and human-verified"
+stopped_at: Completed 02-02-PLAN.md — /travel interactive map page built and human-verified
+last_updated: "2026-03-11T13:30:00.000Z"
+last_activity: "2026-03-11 — Plan 02-02 complete: /travel map page built and human-verified"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** Visitors can quickly see what Ryan has been making, where he's been, and what he's about — in one place that feels personal and well-crafted.
-**Current focus:** Phase 1 — Concerts
+**Current focus:** Phase 2 — Travel (COMPLETE)
 
 ## Current Position
 
-Phase: 1 of 3 (Concerts) — COMPLETE
+Phase: 2 of 3 (Travel) — COMPLETE
 Plan: 2 of 2 in current phase — COMPLETE
-Status: Phase 1 complete, awaiting Phase 2
-Last activity: 2026-03-11 — Plan 01-02 complete: /concerts feed page built and human-verified
+Status: Phase 2 complete — /travel interactive map live and human-verified
+Last activity: 2026-03-11 — Plan 02-02 complete: /travel map page built and human-verified
 
 Progress: [██████████] 100%
 
@@ -44,9 +44,9 @@ Progress: [██████████] 100%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-concerts | 2/2 | ~7 min | ~4 min |
+| 02-travel | 2/2 | ~20 min | ~10 min |
 
 *Updated after each plan completion*
-| Phase 02-travel P01 | 1 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -57,7 +57,7 @@ Recent decisions affecting current work:
 
 - [Setup]: Sanity Studio at /studio serves as admin UI for concerts/travel — no custom auth needed
 - [Setup]: /blog will be retired and replaced by /concerts and /travel routes
-- [Setup]: Travel map library (Leaflet or Mapbox) — TBD in Phase 2 planning
+- [Setup]: Travel map library resolved — react-leaflet with OSM tiles chosen (open-source, no API key, Cloudflare Pages edge-compatible)
 - [01-01]: Photos are inline image objects in concert array (not references to photo document type) — keeps concert data self-contained
 - [01-01]: Rating uses number type with options.list [1-5] for dropdown — consistent with existing dropdown patterns in codebase
 - [Phase 01-concerts]: Interfaces declared locally in page.tsx and ConcertFeed.tsx to keep Client Component self-contained
@@ -71,10 +71,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 2]: Interactive map library choice (Leaflet vs Mapbox) must be resolved during Phase 2 planning — must be edge-compatible with Cloudflare Pages
+None.
 
 ## Session Continuity
 
-Last session: 2026-03-11T12:47:03.036Z
-Stopped at: Completed 02-01-PLAN.md — Travel Sanity schema created and registered
+Last session: 2026-03-11T13:30:00.000Z
+Stopped at: Completed 02-02-PLAN.md — /travel interactive map page built and human-verified
 Resume file: None
