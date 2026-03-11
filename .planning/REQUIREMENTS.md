@@ -7,9 +7,9 @@
 
 ### Homepage
 
-- [ ] **HOME-01**: Visitor sees a redesigned homepage that clearly communicates the site's purpose (concerts, travel, projects, resume)
-- [ ] **HOME-02**: Visitor can navigate from the homepage to each major section (concerts, travel, projects, resume) in one click
-- [ ] **HOME-03**: Homepage feels personal and well-crafted, not generic
+- [x] **HOME-01**: Visitor sees a redesigned homepage that clearly communicates the site's purpose (concerts, travel, projects, resume)
+- [x] **HOME-02**: Visitor can navigate from the homepage to each major section (concerts, travel, projects, resume) in one click
+- [x] **HOME-03**: Homepage feels personal and well-crafted, not generic
 
 ### Concerts
 
@@ -21,18 +21,18 @@
 
 ### Travel
 
-- [ ] **TRVL-01**: Visitor sees an interactive map showing cities Ryan has personally visited
-- [ ] **TRVL-02**: Map supports both US and international locations with city-level pins
-- [ ] **TRVL-03**: Clicking a pin zooms the map into that location
-- [ ] **TRVL-04**: Clicking a pin shows a detail card (below or alongside map) with photos, description, date visited, and rating
-- [ ] **TRVL-05**: Travel entries are managed via Sanity Studio (create, edit, delete)
-- [ ] **TRVL-06**: Travel schema in Sanity includes: city, country, coordinates, date, photos, description, rating
+- [x] **TRVL-01**: Visitor sees an interactive map showing cities Ryan has personally visited
+- [x] **TRVL-02**: Map supports both US and international locations with city-level pins
+- [x] **TRVL-03**: Clicking a pin zooms the map into that location
+- [x] **TRVL-04**: Clicking a pin shows a detail card (below or alongside map) with photos, description, date visited, and rating
+- [x] **TRVL-05**: Travel entries are managed via Sanity Studio (create, edit, delete)
+- [x] **TRVL-06**: Travel schema in Sanity includes: city, country, coordinates, date, photos, description, rating
 
 ### Navigation
 
-- [ ] **NAV-01**: /blog route is replaced — redirects or is removed in favor of /concerts and /travel
-- [ ] **NAV-02**: Site navigation includes links to /concerts and /travel sections
-- [ ] **NAV-03**: /concerts and /travel routes are live and accessible
+- [x] **NAV-01**: /blog route is replaced — redirects or is removed in favor of /concerts and /travel
+- [x] **NAV-02**: Site navigation includes links to /concerts and /travel sections
+- [x] **NAV-03**: /concerts and /travel routes are live and accessible
 
 ## v2 Requirements
 
@@ -60,23 +60,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HOME-01 | Phase 3 | Pending |
-| HOME-02 | Phase 3 | Pending |
-| HOME-03 | Phase 3 | Pending |
+| HOME-01 | Phase 3 | Complete |
+| HOME-02 | Phase 3 | Complete |
+| HOME-03 | Phase 3 | Complete |
 | CONC-01 | Phase 1 | Complete |
 | CONC-02 | Phase 1 | Complete |
 | CONC-03 | Phase 1 | Complete |
 | CONC-04 | Phase 1 | Complete |
 | CONC-05 | Phase 1 | Complete |
-| TRVL-01 | Phase 2 | Pending |
-| TRVL-02 | Phase 2 | Pending |
-| TRVL-03 | Phase 2 | Pending |
-| TRVL-04 | Phase 2 | Pending |
-| TRVL-05 | Phase 2 | Pending |
-| TRVL-06 | Phase 2 | Pending |
-| NAV-01 | Phase 3 | Pending |
-| NAV-02 | Phase 3 | Pending |
-| NAV-03 | Phase 3 | Pending |
+| TRVL-01 | Phase 2 | Complete |
+| TRVL-02 | Phase 2 | Complete |
+| TRVL-03 | Phase 2 | Complete |
+| TRVL-04 | Phase 2 | Complete |
+| TRVL-05 | Phase 2 | Complete |
+| TRVL-06 | Phase 2 | Complete |
+| NAV-01 | Phase 3 | Complete |
+| NAV-02 | Phase 3 | Complete |
+| NAV-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total

@@ -11,15 +11,19 @@
   "dependencies": {
     "@sanity/image-url": "^1.2.0",
     "@sanity/vision": "^4.21.1",
+    "leaflet": "^1.9.4",
+    "leaflet-defaulticon-compatibility": "^0.1.2",
     "lucide-react": "^0.561.0",
     "next": "^15.1.0",
     "next-sanity": "^11.6.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0",
     "sanity": "^4.21.1",
     "styled-components": "^6.1.19"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

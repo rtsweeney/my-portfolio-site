@@ -13,8 +13,8 @@ export default function Home() {
           <span className="gradient-text">sweeney.town</span>
         </h1>
         <p className="hero-subtitle animate-in animate-delay-3">
-          A little corner of the internet for projects, ideas, tools, and life updates.
-          Poke around &mdash; there&apos;s always something new.
+          Concerts I&apos;ve been to. Places I&apos;ve traveled. Projects I&apos;ve built.
+          My resume, too &mdash; but honestly the other stuff is more fun.
         </p>
         <div className="hero-cta-group animate-in animate-delay-4">
           <Link href="/projects" className="btn btn-primary">See My Projects</Link>
@@ -50,22 +50,22 @@ export default function Home() {
             </div>
           </Link>
 
-          <Link href="/blog" style={{ textDecoration: 'none' }}>
+          <Link href="/concerts" style={{ textDecoration: 'none' }}>
             <div className="card card-accent-pink">
-              <div className="home-card-icon">&#128221;</div>
-              <h3 className="home-card-title">Life Updates</h3>
+              <div className="home-card-icon">&#127925;</div>
+              <h3 className="home-card-title">Concerts</h3>
               <p className="home-card-desc">
-                A blog-style feed of what&apos;s going on &mdash; milestones, thoughts, and things I want to share.
+                Shows I&apos;ve attended, rated and reviewed. From dive bars to arenas.
               </p>
             </div>
           </Link>
 
-          <Link href="/calculators" style={{ textDecoration: 'none' }}>
-            <div className="card card-accent-gold">
-              <div className="home-card-icon">&#129518;</div>
-              <h3 className="home-card-title">Calculators</h3>
+          <Link href="/travel" style={{ textDecoration: 'none' }}>
+            <div className="card card-accent-orange">
+              <div className="home-card-icon">&#127758;</div>
+              <h3 className="home-card-title">Travel</h3>
               <p className="home-card-desc">
-                Handy tools and calculators I&apos;ve made. Unit converters, financial tools, and more to come.
+                Cities and countries I&apos;ve visited, mapped out with photos and notes.
               </p>
             </div>
           </Link>

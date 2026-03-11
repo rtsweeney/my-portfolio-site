@@ -13,8 +13,8 @@ Three phases add the two missing content sections (concerts and travel) and then
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Concerts** - Sanity schema, GROQ query, and /concerts feed page with photo/rating/caption display and sort-by-rating (completed 2026-03-11)
-- [ ] **Phase 2: Travel** - Sanity schema, GROQ query, and /travel interactive map page with city-level pins and detail cards
-- [ ] **Phase 3: Homepage and Navigation** - Redesign homepage, add /concerts and /travel to site nav, retire /blog
+- [x] **Phase 2: Travel** - Sanity schema, GROQ query, and /travel interactive map page with city-level pins and detail cards (completed 2026-03-11)
+- [x] **Phase 3: Homepage and Navigation** - Redesign homepage, add /concerts and /travel to site nav, retire /blog (completed 2026-03-11)
 
 ## Phase Details
 
@@ -31,8 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Sanity concert schema and Studio registration
-- [ ] 01-02-PLAN.md — /concerts page, ConcertFeed client component, and CSS
+- [x] 01-01-PLAN.md — Sanity concert schema and Studio registration
+- [x] 01-02-PLAN.md — /concerts page, ConcertFeed client component, and CSS
 
 ### Phase 2: Travel
 **Goal**: Visitors can explore an interactive map of cities Ryan has personally visited, click any pin to zoom in, and read a detail card with photos, description, date, and rating — and Ryan can manage entries in Sanity Studio
@@ -44,7 +44,11 @@ Plans:
   3. Clicking a pin zooms the map into that city
   4. Clicking a pin reveals a detail card showing photos, description, date visited, and star rating
   5. Ryan can create, edit, and delete travel entries (including coordinates) in Sanity Studio
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [x] 02-01-PLAN.md — Sanity travel schema (travel.ts) and Studio registration
+- [x] 02-02-PLAN.md — react-leaflet dependencies, TravelMap component, /travel page, and CSS
 
 ### Phase 3: Homepage and Navigation
 **Goal**: The homepage clearly communicates what the site is and one-click navigation reaches all major sections; /blog is retired in favor of /concerts and /travel
@@ -56,7 +60,10 @@ Plans:
   3. The homepage feels personal and well-crafted — not a generic developer portfolio template
   4. Site navigation includes visible links to /concerts and /travel
   5. Visiting /blog redirects or returns a 404; the route is no longer a live feed
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 03-01-PLAN.md — Homepage cards + hero copy, Navigation update, /blog retirement
 
 ## Progress
 
@@ -65,6 +72,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Concerts | 2/2 | Complete   | 2026-03-11 |
-| 2. Travel | TBD | Not started | - |
-| 3. Homepage and Navigation | TBD | Not started | - |
+| 1. Concerts | 2/2 | Complete    | 2026-03-11 |
+| 2. Travel | 2/2 | Complete    | 2026-03-11 |
+| 3. Homepage and Navigation | 1/1 | Complete   | 2026-03-11 |

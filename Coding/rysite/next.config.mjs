@@ -8,6 +8,11 @@ const nextConfig = {
             },
         ],
     },
+    async redirects() {
+        return [
+            { source: '/blog', destination: '/concerts', permanent: true },
+        ];
+    },
 };
 
 export default nextConfig;

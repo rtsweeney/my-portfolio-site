@@ -47,8 +47,11 @@ export default function Navigation() {
           <Link href="/resume" className={`nav-link ${isActive('/resume') ? 'active' : ''}`}>
             Resume
           </Link>
-          <Link href="/blog" className={`nav-link ${isActive('/blog') ? 'active' : ''}`}>
-            Life Updates
+          <Link href="/concerts" className={`nav-link ${isActive('/concerts') ? 'active' : ''}`}>
+            Concerts
+          </Link>
+          <Link href="/travel" className={`nav-link ${isActive('/travel') ? 'active' : ''}`}>
+            Travel
           </Link>
 
           <div className="nav-dropdown">
