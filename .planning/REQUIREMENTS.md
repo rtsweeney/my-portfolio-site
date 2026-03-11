@@ -13,9 +13,9 @@
 
 ### Concerts
 
-- [ ] **CONC-01**: Visitor can view a chronological feed of concerts Ryan has attended
-- [ ] **CONC-02**: Each concert entry displays at least one photo, a star rating, and a caption/review
-- [ ] **CONC-03**: Visitor can sort the concert feed by star rating
+- [x] **CONC-01**: Visitor can view a chronological feed of concerts Ryan has attended
+- [x] **CONC-02**: Each concert entry displays at least one photo, a star rating, and a caption/review
+- [x] **CONC-03**: Visitor can sort the concert feed by star rating
 - [x] **CONC-04**: Concert entries are managed via Sanity Studio (create, edit, delete)
 - [x] **CONC-05**: Concert schema in Sanity includes: title, date, venue, photos, star rating (1–5), caption/review
 
@@ -63,9 +63,9 @@
 | HOME-01 | Phase 3 | Pending |
 | HOME-02 | Phase 3 | Pending |
 | HOME-03 | Phase 3 | Pending |
-| CONC-01 | Phase 1 | Pending |
-| CONC-02 | Phase 1 | Pending |
-| CONC-03 | Phase 1 | Pending |
+| CONC-01 | Phase 1 | Complete |
+| CONC-02 | Phase 1 | Complete |
+| CONC-03 | Phase 1 | Complete |
 | CONC-04 | Phase 1 | Complete |
 | CONC-05 | Phase 1 | Complete |
 | TRVL-01 | Phase 2 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md — Concert Sanity schema; Task 3 checkpoint awaiting human Studio verification
-last_updated: "2026-03-11T03:36:41.315Z"
+stopped_at: Completed 01-02 Tasks 1-2; Task 3 checkpoint awaiting human /concerts verification
+last_updated: "2026-03-11T03:53:56.861Z"
 last_activity: "2026-03-11 — Plan 01-01 complete: Concert Sanity schema created and registered"
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 50
 ---
 
@@ -59,6 +59,8 @@ Recent decisions affecting current work:
 - [Setup]: Travel map library (Leaflet or Mapbox) — TBD in Phase 2 planning
 - [01-01]: Photos are inline image objects in concert array (not references to photo document type) — keeps concert data self-contained
 - [01-01]: Rating uses number type with options.list [1-5] for dropdown — consistent with existing dropdown patterns in codebase
+- [Phase 01-concerts]: Interfaces declared locally in page.tsx and ConcertFeed.tsx to keep Client Component self-contained
+- [Phase 01-concerts]: Date order comes from GROQ order(date desc); chronological sort is no-op, only rating sort triggers JS re-sort
 
 ### Pending Todos
 
@@ -70,6 +72,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11T03:36:41.313Z
-Stopped at: Completed 01-01-PLAN.md — Concert Sanity schema; Task 3 checkpoint awaiting human Studio verification
+Last session: 2026-03-11T03:53:53.363Z
+Stopped at: Completed 01-02 Tasks 1-2; Task 3 checkpoint awaiting human /concerts verification
 Resume file: None
