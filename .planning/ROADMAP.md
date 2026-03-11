@@ -44,7 +44,11 @@ Plans:
   3. Clicking a pin zooms the map into that city
   4. Clicking a pin reveals a detail card showing photos, description, date visited, and star rating
   5. Ryan can create, edit, and delete travel entries (including coordinates) in Sanity Studio
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Sanity travel schema (travel.ts) and Studio registration
+- [ ] 02-02-PLAN.md — react-leaflet dependencies, TravelMap component, /travel page, and CSS
 
 ### Phase 3: Homepage and Navigation
 **Goal**: The homepage clearly communicates what the site is and one-click navigation reaches all major sections; /blog is retired in favor of /concerts and /travel
@@ -66,5 +70,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Concerts | 2/2 | Complete    | 2026-03-11 |
-| 2. Travel | TBD | Not started | - |
+| 2. Travel | 0/2 | Not started | - |
 | 3. Homepage and Navigation | TBD | Not started | - |
