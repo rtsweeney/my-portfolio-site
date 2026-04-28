@@ -308,8 +308,15 @@ const CALC_CSS = `
   box-shadow: 0 4px 16px rgba(0, 184, 148, 0.18);
 }
 #pfc-root .out-cell.accent-cell .lbl { color: rgba(255,255,255,0.85); }
-#pfc-root .out-cell.accent-cell .val { color: #fff; }
+#pfc-root .out-cell.accent-cell .val { color: #fff; font-size: 0.88rem; gap: 0.3rem; flex-wrap: nowrap; }
 #pfc-root .out-cell.accent-cell .unit-s { color: rgba(255,255,255,0.9); }
+#pfc-root .out-cell.hero .val { gap: 0.45rem; }
+#pfc-root .out-cell.hero .val .alt-unit,
+#pfc-root .out-cell.accent-cell .val .alt-unit {
+  color: inherit;
+  opacity: 0.85;
+  font-weight: 600;
+}
 
 #pfc-root .breakdown {
   margin-bottom: 1.5rem;
@@ -352,24 +359,55 @@ const CALC_CSS = `
 }
 #pfc-root .legend {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.45rem 1.25rem;
-  font-size: 0.75rem;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  font-size: 0.78rem;
 }
 #pfc-root .legend-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.7rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  background: var(--paper-deep, rgba(0,0,0,0.02));
 }
 #pfc-root .legend-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   flex-shrink: 0;
+  align-self: start;
+  margin-top: 2px;
 }
-#pfc-root .legend-item .lname { flex: 1; color: var(--ink); font-weight: 500; }
-#pfc-root .legend-item .lval { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
-#pfc-root .legend-item .lpct { color: var(--moss); font-size: 0.7rem; margin-left: 0.25rem; }
+#pfc-root .legend-item .ltext { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+#pfc-root .legend-item .lname { color: var(--ink); font-weight: 600; line-height: 1.2; }
+#pfc-root .legend-item .ldesc {
+  color: var(--moss);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  font-weight: 400;
+}
+#pfc-root .legend-item .lnums { text-align: right; display: flex; flex-direction: column; gap: 0.1rem; }
+#pfc-root .legend-item .lval {
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+#pfc-root .legend-item .lval .lu {
+  font-weight: 500;
+  color: var(--moss);
+  font-size: 0.7rem;
+  margin-left: 0.15rem;
+}
+#pfc-root .legend-item .lpct {
+  color: var(--moss);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 
 #pfc-root .chart-box {
   border: 1px solid var(--grid);
@@ -715,6 +753,7 @@ const CALC_CSS = `
   #pfc-root header { grid-template-columns: 1fr; }
   #pfc-root .meta-block { text-align: left; }
   #pfc-root .out-cell.hero { grid-column: 1 / -1; }
+  #pfc-root .out-cell.wide { grid-column: 1 / -1; }
 }
 @media (max-width: 520px) {
   #pfc-root { padding-left: 1rem; padding-right: 1rem; }
@@ -955,13 +994,31 @@ export default function PleatedFilterCalculatorPage() {
       const inp = readInputs();
       const r = computeDeltaP(inp);
       const dp_imp = r.dp_total;
-      (document.getElementById('o_dpT') as HTMLElement).textContent = fmt(fromImperial(dp_imp, 'dp'), 3);
-      (document.getElementById('o_area') as HTMLElement).textContent = fmt(fromImperial(r.A4 / 144, 'area'), 2);
+      const dp_pa = dp_imp * 248.84;
+      const dp_inwc = dp_imp;
+      (document.getElementById('o_dpT') as HTMLElement).innerHTML =
+        `${fmt(dp_pa, 1)} <span class="alt-unit">Pa</span> / ${fmt(dp_inwc, 3)} <span class="alt-unit">inWC</span>`;
+      const area_ft2 = r.A4 / 144;
+      const area_m2 = area_ft2 / 10.7639;
+      (document.getElementById('o_area') as HTMLElement).innerHTML =
+        `${fmt(area_m2, 2)} <span class="alt-unit">m²</span> / ${fmt(area_ft2, 2)} <span class="alt-unit">ft²</span>`;
       (document.getElementById('o_beta') as HTMLElement).textContent = fmt((r.beta * 180) / Math.PI, 2);
       (document.getElementById('o_po') as HTMLElement).textContent = fmt(fromImperial(r.P_O, 'smlen'), 3);
       (document.getElementById('o_q') as HTMLElement).textContent = fmt(fromImperial(r.Q / 144, 'vol'), 0);
       (document.getElementById('o_v4') as HTMLElement).textContent = fmt(fromImperial(r.V4, 'vel'), S.units === 'imperial' ? 1 : 3);
-      (document.getElementById('o_ppi') as HTMLElement).textContent = String(inp.PPI);
+      const ppiLblEl = document.getElementById('o_ppi_lbl') as HTMLElement;
+      const ppiUnitEl = document.getElementById('o_ppi_unit') as HTMLElement;
+      const ppiValEl = document.getElementById('o_ppi') as HTMLElement;
+      if (S.pleatMode === 'count') {
+        const ppiDensity = inp.PPI / inp.F_W;
+        ppiLblEl.textContent = 'PPI (derived)';
+        ppiUnitEl.textContent = '1/in';
+        ppiValEl.textContent = fmt(ppiDensity, 2);
+      } else {
+        ppiLblEl.textContent = 'Pleat count (derived)';
+        ppiUnitEl.textContent = 'pleats';
+        ppiValEl.textContent = String(inp.PPI);
+      }
       (document.getElementById('o_kp') as HTMLElement).textContent = fmt(r.K_Pcoef, 2);
       const kpUnitEl = document.querySelector('#o_kp + .unit-s') as HTMLElement | null;
       if (kpUnitEl) {
@@ -990,11 +1047,41 @@ export default function PleatedFilterCalculatorPage() {
     function renderBreakdown(r: any) {
       const total = r.dp_total;
       const legendSegs = [
-        { key: 'grating', name: 'Grating (K_G)', val: r.dp_grating, color: COLORS.grating },
-        { key: 'pleatTip', name: 'Pleat-tip contr./exp.', val: r.dp_pleatTip, color: COLORS.pleatTip },
-        { key: 'pleat', name: 'Pleat flow (K_P)', val: r.dp_pleat, color: COLORS.pleat },
-        { key: 'media_v', name: 'Media — viscous (AV)', val: r.dp_media_visc, color: COLORS.media_v },
-        { key: 'media_i', name: 'Media — inertial (BV²)', val: r.dp_media_inert, color: COLORS.media_i },
+        {
+          key: 'grating',
+          name: 'Inlet grating',
+          desc: 'Loss across the face grating · 2·K_G·½ρV₂²',
+          val: r.dp_grating,
+          color: COLORS.grating,
+        },
+        {
+          key: 'pleatTip',
+          name: 'Pleat-tip contraction & expansion',
+          desc: 'Sudden area change at pleat tips · (K_C + K_E)·½ρV₃²',
+          val: r.dp_pleatTip,
+          color: COLORS.pleatTip,
+        },
+        {
+          key: 'pleat',
+          name: 'Pleat-channel flow',
+          desc: 'Friction along pleat sidewalls · K_P·½ρV₃²',
+          val: r.dp_pleat,
+          color: COLORS.pleat,
+        },
+        {
+          key: 'media_v',
+          name: 'Media — viscous (Darcy)',
+          desc: 'Linear resistance through media · A·V₄',
+          val: r.dp_media_visc,
+          color: COLORS.media_v,
+        },
+        {
+          key: 'media_i',
+          name: 'Media — inertial (Forchheimer)',
+          desc: 'Quadratic resistance through media · B·V₄²',
+          val: r.dp_media_inert,
+          color: COLORS.media_i,
+        },
       ];
       const barSegs = [
         { name: 'Grating', val: r.dp_grating, color: COLORS.grating },
@@ -1019,6 +1106,7 @@ export default function PleatedFilterCalculatorPage() {
         }
       });
 
+      const dpUnit = UNIT_LABELS[S.units].dp;
       legendSegs.forEach((s) => {
         const pct = total > 0 ? (s.val / total) * 100 : 0;
         const dpLabel = fromImperial(s.val, 'dp');
@@ -1026,9 +1114,14 @@ export default function PleatedFilterCalculatorPage() {
         item.className = 'legend-item';
         item.innerHTML = `
           <div class="legend-swatch" style="background:${s.color}"></div>
-          <div class="lname">${s.name}</div>
-          <div class="lval">${fmt(dpLabel, 3)} ${UNIT_LABELS[S.units].dp}</div>
-          <div class="lpct">(${pct.toFixed(1)}%)</div>
+          <div class="ltext">
+            <div class="lname">${s.name}</div>
+            <div class="ldesc">${s.desc}</div>
+          </div>
+          <div class="lnums">
+            <div class="lval">${fmt(dpLabel, 3)} <span class="lu">${dpUnit}</span></div>
+            <div class="lpct">${pct.toFixed(1)}%</div>
+          </div>
         `;
         leg.appendChild(item);
       });
@@ -1948,14 +2041,12 @@ export default function PleatedFilterCalculatorPage() {
                 <div className="lbl">Total filter ΔP</div>
                 <div className="val">
                   <span id="o_dpT">—</span>
-                  <span className="unit-s" data-unit="dp">inWC</span>
                 </div>
               </div>
               <div className="out-cell accent-cell">
                 <div className="lbl">Media area</div>
                 <div className="val">
                   <span id="o_area">—</span>
-                  <span className="unit-s" data-unit="area">ft²</span>
                 </div>
               </div>
 
@@ -1989,10 +2080,10 @@ export default function PleatedFilterCalculatorPage() {
               </div>
 
               <div className="out-cell">
-                <div className="lbl">Pleat count (input)</div>
+                <div className="lbl" id="o_ppi_lbl">Pleat count (input)</div>
                 <div className="val">
                   <span id="o_ppi">—</span>
-                  <span className="unit-s">pleats</span>
+                  <span className="unit-s" id="o_ppi_unit">pleats</span>
                 </div>
               </div>
               <div className="out-cell">
@@ -2025,12 +2116,6 @@ export default function PleatedFilterCalculatorPage() {
               </div>
             </div>
 
-            <div className="breakdown">
-              <div className="breakdown-hd">ΔP breakdown by term</div>
-              <div className="bar-container" id="bar-bd"></div>
-              <div className="legend" id="legend-bd"></div>
-            </div>
-
             <div className="chart-box">
               <div className="chart-hd">
                 <h3>Pleating curve · ΔP vs. pleat count</h3>
@@ -2039,6 +2124,12 @@ export default function PleatedFilterCalculatorPage() {
               <div className="chart-wrap">
                 <canvas id="chart-ppi"></canvas>
               </div>
+            </div>
+
+            <div className="breakdown">
+              <div className="breakdown-hd">ΔP breakdown by term</div>
+              <div className="bar-container" id="bar-bd"></div>
+              <div className="legend" id="legend-bd"></div>
             </div>
 
             <div className="fe-section" id="fe-section">
