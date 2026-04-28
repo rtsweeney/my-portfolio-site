@@ -737,9 +737,9 @@ export default function PleatedFilterCalculatorPage() {
 
     const S = {
       units: 'imperial' as 'imperial' | 'metric',
-      mediaMode: 'ab' as 'dp' | 'ab' | 'perm',
+      mediaMode: 'dp' as 'dp' | 'ab' | 'perm',
       flowMode: 'cfm' as 'face' | 'cfm',
-      pleatMode: 'count' as 'count' | 'ppi',
+      pleatMode: 'ppi' as 'count' | 'ppi',
     };
 
     function getHead(rho_lbft3: number, V_fpm: number) {
@@ -864,28 +864,29 @@ export default function PleatedFilterCalculatorPage() {
 
     const DEFAULTS: Record<string, Record<string, number>> = {
       imperial: {
-        F_H: 23.375, F_W: 23.375, P_D: 1.7, PLEAT_COUNT: 25, PPI: 1.07, M_T: 0.05,
+        F_H: 24.016, F_W: 24.016, P_D: 0.984, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
         M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
         A_CONST: -0.001325, B_CONST: 9.814e-6,
-        GRATING: 34.5, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.0,
+        GRATING: 22.5, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.0,
       },
       metric: {
-        F_H: 593.7, F_W: 593.7, P_D: 43.2, PLEAT_COUNT: 25, PPI: 1.07, M_T: 1.27,
+        F_H: 610, F_W: 610, P_D: 25, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
         M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
         A_CONST: -0.001325, B_CONST: 9.814e-6,
-        GRATING: 34.5, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.0,
+        GRATING: 22.5, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.0,
       },
     };
 
     function readInputs() {
       const $ = (id: string) => parseFloat((document.getElementById(id) as HTMLInputElement).value);
-      let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D'), M_T = $('M_T');
+      let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D');
+      const M_T = $('M_T');
       const gratingPct = $('GRATING');
       let rho = $('RHO');
       F_H = toImperial(F_H, 'len');
       F_W = toImperial(F_W, 'len');
       P_D = toImperial(P_D, 'len');
-      M_T = toImperial(M_T, 'mt');
+      // M_T is always entered in inches regardless of unit system
       rho = toImperial(rho, 'rho');
 
       let PLEAT_COUNT: number;
@@ -1782,43 +1783,43 @@ export default function PleatedFilterCalculatorPage() {
 
               <div className="row">
                 <label>Filter height<span className="sub">along pleat tip</span></label>
-                <input type="number" id="F_H" step="0.01" defaultValue="23.375" />
+                <input type="number" id="F_H" step="0.01" defaultValue="24.016" />
                 <span className="unit" data-unit="len">in</span>
               </div>
               <div className="row">
                 <label>Filter width<span className="sub">pleating direction</span></label>
-                <input type="number" id="F_W" step="0.01" defaultValue="23.375" />
+                <input type="number" id="F_W" step="0.01" defaultValue="24.016" />
                 <span className="unit" data-unit="len">in</span>
               </div>
               <div className="row">
                 <label>Pleat depth<span className="sub">depth of single pleat</span></label>
-                <input type="number" id="P_D" step="0.01" defaultValue="1.7" />
+                <input type="number" id="P_D" step="0.01" defaultValue="0.984" />
                 <span className="unit" data-unit="len">in</span>
               </div>
 
               <div className="toggle-row" style={{ marginTop: 8 }} role="radiogroup" aria-label="Pleat density input mode">
-                <button type="button" data-pleatmode="count" className="active">Pleat count</button>
-                <button type="button" data-pleatmode="ppi">PPI (per inch)</button>
+                <button type="button" data-pleatmode="count">Pleat count</button>
+                <button type="button" data-pleatmode="ppi" className="active">PPI (per inch)</button>
               </div>
 
-              <div id="pleatmode-count">
+              <div id="pleatmode-count" style={{ display: 'none' }}>
                 <div className="row">
                   <label>Pleat count<span className="sub">total pleats across filter width</span></label>
                   <input type="number" id="PLEAT_COUNT" step="1" defaultValue="25" min="1" />
                   <span className="unit">–</span>
                 </div>
               </div>
-              <div id="pleatmode-ppi" style={{ display: 'none' }}>
+              <div id="pleatmode-ppi">
                 <div className="row">
                   <label>PPI<span className="sub">pleats per inch of filter width</span></label>
-                  <input type="number" id="PPI" step="0.01" defaultValue="1.07" min="0.1" />
+                  <input type="number" id="PPI" step="0.1" defaultValue="5" min="0.1" />
                   <span className="unit">1/in</span>
                 </div>
               </div>
 
               <div className="row">
                 <label>Grating blockage<span className="sub">front + back face obstruction</span></label>
-                <input type="number" id="GRATING" step="0.1" min="0" max="90" defaultValue="34.5" />
+                <input type="number" id="GRATING" step="0.1" min="0" max="90" defaultValue="22.5" />
                 <span className="unit">%</span>
               </div>
               <div className="input-note">Note: 0.1&quot; glue beads spaced 1&quot; apart ≈ 10% blockage.</div>
@@ -1829,17 +1830,17 @@ export default function PleatedFilterCalculatorPage() {
 
               <div className="row">
                 <label>Media thickness<span className="sub">single layer</span></label>
-                <input type="number" id="M_T" step="0.001" defaultValue="0.05" />
-                <span className="unit" data-unit="mt">in</span>
+                <input type="number" id="M_T" step="0.001" defaultValue="0.015" />
+                <span className="unit">in</span>
               </div>
 
               <div className="toggle-row" style={{ marginTop: 6 }} role="radiogroup" aria-label="Media dP input mode">
-                <button type="button" data-mediamode="dp">ΔP @ 10.5 fpm</button>
-                <button type="button" data-mediamode="ab" className="active">A &amp; B direct</button>
+                <button type="button" data-mediamode="dp" className="active">ΔP @ 10.5 fpm</button>
+                <button type="button" data-mediamode="ab">A &amp; B direct</button>
                 <button type="button" data-mediamode="perm">Perm @ 125 Pa</button>
               </div>
 
-              <div id="mode-dp" style={{ display: 'none' }}>
+              <div id="mode-dp">
                 <div className="row">
                   <label>Media ΔP at 10.5 fpm<span className="sub">flat-sheet, clean, at V<sub>ref</sub> = 10.5 fpm</span></label>
                   <input type="number" id="M_DP" step="0.01" defaultValue="2.5" />
@@ -1852,7 +1853,7 @@ export default function PleatedFilterCalculatorPage() {
                 </div>
               </div>
 
-              <div id="mode-ab">
+              <div id="mode-ab" style={{ display: 'none' }}>
                 <div className="row">
                   <label>Media constant A<span className="sub">viscous</span></label>
                   <input type="number" id="A_CONST" step="0.00001" defaultValue="-0.001325" />
