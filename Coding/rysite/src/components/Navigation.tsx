@@ -10,6 +10,7 @@ const calculators = [
   { name: 'Beers Per Beer', href: '/calculators/beers-per-beer', subtitle: 'Standard beers in any drink' },
   { name: 'Unit Converter', href: '/calculators/unit-converter', subtitle: 'Length, weight, temp & more' },
   { name: 'Air Density', href: '/calculators/air-density', subtitle: 'Density from temp, humidity & altitude' },
+  { name: 'Pleated Filter', href: '/calculators/pleated-filter-calculator', subtitle: 'Pressure drop & efficiency model' },
 ];
 
 export default function Navigation() {
