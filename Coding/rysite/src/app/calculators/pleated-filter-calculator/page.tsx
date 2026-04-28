@@ -864,22 +864,23 @@ export default function PleatedFilterCalculatorPage() {
 
     const DEFAULTS: Record<string, Record<string, number>> = {
       imperial: {
-        F_H: 22.638, F_W: 22.638, P_D: 0.984, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
+        F_H: 24.016, F_W: 24.016, P_D: 0.984, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
         M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
         A_CONST: -0.001325, B_CONST: 9.814e-6,
-        GRATING: 10, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.0,
+        GRATING: 22.5, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.0,
       },
       metric: {
-        F_H: 575, F_W: 575, P_D: 25, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
+        F_H: 610, F_W: 610, P_D: 25, PLEAT_COUNT: 25, PPI: 5.0, M_T: 0.015,
         M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
         A_CONST: -0.001325, B_CONST: 9.814e-6,
-        GRATING: 10, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.0,
+        GRATING: 22.5, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.0,
       },
     };
 
     function readInputs() {
       const $ = (id: string) => parseFloat((document.getElementById(id) as HTMLInputElement).value);
-      let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D'), M_T = $('M_T');
+      let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D');
+      const M_T = $('M_T');
       const gratingPct = $('GRATING');
       let rho = $('RHO');
       F_H = toImperial(F_H, 'len');
@@ -1782,12 +1783,12 @@ export default function PleatedFilterCalculatorPage() {
 
               <div className="row">
                 <label>Filter height<span className="sub">along pleat tip</span></label>
-                <input type="number" id="F_H" step="0.01" defaultValue="22.638" />
+                <input type="number" id="F_H" step="0.01" defaultValue="24.016" />
                 <span className="unit" data-unit="len">in</span>
               </div>
               <div className="row">
                 <label>Filter width<span className="sub">pleating direction</span></label>
-                <input type="number" id="F_W" step="0.01" defaultValue="22.638" />
+                <input type="number" id="F_W" step="0.01" defaultValue="24.016" />
                 <span className="unit" data-unit="len">in</span>
               </div>
               <div className="row">
@@ -1818,7 +1819,7 @@ export default function PleatedFilterCalculatorPage() {
 
               <div className="row">
                 <label>Grating blockage<span className="sub">front + back face obstruction</span></label>
-                <input type="number" id="GRATING" step="0.1" min="0" max="90" defaultValue="10" />
+                <input type="number" id="GRATING" step="0.1" min="0" max="90" defaultValue="22.5" />
                 <span className="unit">%</span>
               </div>
               <div className="input-note">Note: 0.1&quot; glue beads spaced 1&quot; apart ≈ 10% blockage.</div>
