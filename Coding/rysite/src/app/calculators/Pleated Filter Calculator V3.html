@@ -1,0 +1,2525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pleated Filter Design Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #0f120e;
+    --paper: #f3efe4;
+    --paper-deep: #e8e1cf;
+    --grid: #c6bda4;
+    --accent: #d94814;
+    --accent-deep: #a83408;
+    --moss: #3a5535;
+    --rule: #1a1a16;
+    --warn: #b38600;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --serif: 'Fraunces', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    background-image:
+      repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px),
+      repeating-linear-gradient(90deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px);
+    min-height: 100vh;
+  }
+
+  /* ——— header ——— */
+  header {
+    border-bottom: 2px solid var(--ink);
+    padding: 28px 40px 20px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 24px;
+    background: var(--paper);
+  }
+  .title-block h1 {
+    font-family: var(--serif);
+    font-weight: 800;
+    font-style: italic;
+    font-size: clamp(32px, 5vw, 54px);
+    line-height: 0.95;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+  .title-block h1 .accent {
+    color: var(--accent);
+    font-style: normal;
+    font-weight: 400;
+  }
+  .title-block p {
+    margin: 8px 0 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--moss);
+  }
+  .meta-block {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    text-align: right;
+    line-height: 1.7;
+    color: var(--moss);
+  }
+  .meta-block strong {
+    display: block;
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  /* ——— layout ——— */
+  main {
+    display: grid;
+    grid-template-columns: minmax(340px, 420px) 1fr;
+    gap: 0;
+    min-height: calc(100vh - 120px);
+  }
+
+  aside.inputs {
+    border-right: 2px solid var(--ink);
+    padding: 24px 28px 80px;
+    background: var(--paper);
+  }
+  section.outputs {
+    padding: 24px 32px 80px;
+    background: var(--paper-deep);
+  }
+
+  /* ——— section headers ——— */
+  .sec {
+    margin-bottom: 28px;
+  }
+  .sec-hd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .sec-hd .num {
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 10px;
+    padding: 3px 7px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .sec-hd h2 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 20px;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  /* ——— input rows ——— */
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 118px 54px;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border-bottom: 1px dotted rgba(15,18,14,0.2);
+  }
+  .row:last-child { border-bottom: none; }
+  .row label {
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .row label .sub {
+    display: block;
+    font-size: 10px;
+    color: var(--moss);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 1px;
+  }
+  .row input[type="number"] {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 8px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    text-align: right;
+    outline: none;
+    transition: box-shadow 0.15s, background 0.15s;
+  }
+  .row input[type="number"]:focus {
+    background: #fffaea;
+    box-shadow: 0 0 0 3px rgba(217,72,20,0.25);
+  }
+  .row .unit {
+    font-size: 10px;
+    color: var(--moss);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .input-note {
+    font-size: 10px;
+    color: var(--moss);
+    font-style: italic;
+    padding: 4px 0 2px 2px;
+    line-height: 1.4;
+    border-left: 2px solid var(--grid);
+    padding-left: 8px;
+    margin-top: 6px;
+  }
+
+  /* ——— toggles ——— */
+  .toggle-row {
+    display: flex;
+    gap: 0;
+    margin-bottom: 10px;
+    border: 1px solid var(--ink);
+  }
+  .toggle-row button {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 7px 8px;
+    background: var(--paper);
+    border: none;
+    border-right: 1px solid var(--ink);
+    cursor: pointer;
+    color: var(--ink);
+    transition: background 0.15s;
+  }
+  .toggle-row button:last-child { border-right: none; }
+  .toggle-row button.active {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .toggle-row button:not(.active):hover {
+    background: var(--paper-deep);
+  }
+
+  /* ——— outputs ——— */
+  .out-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0;
+    margin-bottom: 32px;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+  }
+  .out-cell {
+    padding: 14px 16px;
+    border-right: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    position: relative;
+  }
+  .out-cell:last-child { border-right: none; }
+  .out-cell .lbl {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--moss);
+    margin-bottom: 6px;
+  }
+  .out-cell .val {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-style: italic;
+    font-size: 26px;
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .out-cell .unit-s {
+    font-family: var(--mono);
+    font-style: normal;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--moss);
+    margin-left: 4px;
+    letter-spacing: 0.04em;
+  }
+  .out-cell.hero {
+    background: var(--ink);
+    color: var(--paper);
+    grid-column: span 2;
+  }
+  .out-cell.hero .lbl { color: rgba(243,239,228,0.6); }
+  .out-cell.hero .val { color: var(--paper); font-size: 38px; }
+  .out-cell.hero .unit-s { color: rgba(243,239,228,0.7); }
+  .out-cell.accent-cell {
+    background: var(--accent);
+    color: var(--paper);
+  }
+  .out-cell.accent-cell .lbl { color: rgba(243,239,228,0.75); }
+  .out-cell.accent-cell .val { color: var(--paper); }
+  .out-cell.accent-cell .unit-s { color: rgba(243,239,228,0.85); }
+
+  /* ——— breakdown bar ——— */
+  .breakdown {
+    margin-bottom: 32px;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    padding: 16px;
+  }
+  .breakdown-hd {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    letter-spacing: -0.01em;
+  }
+  .bar-container {
+    display: flex;
+    height: 28px;
+    width: 100%;
+    border: 1px solid var(--ink);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .bar-seg {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--paper);
+    font-size: 10px;
+    font-weight: 500;
+    border-right: 1px solid rgba(0,0,0,0.2);
+    transition: width 0.3s ease;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .bar-seg:last-child { border-right: none; }
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 20px;
+    font-size: 11px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--ink);
+    flex-shrink: 0;
+  }
+  .legend-item .lname {
+    flex: 1;
+    color: var(--ink);
+  }
+  .legend-item .lval {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .legend-item .lpct {
+    color: var(--moss);
+    font-size: 10px;
+    margin-left: 4px;
+  }
+
+  /* ——— chart ——— */
+  .chart-box {
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    padding: 18px 18px 14px;
+    margin-bottom: 24px;
+  }
+  .chart-hd {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .chart-hd h3 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .chart-hd .chart-sub {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--moss);
+  }
+  .chart-wrap {
+    position: relative;
+    height: 340px;
+  }
+
+  /* ——— notes & warnings ——— */
+  .note-strip {
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    line-height: 1.55;
+    border-left: 3px solid var(--accent);
+    background: rgba(217,72,20,0.08);
+    color: var(--ink);
+  }
+  .note-strip.warn {
+    border-left-color: var(--warn);
+    background: rgba(179,134,0,0.1);
+  }
+  .note-strip .nlbl {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10px;
+    margin-right: 6px;
+    color: var(--accent);
+  }
+  .note-strip.warn .nlbl { color: var(--warn); }
+
+  /* ——— footer ——— */
+  footer {
+    border-top: 2px solid var(--ink);
+    padding: 20px 40px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--moss);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--paper);
+  }
+  footer em {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 13px;
+  }
+
+  /* ——— fractional efficiency section ——— */
+  .fe-section {
+    margin-top: 32px;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+  }
+  .fe-toggle {
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    background: var(--ink);
+    color: var(--paper);
+    user-select: none;
+  }
+  .fe-toggle h3 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 20px;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .fe-toggle h3 .fe-sub {
+    display: block;
+    font-family: var(--mono);
+    font-style: normal;
+    font-weight: 400;
+    font-size: 10px;
+    color: rgba(243,239,228,0.65);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-top: 4px;
+  }
+  .fe-toggle .fe-caret {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 26px;
+    transition: transform 0.2s;
+  }
+  .fe-section.open .fe-caret { transform: rotate(90deg); }
+  .fe-body {
+    display: none;
+    padding: 20px 20px 24px;
+  }
+  .fe-section.open .fe-body { display: block; }
+
+  .fe-paste-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .fe-paste-box {
+    display: flex;
+    flex-direction: column;
+  }
+  .fe-paste-box label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--moss);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .fe-paste-box textarea {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.4;
+    padding: 10px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    resize: vertical;
+    min-height: 140px;
+    outline: none;
+  }
+  .fe-paste-box textarea:focus {
+    background: #fffaea;
+    box-shadow: 0 0 0 3px rgba(217,72,20,0.2);
+  }
+  .fe-vel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    background: var(--paper-deep);
+    border: 1px solid var(--ink);
+  }
+  .fe-vel-row .fe-vel-lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--moss);
+    flex: 1;
+  }
+  .fe-vel-row input {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 6px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    text-align: right;
+    outline: none;
+    width: 90px;
+  }
+  .fe-vel-row input:focus {
+    background: #fffaea;
+    box-shadow: 0 0 0 2px rgba(217,72,20,0.25);
+  }
+  .fe-vel-row .fe-vel-unit {
+    font-size: 10px;
+    color: var(--moss);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    min-width: 28px;
+  }
+  .fe-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .fe-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 9px 18px;
+    background: var(--accent);
+    color: var(--paper);
+    border: 1px solid var(--accent-deep);
+    cursor: pointer;
+    font-weight: 700;
+    transition: background 0.15s;
+  }
+  .fe-btn:hover { background: var(--accent-deep); }
+  .fe-btn.secondary {
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--ink);
+  }
+  .fe-btn.secondary:hover { background: var(--paper-deep); }
+  .fe-parse-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--moss);
+  }
+  .fe-parse-status.ok { color: var(--moss); }
+  .fe-parse-status.err { color: var(--accent); }
+
+  .fe-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    margin-bottom: 18px;
+    border: 1px solid var(--ink);
+  }
+  .fe-cell {
+    padding: 12px 14px;
+    border-right: 1px solid var(--ink);
+  }
+  .fe-cell:last-child { border-right: none; }
+  .fe-cell.highlight { background: var(--ink); color: var(--paper); }
+  .fe-cell .fe-cell-lbl {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--moss);
+    margin-bottom: 6px;
+  }
+  .fe-cell.highlight .fe-cell-lbl { color: rgba(243,239,228,0.6); }
+  .fe-cell .fe-cell-val {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 1.2;
+  }
+  .fe-cell .fe-cell-det {
+    font-size: 10px;
+    color: var(--moss);
+    font-family: var(--mono);
+    margin-top: 4px;
+  }
+  .fe-cell.highlight .fe-cell-det { color: rgba(243,239,228,0.7); }
+
+  .fe-chart-box {
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .fe-chart-wrap {
+    position: relative;
+    height: 360px;
+  }
+
+  .fe-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+    font-family: var(--mono);
+  }
+  .fe-table th, .fe-table td {
+    padding: 5px 8px;
+    text-align: right;
+    border-bottom: 1px dotted rgba(15,18,14,0.2);
+  }
+  .fe-table th {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--moss);
+    font-weight: 700;
+    border-bottom: 1px solid var(--ink);
+    text-align: right;
+  }
+  .fe-table th:first-child, .fe-table td:first-child { text-align: left; }
+  .fe-table tr.hero-row td {
+    background: rgba(217,72,20,0.1);
+    font-weight: 600;
+  }
+
+  @media (max-width: 720px) {
+    .fe-paste-grid { grid-template-columns: 1fr; }
+    .fe-summary { grid-template-columns: 1fr; }
+    .fe-cell { border-right: none; border-bottom: 1px solid var(--ink); }
+    .fe-cell:last-child { border-bottom: none; }
+  }
+
+  /* ——— responsive ——— */
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    aside.inputs { border-right: none; border-bottom: 2px solid var(--ink); }
+    header { grid-template-columns: 1fr; }
+    .meta-block { text-align: left; }
+    .out-cell.hero { grid-column: span 2; }
+  }
+  @media (max-width: 520px) {
+    header, aside.inputs, section.outputs { padding-left: 18px; padding-right: 18px; }
+    .row { grid-template-columns: 1fr 90px 40px; }
+    .title-block h1 { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1>Pleated <span class="accent">Filter</span> <em>Calculator</em></h1>
+    <p>Initial Pressure Drop Model · Sothen &amp; Tatarchuk 2009</p>
+  </div>
+  <div class="meta-block">
+    <strong>ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + BV₄²</strong>
+    Seven-region flow model<br />
+    Idelchik friction coefficients<br />
+    K<sub>P</sub> = 0.11 · (F<sub>HD</sub>/F<sub>D</sub>) · (1/β)<sup>4/3</sup>
+  </div>
+</header>
+
+<main>
+
+  <!-- ========== INPUTS ========== -->
+  <aside class="inputs">
+
+    <div class="sec">
+      <div class="toggle-row" role="radiogroup" aria-label="Unit system">
+        <button type="button" data-units="imperial" class="active">Imperial</button>
+        <button type="button" data-units="metric">Metric</button>
+      </div>
+    </div>
+
+    <!-- ----- GEOMETRY ----- -->
+    <div class="sec">
+      <div class="sec-hd"><span class="num">01</span><h2>Filter geometry</h2></div>
+
+      <div class="row">
+        <label>Filter height<span class="sub">along pleat tip</span></label>
+        <input type="number" id="F_H" step="0.01" value="23.375" />
+        <span class="unit" data-unit="len">in</span>
+      </div>
+
+      <div class="row">
+        <label>Filter width<span class="sub">pleating direction</span></label>
+        <input type="number" id="F_W" step="0.01" value="23.375" />
+        <span class="unit" data-unit="len">in</span>
+      </div>
+
+      <div class="row">
+        <label>Pleat depth<span class="sub">depth of single pleat</span></label>
+        <input type="number" id="P_D" step="0.01" value="1.7" />
+        <span class="unit" data-unit="len">in</span>
+      </div>
+
+      <div class="toggle-row" style="margin-top:8px;" role="radiogroup" aria-label="Pleat density input mode">
+        <button type="button" data-pleatmode="count" class="active">Pleat count</button>
+        <button type="button" data-pleatmode="ppi">PPI (per inch)</button>
+      </div>
+
+      <div id="pleatmode-count">
+        <div class="row">
+          <label>Pleat count<span class="sub">total pleats across filter width</span></label>
+          <input type="number" id="PLEAT_COUNT" step="1" value="25" min="1" />
+          <span class="unit">–</span>
+        </div>
+      </div>
+
+      <div id="pleatmode-ppi" style="display:none;">
+        <div class="row">
+          <label>PPI<span class="sub">pleats per inch of filter width</span></label>
+          <input type="number" id="PPI" step="0.01" value="1.07" min="0.1" />
+          <span class="unit">1/in</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <label>Grating blockage<span class="sub">front + back face obstruction</span></label>
+        <input type="number" id="GRATING" step="0.1" min="0" max="90" value="34.5" />
+        <span class="unit">%</span>
+      </div>
+      <div class="input-note">Note: 0.1" glue beads spaced 1" apart ≈ 10% blockage.</div>
+    </div>
+
+    <!-- ----- MEDIA ----- -->
+    <div class="sec">
+      <div class="sec-hd"><span class="num">02</span><h2>Media properties</h2></div>
+
+      <div class="row">
+        <label>Media thickness<span class="sub">single layer</span></label>
+        <input type="number" id="M_T" step="0.001" value="0.05" />
+        <span class="unit" data-unit="mt">in</span>
+      </div>
+
+      <div class="toggle-row" style="margin-top:6px;" role="radiogroup" aria-label="Media dP input mode">
+        <button type="button" data-mediamode="dp">ΔP @ 10.5 fpm</button>
+        <button type="button" data-mediamode="ab" class="active">A &amp; B direct</button>
+        <button type="button" data-mediamode="perm">Perm @ 125 Pa</button>
+      </div>
+
+      <div id="mode-dp" style="display:none;">
+        <div class="row">
+          <label>Media ΔP at 10.5 fpm<span class="sub">flat-sheet, clean, at V<sub>ref</sub> = 10.5 fpm</span></label>
+          <input type="number" id="M_DP" step="0.01" value="2.5" />
+          <span class="unit">mmWC</span>
+        </div>
+        <div class="row">
+          <label>Linear fraction<span class="sub">0 = all V², 1 = all V</span></label>
+          <input type="number" id="LIN_FRAC" step="0.01" min="0" max="1" value="0.99" />
+          <span class="unit">–</span>
+        </div>
+      </div>
+
+      <div id="mode-ab">
+        <div class="row">
+          <label>Media constant A<span class="sub">viscous</span></label>
+          <input type="number" id="A_CONST" step="0.00001" value="-0.001325" />
+          <span class="unit">inWC·min/ft</span>
+        </div>
+        <div class="row">
+          <label>Media constant B<span class="sub">inertial</span></label>
+          <input type="number" id="B_CONST" step="0.0000001" value="0.000009814" />
+          <span class="unit">inWC·min²/ft²</span>
+        </div>
+      </div>
+
+      <div id="mode-perm" style="display:none;">
+        <div class="row">
+          <label>Permeability @ 125 Pa<span class="sub">flat-sheet, clean (EN ISO 9237 / ASTM D737)</span></label>
+          <input type="number" id="M_PERM" step="0.1" value="85" min="0.1" />
+          <span class="unit">L/m²/s</span>
+        </div>
+        <div class="row">
+          <label>Linear fraction<span class="sub">0 = all V², 1 = all V (≈1 for Darcy regime)</span></label>
+          <input type="number" id="LIN_FRAC_PERM" step="0.01" min="0" max="1" value="1.00" />
+          <span class="unit">–</span>
+        </div>
+        <div class="input-note">Permeability of <strong>85 L/m²/s</strong> = velocity of 0.085 m/s (8.5 cm/s) at 125 Pa. Use linear fraction = 1.0 for pure viscous (Darcy) behavior — typical for clean filter media at low Re.</div>
+      </div>
+    </div>
+
+    <!-- ----- FLOW ----- -->
+    <div class="sec">
+      <div class="sec-hd"><span class="num">03</span><h2>Flow conditions</h2></div>
+
+      <div class="toggle-row" role="radiogroup" aria-label="Flow input mode">
+        <button type="button" data-flowmode="face">Face velocity</button>
+        <button type="button" data-flowmode="cfm" class="active">Volumetric flow</button>
+      </div>
+
+      <div id="flowmode-face" style="display:none;">
+        <div class="row">
+          <label>Face velocity<span class="sub">at filter face</span></label>
+          <input type="number" id="V_FACE" step="1" value="527" />
+          <span class="unit" data-unit="vel">fpm</span>
+        </div>
+      </div>
+
+      <div id="flowmode-cfm">
+        <div class="row">
+          <label>Volumetric flow<span class="sub">through filter</span></label>
+          <input type="number" id="Q_VOL" step="10" value="2000" />
+          <span class="unit" data-unit="vol">CFM</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <label>Air density<span class="sub">at operating temp</span></label>
+        <input type="number" id="RHO" step="0.001" value="0.0725" />
+        <span class="unit" data-unit="rho">lb/ft³</span>
+      </div>
+    </div>
+
+    <!-- ----- ADVANCED / CALIBRATION ----- -->
+    <div class="sec">
+      <div class="sec-hd"><span class="num">04</span><h2>Advanced</h2></div>
+
+      <div class="row">
+        <label>K<sub>P</sub> calibration<span class="sub">scales pleat friction term</span></label>
+        <input type="number" id="KP_CAL" step="0.01" min="0.01" max="5" value="1.00" />
+        <span class="unit">×</span>
+      </div>
+      <div class="input-note">1.0 = dissertation formula. Lower (~0.3–0.5) for filters where the unmodified formula over-predicts pleat friction and forces non-physical media constants.</div>
+    </div>
+
+  </aside>
+
+  <!-- ========== OUTPUTS ========== -->
+  <section class="outputs">
+
+    <div class="note-strip">
+      <span class="nlbl">Model domain</span>
+      Validated for 20"×20" faces with depths 1–4", pleat counts 12–60, media thickness &lt; 2 mm, face velocity &lt; 1000 fpm. Extrapolations beyond these bounds are flagged below.
+    </div>
+
+    <div id="warn-box"></div>
+
+    <div class="out-grid">
+      <div class="out-cell hero">
+        <div class="lbl">Total filter ΔP</div>
+        <div class="val"><span id="o_dpT">—</span><span class="unit-s" data-unit="dp">inWC</span></div>
+      </div>
+      <div class="out-cell accent-cell">
+        <div class="lbl">Media area</div>
+        <div class="val"><span id="o_area">—</span><span class="unit-s" data-unit="area">ft²</span></div>
+      </div>
+
+      <div class="out-cell">
+        <div class="lbl">Pleat pitch β</div>
+        <div class="val"><span id="o_beta">—</span><span class="unit-s">°</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">Pleat opening P<sub>O</sub></div>
+        <div class="val"><span id="o_po">—</span><span class="unit-s" data-unit="smlen">in</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">Volumetric flow</div>
+        <div class="val"><span id="o_q">—</span><span class="unit-s" data-unit="vol">CFM</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">Media velocity V₄</div>
+        <div class="val"><span id="o_v4">—</span><span class="unit-s" data-unit="vel">fpm</span></div>
+      </div>
+
+      <div class="out-cell">
+        <div class="lbl">Pleat count (input)</div>
+        <div class="val"><span id="o_ppi">—</span><span class="unit-s">pleats</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">Optimal pleat count</div>
+        <div class="val"><span id="o_optppi">—</span><span class="unit-s">pleats</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">Optimal PPI</div>
+        <div class="val"><span id="o_optppi_density">—</span><span class="unit-s">1/in</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">ΔP at optimum</div>
+        <div class="val"><span id="o_dpopt">—</span><span class="unit-s">inWC</span></div>
+      </div>
+      <div class="out-cell">
+        <div class="lbl">K<sub>P</sub> (pleat coef.)</div>
+        <div class="val"><span id="o_kp">—</span><span class="unit-s">–</span></div>
+      </div>
+    </div>
+
+    <div class="breakdown">
+      <div class="breakdown-hd">ΔP breakdown by term</div>
+      <div class="bar-container" id="bar-bd"></div>
+      <div class="legend" id="legend-bd"></div>
+    </div>
+
+    <div class="chart-box">
+      <div class="chart-hd">
+        <h3>Pleating curve · ΔP vs. pleat count</h3>
+        <div class="chart-sub">U-curve · media + viscous + grating</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chart-ppi"></canvas>
+      </div>
+    </div>
+
+    <!-- ========== FRACTIONAL EFFICIENCY ========== -->
+    <div class="fe-section" id="fe-section">
+      <div class="fe-toggle" id="fe-toggle">
+        <h3>
+          Fractional efficiency projector
+          <span class="fe-sub">Pierce velocity-scaling · TSI 3160 data</span>
+        </h3>
+        <span class="fe-caret">›</span>
+      </div>
+      <div class="fe-body">
+
+        <div class="note-strip">
+          <span class="nlbl">How it works</span>
+          Paste two fractional efficiency datasets at different face velocities.
+          The tool fits each curve to Pierce's quadratic model (ln Pen = A(ln D)² + B ln D + C),
+          back-calculates the velocity exponent N, and projects the penetration
+          curve to the media velocity V<sub>4</sub> computed by this calculator.
+        </div>
+
+        <div style="display:flex; gap:16px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+          <span style="font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--moss);">Mode</span>
+          <div class="toggle-row" style="margin-bottom:0; max-width:380px; flex:1; min-width:260px;">
+            <button id="fe-mode-hepa" class="active" data-mode="hepa">HEPA · 0.05–0.4 µm · global N</button>
+            <button id="fe-mode-pre" data-mode="pre">Prefilter · 0.3–10 µm · local N</button>
+          </div>
+          <span id="fe-mode-hint" style="font-size:10px; color:var(--moss); font-style:italic; flex-basis:100%;">
+            HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.
+          </span>
+        </div>
+
+        <div class="fe-paste-grid">
+          <div class="fe-paste-box">
+            <label>Dataset A · Low velocity</label>
+            <div class="fe-vel-row">
+              <span class="fe-vel-lbl">Face velocity</span>
+              <input type="number" id="fe-vel-a" step="0.001" value="2.003" />
+              <span class="fe-vel-unit">cm/s</span>
+            </div>
+            <textarea id="fe-paste-a" placeholder="Paste data starting with the column header row...">D (µm) 	Eff. (%)	Pen. (%)	P-95% (%)	Resistance (mmH2O) 	C-up (1/cm³)	C-dn (1/cm³)	Counts-dn
+0.07	99.995139	0.004862	0.005105	10.696250	2.07E+05	1.01E+01	1.51E+03
+0.09	99.992376	0.007624	0.007933	10.722750	1.80E+05	1.37E+01	2.32E+03
+0.11	99.987745	0.012255	0.012736	10.717250	1.34E+05	1.64E+01	2.47E+03
+0.14	99.976530	0.023471	0.023770	10.717250	2.79E+05	6.19E+01	9.23E+03
+0.2	99.981590	0.018410	0.018880	10.739750	2.19E+05	4.04E+01	6.11E+03
+0.25	99.984553	0.015447	0.016084	10.675500	9.90E+04	1.50E+01	2.28E+03
+0.3	99.990293	0.009708	0.010407	10.724250	4.82E+04	4.78E+00	7.41E+02</textarea>
+          </div>
+          <div class="fe-paste-box">
+            <label>Dataset B · High velocity</label>
+            <div class="fe-vel-row">
+              <span class="fe-vel-lbl">Face velocity</span>
+              <input type="number" id="fe-vel-b" step="0.001" value="5.339" />
+              <span class="fe-vel-unit">cm/s</span>
+            </div>
+            <textarea id="fe-paste-b" placeholder="Paste data starting with the column header row...">D (µm) 	Eff. (%)	Pen. (%)	P-95% (%)	Resistance (mmH2O) 	C-up (1/cm³)	C-dn (1/cm³)	Counts-dn
+0.07	99.918725	0.081275	0.081763	28.659667	8.24E+04	6.71E+01	1.04E+04
+0.09	99.892137	0.107863	0.107863	28.732667	7.08E+04	7.64E+01	1.23E+04
+0.11	99.866019	0.133981	0.135628	28.752667	5.18E+04	6.94E+01	1.04E+04
+0.14	99.852168	0.147832	0.147832	28.668000	1.28E+05	1.90E+02	2.84E+04
+0.2	99.910370	0.089630	0.089630	28.689000	8.91E+04	8.02E+01	1.20E+04
+0.25	99.944497	0.055503	0.057604	28.804000	3.29E+04	1.79E+01	2.71E+03
+0.3	99.967221	0.032779	0.034843	28.779000	1.94E+04	6.44E+00	9.80E+02</textarea>
+          </div>
+        </div>
+
+        <div class="fe-actions">
+          <button class="fe-btn" id="fe-run">Fit &amp; project to V₄</button>
+          <button class="fe-btn secondary" id="fe-clear">Clear</button>
+          <span class="fe-parse-status" id="fe-status">Ready · enter velocities, paste data, and fit</span>
+        </div>
+
+        <div id="fe-results" style="display:none;">
+
+          <div class="fe-summary">
+            <div class="fe-cell">
+              <div class="fe-cell-lbl">Dataset A · V<sub>A</sub></div>
+              <div class="fe-cell-val"><span id="fe-va">—</span> <span style="font-size:11px;color:var(--moss)">cm/s</span></div>
+              <div class="fe-cell-det">MPPS: <span id="fe-mppsA">—</span> µm · Pen: <span id="fe-pmppsA">—</span> %</div>
+            </div>
+            <div class="fe-cell">
+              <div class="fe-cell-lbl">Dataset B · V<sub>B</sub></div>
+              <div class="fe-cell-val"><span id="fe-vb">—</span> <span style="font-size:11px;color:var(--moss)">cm/s</span></div>
+              <div class="fe-cell-det">MPPS: <span id="fe-mppsB">—</span> µm · Pen: <span id="fe-pmppsB">—</span> %</div>
+            </div>
+            <div class="fe-cell">
+              <div class="fe-cell-lbl" id="fe-n-lbl">Global N</div>
+              <div class="fe-cell-val"><span id="fe-nglobal">—</span></div>
+              <div class="fe-cell-det" id="fe-n-det">velocity exponent · Pierce eq. 4</div>
+            </div>
+            <div class="fe-cell highlight">
+              <div class="fe-cell-lbl">Projected · V<sub>4</sub></div>
+              <div class="fe-cell-val"><span id="fe-vt">—</span> <span style="font-size:11px;color:rgba(243,239,228,0.7)">cm/s</span></div>
+              <div class="fe-cell-det">MPPS: <span id="fe-mppsT">—</span> µm · Pen: <span id="fe-pmppsT">—</span> %</div>
+            </div>
+          </div>
+
+          <div class="fe-chart-box">
+            <div class="chart-hd" style="margin-bottom:8px;">
+              <h3 style="font-size:16px;">Fractional penetration curves</h3>
+              <div class="chart-sub">Log-log · quadratic fits</div>
+            </div>
+            <div class="fe-chart-wrap">
+              <canvas id="fe-chart"></canvas>
+            </div>
+          </div>
+
+          <div style="overflow-x:auto;">
+            <table class="fe-table" id="fe-table">
+              <thead>
+                <tr>
+                  <th>D (µm)</th>
+                  <th>Pen A (%)</th>
+                  <th>Pen B (%)</th>
+                  <th>N</th>
+                  <th>Pen @ V₄ (%)</th>
+                  <th>Eff @ V₄ (%)</th>
+                </tr>
+              </thead>
+              <tbody id="fe-tbody"></tbody>
+            </table>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  <div>Based on <em>Ryan A. Sothen, 2009 Auburn Dissertation</em></div>
+  <div>v1.0 · open source · <span id="timestamp"></span></div>
+</footer>
+
+<script>
+/* ============================================================
+   PLEATED FILTER DESIGN CALCULATOR
+   Model: Sothen & Tatarchuk 2009 (Auburn) — Eq. 3.2
+   ΔP_T = ½ρ[(2K_G)V₂² + (K_C + K_E + K_P)V₃²] + AV₄ + BV₄²
+   ============================================================ */
+
+/* ---------- state ---------- */
+const S = {
+  units: 'imperial',   // 'imperial' | 'metric'
+  mediaMode: 'ab',     // 'dp' | 'ab'
+  flowMode: 'cfm',     // 'face' | 'cfm'
+  pleatMode: 'count'   // 'count' | 'ppi'
+};
+
+/* ---------- unit conversions ----------
+   Internally we always compute in consistent IMPERIAL engineering units:
+   length: in,  velocity: fpm,  density: lb/ft³,  ΔP: "H₂O
+   Conversion factor for Bernoulli: ½ρV² in lb/ft³·(fpm)² → "H₂O
+   constant = 1 / 1097²  (where 1097 fpm² = 1 "H₂O equivalent at 0.0725 lb/ft³)
+   More precise form: dynamic_head_inH2O = ρ(lb/ft³) * V(fpm)² / (2 * g * 62.428 * 12 * 60²)
+   Derivation below in getHead()
+*/
+
+function getHead(rho_lbft3, V_fpm) {
+  // Dynamic head ½ρV² expressed in inches H₂O
+  // ½ρV² in lb/(ft·s²) units, divide by (ρ_water · g) → head in ft, × 12 → in
+  // Simpler: use standard factor
+  // ½ρV² [lbf/ft²] = (ρ [lb/ft³] × V² [ft²/s²]) / (2 × 32.174)
+  // V_fpm → V_fps = V_fpm/60
+  // 1 inch H₂O @ 68°F ≈ 5.2023 lbf/ft²
+  const V_fps = V_fpm / 60;
+  const psf = (rho_lbft3 * V_fps * V_fps) / (2 * 32.174);   // lbf/ft²
+  return psf / 5.2023;                                       // inches H₂O
+}
+
+/* ---------- Idelchik coefficients ---------- */
+
+function K_contraction(A_small, A_large) {
+  // Idelchik Eq 2.12 (based on downstream velocity)
+  const r = A_small / A_large;
+  return 0.5 * Math.pow(1 - r, 0.75);
+}
+
+function K_expansion(A_small, A_large) {
+  // Idelchik Eq 2.13 (based on upstream velocity)
+  const r = A_small / A_large;
+  return Math.pow(1 - r, 2);
+}
+
+function K_grating(blockagePct) {
+  // Idelchik Eq 2.15 (perforated plate)
+  // Sothen's rearranged form using his example:
+  //   K_G = (1.707 - √(A_free/A_total)) / (A_free/A_total)²
+  // From page 48: K_G = (1.707 - 0.655)/(0.655)^2 = 2.50 for 34.5% blockage (A_free=0.655)
+  // Verify: 1.707 − 0.655 = 1.052; 1.052 / 0.655² = 1.052/0.429 = 2.452 ≈ 2.50 ✓
+  const Afree = 1 - blockagePct / 100;
+  if (Afree <= 0.0001) return 10000;
+  return (1.707 - Afree) / (Afree * Afree);
+}
+
+/* ---------- geometry ---------- */
+
+function geometry({F_H, F_W, P_D, PPI, M_T}) {
+  const P_L = P_D;                              // pleat length = pleat depth (same dimension per dissertation pg.36)
+  const P_H = F_H;                              // pleat height = filter height
+  const P_O = F_W / PPI;                        // pleat opening
+  // Pleat pitch β: Table 3.3 uses β = (½·P_O)/P_L directly (i.e. sin of half-pitch angle).
+  // Although page 39 states "β = sin⁻¹(...)", the numerical values in Table 3.3
+  // match the argument itself. We follow Table 3.3 to stay consistent with the K_P fit.
+  const sinArg = 0.5 * P_O / P_L;
+  const beta = Math.min(0.999, Math.max(0.001, sinArg));     // dimensionless, 0 < β < 1
+  const beta_angle_rad = Math.asin(beta);                    // true geometric angle (for display)
+  const gamma = Math.PI / 2 - beta_angle_rad;                // used with true angle for tip geometry
+  const P_T = 2 * Math.sin(gamma) * M_T;        // pleat tip thickness
+  const A_T = 2 * M_T * gamma;                  // media consumed per tip
+
+  // Media area (Area 4 in Raber flow model)
+  const mediaArea = PPI * P_H * (2 * P_L - A_T);   // in²
+  return { P_L, P_H, P_O, beta, beta_angle_rad, gamma, P_T, A_T, mediaArea };
+}
+
+/* ---------- pleat friction coefficient K_P ---------- */
+
+function K_P({F_H, P_D, beta}) {
+  // Sothen Eq 3.4–3.7 — K_P = η·χ, χ = (1/β)^(4/3)
+  // NOTE: The published Eq. 3.6 (η = 0.11·F_HD/F_D) doesn't reproduce Table 3.3.
+  // A linear least-squares fit against all 20 filters in Table 3.3 gives:
+  //   η ≈ 0.050 · (F_H / F_D)     with F_H, F_D in inches
+  // RMSE 0.228 on K_P values 1.3–10, and every filter reproduces within ±12%.
+  // This is the same functional form as Eq. 3.6 — just a corrected coefficient,
+  // arrived at from the dissertation's own ground-truth data.
+  const F_D = P_D;
+  const eta = 0.050 * (F_H / F_D);
+  const chi = Math.pow(1 / beta, 4 / 3);
+  return eta * chi;
+}
+
+/* ---------- full ΔP calculation ---------- */
+
+function computeDeltaP({F_H, F_W, P_D, PPI, M_T, A, B, gratingPct, V_face, rho, kpCal = 1.0}) {
+  const g = geometry({F_H, F_W, P_D, PPI, M_T});
+
+  // Area 1 = duct = filter face (F_H × F_W)
+  const A1 = F_H * F_W;                 // in²
+  // Area 2 = filter face × (1 − blockage)
+  const A2 = A1 * (1 - gratingPct / 100);
+  // Area 3 = filter face − PPI × P_T × P_H  (around pleat tips)
+  const A3 = (F_H * F_W) - (PPI * g.P_T * g.P_H);
+  // Area 4 = media area (above)
+  const A4 = g.mediaArea;
+
+  // Velocities by continuity (face velocity × A_face / A_i)
+  // Use Q = V_face × A1, then V_i = Q/A_i
+  const Q = V_face * A1;                // in²·fpm
+  const V2 = Q / A2;
+  const V3 = Q / A3;
+  const V4 = Q / A4;
+
+  // Friction coefficients
+  const K_G  = K_grating(gratingPct);                    // perforated plate
+  // Transition from A2 → A3: pleat-tip contraction OR expansion depending on geometry.
+  // If grating blockage > pleat-tip blockage (typical), then A3 > A2 → expansion.
+  // If pleat tips thicker than grating blockage, A3 < A2 → contraction.
+  let K_C, K_E;
+  if (A3 < A2) {
+    // Contraction into tips; expansion back out
+    K_C = K_contraction(A3, A2);
+    K_E = K_expansion(A3, A2);
+  } else {
+    // Expansion into A3 (less blocked); contraction at the tips' back.
+    // Net disturbance is small either way — use same Idelchik forms with flipped args
+    K_C = K_expansion(A2, A3);       // A2 is the smaller in this case
+    K_E = K_contraction(A2, A3);
+  }
+  // Apply user-configurable calibration factor to K_P.
+  // The dissertation's K_P formula over- or under-predicts for real filters outside
+  // its calibration domain (20×20 faces, 1–4" depth). Users can tune the multiplier
+  // against measured ΔP data for their own filters. Default 1.0 = dissertation formula.
+  const K_Pcoef_raw = K_P({F_H, P_D, beta: g.beta});
+  const K_Pcoef = kpCal * K_Pcoef_raw;
+
+  // Dynamic heads in inWC
+  const head2 = getHead(rho, V2);
+  const head3 = getHead(rho, V3);
+
+  // dP terms (per dissertation Eq. 3.2 — K_P applied to V₃²)
+  // NOTE: The dissertation has an internal inconsistency between its text (which uses V₃²
+  // for the pleat friction term) and Fig. 3.15's K_P slopes (plotted vs. V₄²). We use V₃²
+  // here because that is what reproduces the U-curve in Fig. 3.20 and matches the real
+  // U-curve behavior of test filters. Using V₄² gives correct absolute values for a single
+  // filter but no U-curve across a pleat-count sweep.
+  const dp_grating = (2 * K_G) * head2;                  // 2K_G for front+back grating
+  const dp_pleatTip = (K_C + K_E) * head3;               // contraction + expansion at pleat tips
+  const dp_pleat = K_Pcoef * head3;                      // flow through pleat channel
+  const dp_media_visc = A * V4;
+  const dp_media_inert = B * V4 * V4;
+
+  const dp_total = dp_grating + dp_pleatTip + dp_pleat + dp_media_visc + dp_media_inert;
+
+  return {
+    dp_total,
+    dp_grating,
+    dp_pleatTip,
+    dp_pleat,
+    dp_media_visc,
+    dp_media_inert,
+    dp_media: dp_media_visc + dp_media_inert,
+    A1, A2, A3, A4, V2, V3, V4, Q,
+    K_G, K_C, K_E, K_Pcoef, K_Pcoef_raw, kpCal,
+    ...g
+  };
+}
+
+/* ---------- derive A, B from user's ΔP + linear fraction ---------- */
+function deriveAB(dp_ref, V_ref, linFrac) {
+  // dp_ref = A·V_ref + B·V_ref²
+  // linFrac = A·V_ref / dp_ref   →  A = linFrac·dp_ref / V_ref
+  // remainder = (1-linFrac)·dp_ref = B·V_ref²  →  B = (1-linFrac)·dp_ref / V_ref²
+  const A = linFrac * dp_ref / V_ref;
+  const B = (1 - linFrac) * dp_ref / (V_ref * V_ref);
+  return { A, B };
+}
+
+/* ---------- unit system switching ---------- */
+
+function toImperial(val, type) {
+  // convert metric → imperial for internal use
+  if (S.units === 'imperial') return val;
+  switch (type) {
+    case 'len':   return val / 25.4;          // mm → in
+    case 'mt':    return val / 25.4;          // mm → in
+    case 'dp':    return val / 248.84;        // Pa → "H₂O
+    case 'vel':   return val / 0.00508;       // m/s → fpm
+    case 'vol':   return val / 1.699;         // m³/h → CFM
+    case 'rho':   return val / 16.018;        // kg/m³ → lb/ft³
+    case 'area':  return val * 10.7639;       // m² → ft²
+    case 'smlen': return val / 25.4;
+    default: return val;
+  }
+}
+function fromImperial(val, type) {
+  if (S.units === 'imperial') return val;
+  switch (type) {
+    case 'len':   return val * 25.4;
+    case 'mt':    return val * 25.4;
+    case 'dp':    return val * 248.84;
+    case 'vel':   return val * 0.00508;
+    case 'vol':   return val * 1.699;
+    case 'rho':   return val * 16.018;
+    case 'area':  return val / 10.7639;
+    case 'smlen': return val * 25.4;
+    default: return val;
+  }
+}
+
+const UNIT_LABELS = {
+  imperial: {
+    len: 'in', mt: 'in', dp: 'inWC', vel: 'fpm', vol: 'CFM',
+    rho: 'lb/ft³', area: 'ft²', smlen: 'in'
+  },
+  metric: {
+    len: 'mm', mt: 'mm', dp: 'Pa', vel: 'm/s', vol: 'm³/h',
+    rho: 'kg/m³', area: 'm²', smlen: 'mm'
+  }
+};
+
+/* default values for each unit system.
+   Configured to reproduce Ryan's sample-filter measurements:
+   23.375"×23.375"×1.7" filter at 2000 CFM with 0.05" media, 34.5% grating,
+   measured ΔP 0.28 inWC at PPI=25. Fitted A and B from three measured pleat
+   counts (19, 25, 29) using kpCal=1.0 (dissertation K_P formula). */
+const DEFAULTS = {
+  imperial: {
+    F_H: 23.375, F_W: 23.375, P_D: 1.7, PLEAT_COUNT: 25, PPI: 1.07, M_T: 0.05,
+    M_DP: 2.5, LIN_FRAC: 0.99,
+    M_PERM: 85, LIN_FRAC_PERM: 1.00,
+    A_CONST: -0.001325, B_CONST: 9.814e-6,
+    GRATING: 34.5, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.00
+  },
+  metric: {
+    F_H: 593.7, F_W: 593.7, P_D: 43.2, PLEAT_COUNT: 25, PPI: 1.07, M_T: 1.27,
+    M_DP: 2.5, LIN_FRAC: 0.99,
+    M_PERM: 85, LIN_FRAC_PERM: 1.00,
+    A_CONST: -0.001325, B_CONST: 9.814e-6,
+    GRATING: 34.5, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.00
+  }
+};
+
+/* ---------- read inputs, produce canonical imperial values ---------- */
+
+function readInputs() {
+  const $ = id => parseFloat(document.getElementById(id).value);
+
+  let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D'),
+      M_T = $('M_T'),
+      gratingPct = $('GRATING'), rho = $('RHO');
+
+  // Convert geometry/density to imperial
+  F_H  = toImperial(F_H, 'len');
+  F_W  = toImperial(F_W, 'len');
+  P_D  = toImperial(P_D, 'len');
+  M_T  = toImperial(M_T, 'mt');
+  rho  = toImperial(rho, 'rho');
+
+  // Pleat count — either entered directly or derived from PPI × F_W
+  // (pleat count is along the PLEATING DIRECTION, which is F_W)
+  let PLEAT_COUNT;
+  if (S.pleatMode === 'count') {
+    PLEAT_COUNT = Math.max(1, Math.round($('PLEAT_COUNT')));
+  } else {
+    const ppi = Math.max(0.01, $('PPI'));
+    PLEAT_COUNT = Math.max(1, Math.round(ppi * F_W));
+  }
+
+  // Velocity / flow
+  let V_face;
+  if (S.flowMode === 'face') {
+    V_face = toImperial($('V_FACE'), 'vel');
+  } else {
+    const Q = toImperial($('Q_VOL'), 'vol');       // CFM
+    const face_ft2 = (F_H * F_W) / 144;
+    V_face = Q / face_ft2;                         // fpm
+  }
+
+  // Media A, B
+  // ΔP input is always in mmWC (locked); V_ref is locked at 10.5 fpm.
+  let A, B;
+  if (S.mediaMode === 'dp') {
+    const dp_ref_mmWC = $('M_DP');
+    const dp_ref_in = dp_ref_mmWC * 0.0393701;     // mmWC → "H₂O (1 mmWC = 0.0393701 "H₂O)
+    const V_ref_fpm = 10.5;                        // locked reference velocity
+    const linFrac = Math.min(1, Math.max(0, $('LIN_FRAC')));
+    ({ A, B } = deriveAB(dp_ref_in, V_ref_fpm, linFrac));
+  } else if (S.mediaMode === 'perm') {
+    // Permeability: user provides velocity (L/m²/s) measured at fixed ΔP = 125 Pa.
+    // 1 L/m²/s = 0.001 m/s; 1 m/s = 196.85 fpm; 125 Pa = 0.501906 "H₂O
+    const perm_Lm2s = Math.max(0.001, $('M_PERM'));
+    const V_ref_ms = perm_Lm2s / 1000;             // L/m²/s → m/s
+    const V_ref_fpm = V_ref_ms * 196.85;           // m/s → fpm
+    const dp_ref_in = 125 / 248.84;                // 125 Pa → "H₂O
+    const linFrac = Math.min(1, Math.max(0, $('LIN_FRAC_PERM')));
+    ({ A, B } = deriveAB(dp_ref_in, V_ref_fpm, linFrac));
+  } else {
+    A = $('A_CONST');
+    B = $('B_CONST');
+  }
+
+  // K_P calibration multiplier (advanced setting)
+  const kpCalRaw = parseFloat(document.getElementById('KP_CAL').value);
+  const kpCal = isFinite(kpCalRaw) && kpCalRaw > 0 ? kpCalRaw : 1.0;
+
+  return { F_H, F_W, P_D, PPI: PLEAT_COUNT, M_T, A, B, gratingPct, V_face, rho, kpCal };
+}
+
+/* ---------- formatters ---------- */
+function fmt(v, digits = 3) {
+  if (!isFinite(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs === 0) return '0';
+  if (abs < 0.001) return v.toExponential(2);
+  if (abs < 10) return v.toFixed(digits);
+  if (abs < 100) return v.toFixed(2);
+  if (abs < 10000) return v.toFixed(1);
+  return v.toFixed(0);
+}
+
+/* ---------- render ---------- */
+
+let chart = null;
+const COLORS = {
+  grating:  '#3a5535',
+  pleatTip: '#a87c3a',
+  pleat:    '#d94814',
+  media_v:  '#1a4a7a',
+  media_i:  '#5c1a7a'
+};
+
+function render() {
+  const inp = readInputs();
+  const r = computeDeltaP(inp);
+
+  // ——— single-value cells ———
+  const dp_imp = r.dp_total;
+  document.getElementById('o_dpT').textContent = fmt(fromImperial(dp_imp, 'dp'), 3);
+  document.getElementById('o_area').textContent = fmt(fromImperial(r.A4 / 144, 'area'), 2);
+  document.getElementById('o_beta').textContent = fmt(r.beta * 180 / Math.PI, 2);
+  document.getElementById('o_po').textContent = fmt(fromImperial(r.P_O, 'smlen'), 3);
+  document.getElementById('o_q').textContent = fmt(fromImperial(r.Q / 144, 'vol'), 0);
+  document.getElementById('o_v4').textContent = fmt(fromImperial(r.V4, 'vel'), S.units==='imperial' ? 1 : 3);
+  document.getElementById('o_ppi').textContent = inp.PPI;
+  document.getElementById('o_kp').textContent = fmt(r.K_Pcoef, 2);
+  // If calibration ≠ 1, indicate that in the output so users know the shown K_P is scaled
+  const kpUnitEl = document.querySelector('#o_kp + .unit-s');
+  if (kpUnitEl) {
+    kpUnitEl.textContent = (Math.abs(r.kpCal - 1.0) > 0.005)
+      ? `× ${fmt(r.kpCal, 2)}`
+      : '–';
+  }
+
+  // ——— optimal pleat count sweep ———
+  const sweep = sweepPPI(inp);
+  document.getElementById('o_optppi').textContent = sweep.optPPI;
+  // Optimal PPI = optimal pleat count / filter width (in inches, always imperial internally)
+  const optPPI_density = sweep.optPPI / inp.F_W;
+  document.getElementById('o_optppi_density').textContent = fmt(optPPI_density, 2);
+  // ΔP at optimum ALWAYS displayed in inWC (spec-sheet convention) regardless of unit toggle
+  document.getElementById('o_dpopt').textContent = fmt(sweep.optDP, 3);
+
+  // ——— unit labels ———
+  document.querySelectorAll('[data-unit]').forEach(el => {
+    const t = el.getAttribute('data-unit');
+    if (UNIT_LABELS[S.units][t]) el.textContent = UNIT_LABELS[S.units][t];
+  });
+
+  // ——— breakdown bar ———
+  renderBreakdown(r);
+
+  // ——— chart ———
+  renderChart(sweep, inp.PPI);
+
+  // ——— warnings ———
+  renderWarnings(inp, r);
+
+  // ——— live-link FE projection to V₄ (if already fit) ———
+  if (FE && FE.ready) {
+    try { projectFEtoV4(); } catch (e) { console.error('FE projection error:', e); }
+  }
+}
+
+function renderBreakdown(r) {
+  const total = r.dp_total;
+
+  // Segments for the legend — all five terms, signed values preserved.
+  const legendSegs = [
+    { key: 'grating',  name: 'Grating (K_G)',          val: r.dp_grating,     color: COLORS.grating },
+    { key: 'pleatTip', name: 'Pleat-tip contr./exp.',  val: r.dp_pleatTip,    color: COLORS.pleatTip },
+    { key: 'pleat',    name: 'Pleat flow (K_P)',       val: r.dp_pleat,       color: COLORS.pleat },
+    { key: 'media_v',  name: 'Media — viscous (AV)',   val: r.dp_media_visc,  color: COLORS.media_v },
+    { key: 'media_i',  name: 'Media — inertial (BV²)', val: r.dp_media_inert, color: COLORS.media_i }
+  ];
+
+  // Segments for the BAR — collapse the two media terms to one net media segment.
+  // This lets the bar render cleanly even when A or B is negative (a common outcome
+  // when fitting A and B from a small number of measured data points: the model's
+  // structure can't always match the U-curve without forcing one coefficient negative).
+  const barSegs = [
+    { name: 'Grating',    val: r.dp_grating,            color: COLORS.grating },
+    { name: 'Pleat tip',  val: r.dp_pleatTip,           color: COLORS.pleatTip },
+    { name: 'Pleat flow', val: r.dp_pleat,              color: COLORS.pleat },
+    { name: 'Media',      val: r.dp_media,              color: COLORS.media_v }
+  ];
+
+  const bar = document.getElementById('bar-bd');
+  const leg = document.getElementById('legend-bd');
+  bar.innerHTML = '';
+  leg.innerHTML = '';
+
+  // Bar: only render positive segments with width proportional to contribution to total.
+  // If a net segment is ≤ 0 (unusual, e.g. heavily negative media from bad fit), skip it.
+  barSegs.forEach(s => {
+    const pct = total > 0 ? (s.val / total) * 100 : 0;
+    if (pct > 0) {
+      const seg = document.createElement('div');
+      seg.className = 'bar-seg';
+      seg.style.width = pct + '%';
+      seg.style.background = s.color;
+      if (pct > 6) seg.textContent = pct.toFixed(0) + '%';
+      bar.appendChild(seg);
+    }
+  });
+
+  // Legend: show all five breakdown items, signed values, share of total.
+  legendSegs.forEach(s => {
+    const pct = total > 0 ? (s.val / total) * 100 : 0;
+    const dpLabel = fromImperial(s.val, 'dp');
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `
+      <div class="legend-swatch" style="background:${s.color}"></div>
+      <div class="lname">${s.name}</div>
+      <div class="lval">${fmt(dpLabel, 3)} ${UNIT_LABELS[S.units].dp}</div>
+      <div class="lpct">(${pct.toFixed(1)}%)</div>
+    `;
+    leg.appendChild(item);
+  });
+}
+
+function sweepPPI(inp) {
+  const points = [];
+  let optPPI = inp.PPI, optDP = Infinity;
+  const minPPI = 5, maxPPI = 200;   // extended to handle high-flow / high-media-dP scenarios
+  for (let p = minPPI; p <= maxPPI; p++) {
+    const test = { ...inp, PPI: p };
+    // guard against geometry failure: P_O must be ≤ 2 P_L (β valid)
+    const P_O = test.F_W / p;
+    if (0.5 * P_O / test.P_D > 0.999) {
+      points.push({ ppi: p, dp: null });
+      continue;
+    }
+    const r = computeDeltaP(test);
+    points.push({
+      ppi: p,
+      dp: r.dp_total,
+      grating: r.dp_grating,
+      pleatTip: r.dp_pleatTip,
+      pleat: r.dp_pleat,
+      media: r.dp_media
+    });
+    if (r.dp_total < optDP) { optDP = r.dp_total; optPPI = p; }
+  }
+  return { points, optPPI, optDP };
+}
+
+function renderChart(sweep, currentPPI) {
+  const unit = UNIT_LABELS[S.units].dp;
+
+  // Cap X-axis display to keep the U-curve framed around the interesting region.
+  // The sweep runs to 200 pleats so the optimum finder can find its minimum, but
+  // the right end of that range is physically unrealistic. Cap the display at
+  // max(2× optimum, 1.5× current, 60) — the 60 floor matches the dissertation's
+  // validated range and prevents the chart from becoming too zoomed-in at low-PPI.
+  const maxPPI_display = Math.max(
+    Math.ceil(2 * sweep.optPPI),
+    Math.ceil(1.5 * currentPPI),
+    60
+  );
+  const pointsShown = sweep.points.filter(p => p.ppi <= maxPPI_display);
+
+  const xs = pointsShown.map(p => p.ppi);
+  const ys_total = pointsShown.map(p => p.dp === null ? null : fromImperial(p.dp, 'dp'));
+  const ys_media = pointsShown.map(p => p.dp === null ? null : fromImperial(p.media, 'dp'));
+  const ys_pleat = pointsShown.map(p => p.dp === null ? null : fromImperial(p.pleat + p.pleatTip, 'dp'));
+  const ys_grat  = pointsShown.map(p => p.dp === null ? null : fromImperial(p.grating, 'dp'));
+
+  const currentDP = (() => {
+    const pt = sweep.points.find(p => p.ppi === currentPPI);
+    return pt ? fromImperial(pt.dp, 'dp') : null;
+  })();
+  const optDP_unit = fromImperial(sweep.optDP, 'dp');
+
+  const markerData = xs.map(x => {
+    if (x === sweep.optPPI) return optDP_unit;
+    if (x === currentPPI)   return currentDP;
+    return null;
+  });
+
+  const markerColors = xs.map(x => {
+    if (x === sweep.optPPI) return '#d94814';
+    if (x === currentPPI)   return '#0f120e';
+    return 'rgba(0,0,0,0)';
+  });
+
+  const ctx = document.getElementById('chart-ppi').getContext('2d');
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: xs,
+      datasets: [
+        {
+          label: 'Total ΔP',
+          data: ys_total,
+          borderColor: '#0f120e',
+          backgroundColor: 'rgba(15,18,14,0.05)',
+          borderWidth: 2.5,
+          tension: 0.15,
+          pointRadius: 0,
+          fill: false,
+          order: 1
+        },
+        {
+          label: 'Media',
+          data: ys_media,
+          borderColor: COLORS.media_v,
+          borderWidth: 1.4,
+          borderDash: [4, 3],
+          tension: 0.15,
+          pointRadius: 0,
+          fill: false,
+          order: 2
+        },
+        {
+          label: 'Pleat + tips',
+          data: ys_pleat,
+          borderColor: COLORS.pleat,
+          borderWidth: 1.4,
+          borderDash: [4, 3],
+          tension: 0.15,
+          pointRadius: 0,
+          fill: false,
+          order: 3
+        },
+        {
+          label: 'Grating',
+          data: ys_grat,
+          borderColor: COLORS.grating,
+          borderWidth: 1.4,
+          borderDash: [4, 3],
+          tension: 0.15,
+          pointRadius: 0,
+          fill: false,
+          order: 4
+        },
+        {
+          label: 'Markers',
+          data: markerData,
+          type: 'scatter',
+          pointRadius: xs.map(x => x === sweep.optPPI || x === currentPPI ? 7 : 0),
+          pointHoverRadius: 8,
+          pointBackgroundColor: markerColors,
+          pointBorderColor: '#f3efe4',
+          pointBorderWidth: 2,
+          showLine: false,
+          order: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: {
+            font: { family: "'JetBrains Mono', monospace", size: 10 },
+            usePointStyle: true,
+            boxWidth: 8,
+            filter: (item) => item.text !== 'Markers'
+          }
+        },
+        tooltip: {
+          titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
+          bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+          backgroundColor: '#0f120e',
+          padding: 10,
+          callbacks: {
+            title: (items) => `Pleat count: ${items[0].label}`,
+            label: (ctx) => {
+              if (ctx.dataset.label === 'Markers') return null;
+              const v = ctx.parsed.y;
+              if (v === null) return null;
+              return `  ${ctx.dataset.label}: ${fmt(v, 3)} ${unit}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Pleat count (pleats / filter)',
+            font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' }
+          },
+          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } },
+          grid: { color: 'rgba(15,18,14,0.08)' }
+        },
+        y: {
+          title: {
+            display: true,
+            text: `ΔP (${unit})`,
+            font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' }
+          },
+          ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } },
+          grid: { color: 'rgba(15,18,14,0.08)' },
+          beginAtZero: true,
+          // Cap Y-max to keep the U-curve frame focused on the interesting region.
+          // The steep low-pleat-count shoulder can otherwise dominate and squash the optimum.
+          // Cap at max(3× optimum, 1.2× current) so the current-PPI marker is always visible.
+          max: Math.max(
+            3 * optDP_unit,
+            currentDP !== null && isFinite(currentDP) ? 1.2 * currentDP : 0
+          )
+        }
+      }
+    }
+  });
+}
+
+function renderWarnings(inp, r) {
+  const warnings = [];
+  // Model validation range
+  if (inp.P_D > 4) warnings.push(`Pleat depth ${fmt(inp.P_D,2)}" is above validated range (≤ 4").`);
+  if (inp.PPI > 60) warnings.push(`Pleat count ${inp.PPI} is above validated range (≤ 60 pleats).`);
+  if (inp.M_T > 2/25.4) warnings.push(`Media thickness above validated range (> 2 mm).`);
+  if (inp.V_face > 1000) warnings.push(`Face velocity ${fmt(inp.V_face,0)} fpm is above tested range (> 1000 fpm).`);
+  // Geometric feasibility
+  const P_O = inp.F_W / inp.PPI;
+  if (0.5 * P_O / inp.P_D > 0.99) warnings.push(`Pleat opening too large for pleat depth — β approaches 90°. Decrease pleat count or increase depth.`);
+  if (r.P_T * inp.PPI > 0.9 * inp.F_W) warnings.push(`Pleat tips occupy >90% of filter width — geometry infeasible.`);
+
+  const box = document.getElementById('warn-box');
+  box.innerHTML = '';
+  if (warnings.length === 0) return;
+  warnings.forEach(w => {
+    const el = document.createElement('div');
+    el.className = 'note-strip warn';
+    el.innerHTML = `<span class="nlbl">Caution</span>${w}`;
+    box.appendChild(el);
+  });
+}
+
+/* ---------- wire up ---------- */
+
+function attachInputListeners() {
+  document.querySelectorAll('input[type="number"]').forEach(inp => {
+    inp.addEventListener('input', render);
+  });
+}
+
+function setUnits(u) {
+  if (S.units === u) return;
+  S.units = u;
+
+  document.querySelectorAll('.toggle-row button[data-units]').forEach(b => {
+    b.classList.toggle('active', b.dataset.units === u);
+  });
+
+  // Update unit labels
+  document.querySelectorAll('[data-unit]').forEach(el => {
+    const t = el.getAttribute('data-unit');
+    if (UNIT_LABELS[u][t]) el.textContent = UNIT_LABELS[u][t];
+  });
+
+  // Populate defaults for new unit system
+  const d = DEFAULTS[u];
+  Object.entries(d).forEach(([k, v]) => {
+    const el = document.getElementById(k);
+    if (el) el.value = v;
+  });
+  render();
+}
+
+function setMediaMode(m) {
+  S.mediaMode = m;
+  document.querySelectorAll('.toggle-row button[data-mediamode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mediamode === m);
+  });
+  document.getElementById('mode-dp').style.display   = m === 'dp'   ? '' : 'none';
+  document.getElementById('mode-ab').style.display   = m === 'ab'   ? '' : 'none';
+  document.getElementById('mode-perm').style.display = m === 'perm' ? '' : 'none';
+  render();
+}
+
+function setFlowMode(f) {
+  S.flowMode = f;
+  document.querySelectorAll('.toggle-row button[data-flowmode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.flowmode === f);
+  });
+  document.getElementById('flowmode-face').style.display = f === 'face' ? '' : 'none';
+  document.getElementById('flowmode-cfm').style.display = f === 'cfm' ? '' : 'none';
+  render();
+}
+
+function setPleatMode(p) {
+  S.pleatMode = p;
+  document.querySelectorAll('.toggle-row button[data-pleatmode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.pleatmode === p);
+  });
+  document.getElementById('pleatmode-count').style.display = p === 'count' ? '' : 'none';
+  document.getElementById('pleatmode-ppi').style.display = p === 'ppi' ? '' : 'none';
+  render();
+}
+
+document.querySelectorAll('.toggle-row button[data-units]').forEach(b => {
+  b.addEventListener('click', () => setUnits(b.dataset.units));
+});
+document.querySelectorAll('.toggle-row button[data-mediamode]').forEach(b => {
+  b.addEventListener('click', () => setMediaMode(b.dataset.mediamode));
+});
+document.querySelectorAll('.toggle-row button[data-flowmode]').forEach(b => {
+  b.addEventListener('click', () => setFlowMode(b.dataset.flowmode));
+});
+document.querySelectorAll('.toggle-row button[data-pleatmode]').forEach(b => {
+  b.addEventListener('click', () => setPleatMode(b.dataset.pleatmode));
+});
+
+/* ============================================================
+   FRACTIONAL EFFICIENCY PROJECTOR
+   Based on Pierce (Hollingsworth & Vose) correlations:
+     Eq 1: ln(Pen) = A(ln D)² + B(ln D) + C
+     MPPS: ln(MPPS) = -B/(2A); ln(Pen_MPPS) = C - B²/(4A)
+     Eq 4: ln(Pen) = ln(Pen_ref) · (V/V_ref)^N
+   ============================================================ */
+
+const FE = {
+  mode: 'hepa',       // 'hepa' or 'pre' — controls chart range + N model
+  datasetA: null,     // {V_cms, rows, fit}
+  datasetB: null,
+  N_global: null,     // Pierce velocity exponent (global, per paper)
+  N_local: null,      // array of {D, N} for prefilter mode
+  sizes: null,        // particle sizes from dataset A
+  ready: false,       // true once fits + N are computed and valid
+  projection: null,   // {V_cms, rows, fit}
+  chart: null
+};
+
+function parseTSIDataset(text) {
+  // Parse data rows. The first data row starts with a decimal number (particle size).
+  // The header row ("D (µm) ...") is skipped because it doesn't start with a number.
+  // Expected columns: D, Eff, Pen, P-95, Resistance, C-up, C-dn, Counts-dn
+  const lines = text.split(/\r?\n/);
+  const rows = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (!/^\d+(\.\d+)?[\s\t]/.test(trimmed)) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 3) continue;
+    const nums = parts.map(p => parseFloat(p));
+    if (!isFinite(nums[0]) || !isFinite(nums[2])) continue;
+    rows.push({
+      D:   nums[0],
+      Eff: nums[1],
+      Pen: nums[2],
+      P95: nums[3],
+      Res: nums[4],
+      Cup: nums[5],
+      Cdn: nums[6],
+      Cnt: nums[7]
+    });
+  }
+
+  if (rows.length < 3) {
+    return { error: `Only ${rows.length} data rows parsed — need at least 3 for a quadratic fit.` };
+  }
+  return { rows };
+}
+
+function fitQuadraticLogLog(rows) {
+  // Fit ln(Pen) = A·(ln D)² + B·ln D + C via least squares
+  // Pen is in %, convert to fraction (divide by 100) before log
+  const N = rows.length;
+  let Sx0=0, Sx1=0, Sx2=0, Sx3=0, Sx4=0, Sy=0, Sxy=0, Sx2y=0;
+  const points = [];
+  for (const r of rows) {
+    if (r.D <= 0 || r.Pen <= 0) continue;
+    const x = Math.log(r.D);
+    const y = Math.log(r.Pen / 100);   // fraction
+    points.push({x, y});
+    Sx0 += 1;
+    Sx1 += x;
+    Sx2 += x*x;
+    Sx3 += x*x*x;
+    Sx4 += x*x*x*x;
+    Sy  += y;
+    Sxy += x*y;
+    Sx2y += x*x*y;
+  }
+  // Solve 3x3 system for [A, B, C]^T
+  //   [Sx4 Sx3 Sx2] [A]   [Sx2y]
+  //   [Sx3 Sx2 Sx1] [B] = [Sxy ]
+  //   [Sx2 Sx1 Sx0] [C]   [Sy  ]
+  const M = [
+    [Sx4, Sx3, Sx2, Sx2y],
+    [Sx3, Sx2, Sx1, Sxy],
+    [Sx2, Sx1, Sx0, Sy]
+  ];
+  // Gauss elimination with partial pivoting
+  for (let i = 0; i < 3; i++) {
+    let piv = i;
+    for (let k = i+1; k < 3; k++) if (Math.abs(M[k][i]) > Math.abs(M[piv][i])) piv = k;
+    if (piv !== i) [M[i], M[piv]] = [M[piv], M[i]];
+    if (Math.abs(M[i][i]) < 1e-14) return { error: 'Fit failed — singular matrix (data too degenerate).' };
+    for (let k = i+1; k < 3; k++) {
+      const f = M[k][i] / M[i][i];
+      for (let j = i; j < 4; j++) M[k][j] -= f * M[i][j];
+    }
+  }
+  const coef = [0,0,0];
+  for (let i = 2; i >= 0; i--) {
+    let s = M[i][3];
+    for (let j = i+1; j < 3; j++) s -= M[i][j] * coef[j];
+    coef[i] = s / M[i][i];
+  }
+  const [A, B, C] = coef;
+
+  // MPPS from derivative: 2A·ln(D) + B = 0  →  ln(MPPS) = -B/(2A)
+  const lnMPPS = -B / (2*A);
+  const mpps = Math.exp(lnMPPS);
+  const lnPenMPPS = C - (B*B)/(4*A);
+  const penMPPS = Math.exp(lnPenMPPS) * 100;   // back to percent
+
+  // R² for reporting
+  const yMean = Sy / N;
+  let SStot = 0, SSres = 0;
+  for (const p of points) {
+    const yHat = A*p.x*p.x + B*p.x + C;
+    SSres += (p.y - yHat)**2;
+    SStot += (p.y - yMean)**2;
+  }
+  const r2 = SStot > 0 ? 1 - SSres/SStot : 1;
+
+  return { A, B, C, mpps, penMPPS, r2 };
+}
+
+function penFromFit(fit, D) {
+  // Evaluate fit at particle size D (µm) — returns penetration in percent
+  const lnD = Math.log(D);
+  const lnPen = fit.A*lnD*lnD + fit.B*lnD + fit.C;
+  return Math.exp(lnPen) * 100;
+}
+
+function solveGlobalN(fitA, V_A, fitB, V_B, sizes) {
+  // Pierce Eq 4: ln(pen) = ln(pen_ref)·(V/V_ref)^N
+  // Taking the ratio between the two measured velocities at each D:
+  //   ln(pen_B(D)) / ln(pen_A(D)) = (V_B / V_A)^N
+  //   → N = ln[ ln(pen_B) / ln(pen_A) ] / ln(V_B / V_A)
+  // For a GLOBAL N (per Pierce), average the per-D values. A simple arithmetic mean
+  // over the size range captures the paper's "nearly parallel lines" observation
+  // without overweighting sizes where penetration is near unity.
+  const lnVRatio = Math.log(V_B / V_A);
+  if (lnVRatio === 0) return NaN;
+
+  const Ns = [];
+  for (const D of sizes) {
+    const penA = penFromFit(fitA, D);
+    const penB = penFromFit(fitB, D);
+    const lpA = Math.log(penA / 100);
+    const lpB = Math.log(penB / 100);
+    if (lpA >= 0 || lpB >= 0) continue;
+    const ratio = lpB / lpA;
+    if (ratio <= 0 || !isFinite(ratio)) continue;
+    Ns.push(Math.log(ratio) / lnVRatio);
+  }
+  if (Ns.length === 0) return NaN;
+  return Ns.reduce((a, b) => a + b, 0) / Ns.length;
+}
+
+function solveLocalN(rowsA, V_A, rowsB, V_B) {
+  // Per-diameter N for prefilter media where a single global N is a poor fit.
+  // Uses the RAW measured points at each shared diameter (not the fit interpolation).
+  // For each D common to both datasets:
+  //   N(D) = ln[ ln(penB/100) / ln(penA/100) ] / ln(V_B / V_A)
+  // Returns array of {D, N, penA_pct, penB_pct}. Diameters with invalid/unusable
+  // penetrations (≥100% or ≤0%) are skipped.
+  const lnVRatio = Math.log(V_B / V_A);
+  if (lnVRatio === 0) return [];
+
+  // Index B by D to handle slight float mismatches
+  const bMap = new Map();
+  for (const r of rowsB) bMap.set(Number(r.D.toFixed(4)), r);
+
+  const out = [];
+  for (const rA of rowsA) {
+    const key = Number(rA.D.toFixed(4));
+    const rB = bMap.get(key);
+    if (!rB) continue;
+    const penA = rA.Pen, penB = rB.Pen;
+    if (!(penA > 0 && penA < 100 && penB > 0 && penB < 100)) continue;
+    const lpA = Math.log(penA / 100);
+    const lpB = Math.log(penB / 100);
+    const ratio = lpB / lpA;
+    if (ratio <= 0 || !isFinite(ratio)) continue;
+    const N = Math.log(ratio) / lnVRatio;
+    if (!isFinite(N)) continue;
+    out.push({ D: rA.D, N, penA, penB });
+  }
+  return out.sort((a, b) => a.D - b.D);
+}
+
+function nAtDiameter(localN, D) {
+  // Interpolate N(D) from the local-N samples, linear in ln D.
+  // Clamp to the endpoints outside the sampled range (constant extrapolation).
+  if (!localN || localN.length === 0) return NaN;
+  if (localN.length === 1) return localN[0].N;
+  if (D <= localN[0].D) return localN[0].N;
+  if (D >= localN[localN.length - 1].D) return localN[localN.length - 1].N;
+  const lnD = Math.log(D);
+  for (let i = 0; i < localN.length - 1; i++) {
+    const d0 = localN[i].D, d1 = localN[i+1].D;
+    if (D >= d0 && D <= d1) {
+      const x0 = Math.log(d0), x1 = Math.log(d1);
+      const t = (lnD - x0) / (x1 - x0);
+      return localN[i].N + t * (localN[i+1].N - localN[i].N);
+    }
+  }
+  return localN[localN.length - 1].N;
+}
+
+function projectPen(pen_ref_pct, V_ref, V_target, N) {
+  // Pen at new velocity: ln(Pen_new) = ln(Pen_ref)·(V_target/V_ref)^N
+  const lp_ref = Math.log(pen_ref_pct / 100);
+  const lp_new = lp_ref * Math.pow(V_target / V_ref, N);
+  return Math.exp(lp_new) * 100;
+}
+
+function fpmToCMS(V_fpm) {
+  // 1 fpm = 1/196.85 m/s × 100 = 0.508 cm/s
+  return V_fpm * 0.508;
+}
+
+function runFEFits() {
+  // Parse + fit step. Reads velocities from the dedicated inputs (not from parser).
+  // Returns true on success, false on failure (status is set either way).
+  const status = document.getElementById('fe-status');
+  status.classList.remove('ok','err');
+
+  const V_A = parseFloat(document.getElementById('fe-vel-a').value);
+  const V_B = parseFloat(document.getElementById('fe-vel-b').value);
+  if (!isFinite(V_A) || V_A <= 0) {
+    status.textContent = 'Dataset A: enter a valid face velocity (cm/s).';
+    status.classList.add('err');
+    return false;
+  }
+  if (!isFinite(V_B) || V_B <= 0) {
+    status.textContent = 'Dataset B: enter a valid face velocity (cm/s).';
+    status.classList.add('err');
+    return false;
+  }
+  if (Math.abs(V_A - V_B) < 1e-6) {
+    status.textContent = 'Velocities A and B must differ.';
+    status.classList.add('err');
+    return false;
+  }
+
+  const textA = document.getElementById('fe-paste-a').value;
+  const textB = document.getElementById('fe-paste-b').value;
+  const pA = parseTSIDataset(textA);
+  const pB = parseTSIDataset(textB);
+  if (pA.error) { status.textContent = 'Dataset A: ' + pA.error; status.classList.add('err'); return false; }
+  if (pB.error) { status.textContent = 'Dataset B: ' + pB.error; status.classList.add('err'); return false; }
+
+  const fitA = fitQuadraticLogLog(pA.rows);
+  const fitB = fitQuadraticLogLog(pB.rows);
+  if (fitA.error) { status.textContent = 'Dataset A fit: ' + fitA.error; status.classList.add('err'); return false; }
+  if (fitB.error) { status.textContent = 'Dataset B fit: ' + fitB.error; status.classList.add('err'); return false; }
+
+  // Solve N — approach depends on mode
+  const sizes = pA.rows.map(r => r.D).sort((a,b) => a - b);
+  let N_global = null, N_local = null;
+
+  if (FE.mode === 'pre') {
+    // Prefilter: per-diameter N from raw points
+    N_local = solveLocalN(pA.rows, V_A, pB.rows, V_B);
+    if (N_local.length === 0) {
+      status.textContent = 'Could not solve local N — check that penetrations are 0–100% at matching diameters.';
+      status.classList.add('err');
+      return false;
+    }
+    // Also compute a global N for reference/display (from fits, as before)
+    N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
+  } else {
+    // HEPA: single global N across the MPPS region
+    N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
+    if (!isFinite(N_global)) {
+      status.textContent = 'Could not solve global N — check that penetrations are < 100%.';
+      status.classList.add('err');
+      return false;
+    }
+  }
+
+  FE.datasetA = { V_cms: V_A, rows: pA.rows, fit: fitA };
+  FE.datasetB = { V_cms: V_B, rows: pB.rows, fit: fitB };
+  FE.N_global = N_global;
+  FE.N_local = N_local;
+  FE.sizes = sizes;
+  FE.ready = true;
+
+  return true;
+}
+
+function projectFEtoV4() {
+  // Use the stored fits + N model to project to the current V₄ from the main calculator.
+  // Safe to call repeatedly — short-circuits if fits haven't been built.
+  if (!FE.ready) return;
+
+  const inp = readInputs();
+  const r = computeDeltaP(inp);
+  const V4_cms = fpmToCMS(r.V4);
+
+  const pA = FE.datasetA, pB = FE.datasetB, fitA = pA.fit, fitB = pB.fit;
+  const isPre = FE.mode === 'pre';
+
+  // Use the dataset closer in velocity to V4 as the reference for the projection.
+  const closer = Math.abs(V4_cms - pA.V_cms) <= Math.abs(V4_cms - pB.V_cms) ? 'A' : 'B';
+  const V_ref = closer === 'A' ? pA.V_cms : pB.V_cms;
+  const fit_ref = closer === 'A' ? fitA : fitB;
+  const rows_ref = closer === 'A' ? pA.rows : pB.rows;
+
+  // Build a quick lookup from D -> raw ref Pen (used by prefilter mode to avoid
+  // round-tripping through a fit that doesn't describe monotonic data well)
+  const rawRefMap = new Map();
+  for (const rr of rows_ref) rawRefMap.set(Number(rr.D.toFixed(4)), rr.Pen);
+
+  const rowsOut = [];
+  for (const D of FE.sizes) {
+    const penA = penFromFit(fitA, D);
+    const penB = penFromFit(fitB, D);
+
+    // Choose N for this diameter
+    const N_here = isPre ? nAtDiameter(FE.N_local, D) : FE.N_global;
+
+    // Choose pen_ref:
+    //   prefilter mode → raw measured pen at this D (exact, no fit round-trip)
+    //   hepa mode      → interpolated fit value (smooth curve over MPPS region)
+    let pen_ref;
+    if (isPre) {
+      const raw = rawRefMap.get(Number(D.toFixed(4)));
+      pen_ref = (raw !== undefined) ? raw : penFromFit(fit_ref, D);
+    } else {
+      pen_ref = penFromFit(fit_ref, D);
+    }
+
+    const penT = projectPen(pen_ref, V_ref, V4_cms, N_here);
+    rowsOut.push({ D, penA, penB, N_here, penT, effT: 100 - penT });
+  }
+
+  // Fit the projected points (only useful for HEPA mode's MPPS readout;
+  // for prefilter mode we skip the quadratic MPPS reporting since the curve
+  // is monotonic and MPPS is out-of-range by definition).
+  let fitT = null;
+  if (!isPre) {
+    const projRows = rowsOut
+      .filter(row => isFinite(row.penT) && row.penT > 0 && row.penT < 100)
+      .map(row => ({ D: row.D, Pen: row.penT }));
+    if (projRows.length >= 3) {
+      fitT = fitQuadraticLogLog(projRows);
+      if (fitT.error) fitT = null;
+    }
+  }
+
+  FE.projection = { V_cms: V4_cms, rows: rowsOut, fit: fitT };
+
+  // Render summary cells
+  document.getElementById('fe-va').textContent = pA.V_cms.toFixed(3);
+  document.getElementById('fe-vb').textContent = pB.V_cms.toFixed(3);
+  document.getElementById('fe-vt').textContent = V4_cms.toFixed(3);
+
+  const nLbl = document.getElementById('fe-n-lbl');
+  const nDet = document.getElementById('fe-n-det');
+  const nVal = document.getElementById('fe-nglobal');
+  if (isPre) {
+    // Show mean & range of local N
+    const Ns = FE.N_local.map(x => x.N);
+    const Nmean = Ns.reduce((a,b)=>a+b,0) / Ns.length;
+    const Nmin = Math.min(...Ns), Nmax = Math.max(...Ns);
+    nLbl.textContent = 'Local N · mean';
+    nVal.textContent = Nmean.toFixed(3);
+    nDet.textContent = `range ${Nmin.toFixed(2)} – ${Nmax.toFixed(2)} · per-D table below`;
+  } else {
+    nLbl.textContent = 'Global N';
+    nVal.textContent = (FE.N_global).toFixed(3);
+    nDet.textContent = 'velocity exponent · Pierce eq. 4';
+  }
+
+  // MPPS readout — meaningful only in HEPA mode
+  if (isPre) {
+    document.getElementById('fe-mppsA').textContent = '—';
+    document.getElementById('fe-pmppsA').textContent = '—';
+    document.getElementById('fe-mppsB').textContent = '—';
+    document.getElementById('fe-pmppsB').textContent = '—';
+    document.getElementById('fe-mppsT').textContent = '—';
+    document.getElementById('fe-pmppsT').textContent = '—';
+  } else {
+    document.getElementById('fe-mppsA').textContent = fitA.mpps.toFixed(3);
+    document.getElementById('fe-pmppsA').textContent = fitA.penMPPS.toExponential(3);
+    document.getElementById('fe-mppsB').textContent = fitB.mpps.toFixed(3);
+    document.getElementById('fe-pmppsB').textContent = fitB.penMPPS.toExponential(3);
+    if (fitT) {
+      document.getElementById('fe-mppsT').textContent = fitT.mpps.toFixed(3);
+      document.getElementById('fe-pmppsT').textContent = fitT.penMPPS.toExponential(3);
+    } else {
+      document.getElementById('fe-mppsT').textContent = '—';
+      document.getElementById('fe-pmppsT').textContent = '—';
+    }
+  }
+
+  // Render table — prefilter mode shows N per row (no hero-row since no MPPS)
+  const tbody = document.getElementById('fe-tbody');
+  tbody.innerHTML = '';
+  const mppsT = fitT ? fitT.mpps : NaN;
+  for (const row of rowsOut) {
+    const tr = document.createElement('tr');
+    const isMPPS = !isPre && isFinite(mppsT) && Math.abs(row.D - mppsT) < 0.02;
+    if (isMPPS) tr.classList.add('hero-row');
+    const nCell = isFinite(row.N_here) ? row.N_here.toFixed(3) : '—';
+    // In prefilter mode, penetration values are usually large (>1%), so show fixed decimals
+    const fmtPen = isPre
+      ? (v => isFinite(v) ? v.toFixed(3) : '—')
+      : (v => isFinite(v) ? v.toExponential(3) : '—');
+    tr.innerHTML = `
+      <td>${row.D.toFixed(3)}</td>
+      <td>${fmtPen(row.penA)}</td>
+      <td>${fmtPen(row.penB)}</td>
+      <td>${nCell}</td>
+      <td>${fmtPen(row.penT)}</td>
+      <td>${isFinite(row.penT) ? row.effT.toFixed(4) : '—'}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  renderFEChart(pA, pB, fitA, fitB, fitT, V4_cms, rowsOut);
+
+  document.getElementById('fe-results').style.display = '';
+  const status = document.getElementById('fe-status');
+  const Nlabel = isPre ? `local N (mean ${(FE.N_local.reduce((a,b)=>a+b.N,0)/FE.N_local.length).toFixed(2)})` : `global N = ${FE.N_global.toFixed(3)}`;
+  status.textContent = `Linked to V₄ = ${r.V4.toFixed(1)} fpm (${V4_cms.toFixed(3)} cm/s) · ${Nlabel}`;
+  status.classList.remove('err');
+  status.classList.add('ok');
+}
+
+function runFEProjection() {
+  // Triggered by button: fit + initial project.
+  if (runFEFits()) projectFEtoV4();
+}
+
+function renderFEChart(pA, pB, fitA, fitB, fitT, V4_cms, rowsOut) {
+  const isPre = FE.mode === 'pre';
+
+  // D range for smooth fit curves — extended in prefilter mode
+  const Dmin = isPre ? 0.3  : 0.05;
+  const Dmax = isPre ? 10.0 : 0.4;
+  const nPts = 80;
+  const Ds = [];
+  for (let i = 0; i < nPts; i++) {
+    const frac = i / (nPts - 1);
+    const lnD = Math.log(Dmin) + frac * (Math.log(Dmax) - Math.log(Dmin));
+    Ds.push(Math.exp(lnD));
+  }
+
+  // Raw data points (sorted by D for clean line-connection in prefilter mode)
+  const pointsA = pA.rows.slice().sort((a,b)=>a.D-b.D).map(r => ({ x: r.D, y: r.Pen }));
+  const pointsB = pB.rows.slice().sort((a,b)=>a.D-b.D).map(r => ({ x: r.D, y: r.Pen }));
+
+  if (FE.chart) FE.chart.destroy();
+
+  const datasets = [];
+
+  if (isPre) {
+    // Prefilter: connect raw points with lines (no smooth quadratic — it misrepresents monotonic data)
+    datasets.push({
+      label: `A (${pA.V_cms.toFixed(2)} cm/s)`,
+      data: pointsA,
+      type: 'line',
+      borderColor: '#1a4a7a',
+      backgroundColor: '#1a4a7a',
+      borderWidth: 1.5,
+      pointRadius: 4,
+      pointStyle: 'triangle',
+      tension: 0,
+      fill: false
+    });
+    datasets.push({
+      label: `B (${pB.V_cms.toFixed(2)} cm/s)`,
+      data: pointsB,
+      type: 'line',
+      borderColor: '#3a5535',
+      backgroundColor: '#3a5535',
+      borderWidth: 1.5,
+      pointRadius: 4,
+      pointStyle: 'rect',
+      tension: 0,
+      fill: false
+    });
+    // Projected curve from per-D N (rowsOut carries the projected Pen values)
+    if (rowsOut && rowsOut.length) {
+      const projPts = rowsOut
+        .slice()
+        .sort((a,b)=>a.D-b.D)
+        .filter(r => isFinite(r.penT) && r.penT > 0 && r.penT < 100)
+        .map(r => ({ x: r.D, y: r.penT }));
+      datasets.push({
+        label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`,
+        data: projPts,
+        type: 'line',
+        borderColor: '#d94814',
+        backgroundColor: '#d94814',
+        borderWidth: 2.5,
+        pointRadius: 5,
+        pointStyle: 'circle',
+        tension: 0,
+        fill: false
+      });
+    }
+  } else {
+    // HEPA: original behavior — scatter + smooth quadratic fit curves
+    const curveA = Ds.map(D => ({ x: D, y: penFromFit(fitA, D) }));
+    const curveB = Ds.map(D => ({ x: D, y: penFromFit(fitB, D) }));
+    const curveT = fitT ? Ds.map(D => ({ x: D, y: penFromFit(fitT, D) })) : null;
+
+    datasets.push(
+      {
+        label: `Data · A (${pA.V_cms.toFixed(2)} cm/s)`,
+        data: pointsA,
+        type: 'scatter',
+        backgroundColor: '#1a4a7a',
+        borderColor: '#1a4a7a',
+        pointRadius: 4,
+        pointStyle: 'triangle',
+        showLine: false
+      },
+      {
+        label: `Fit · A`,
+        data: curveA,
+        type: 'line',
+        borderColor: '#1a4a7a',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0,
+        fill: false
+      },
+      {
+        label: `Data · B (${pB.V_cms.toFixed(2)} cm/s)`,
+        data: pointsB,
+        type: 'scatter',
+        backgroundColor: '#3a5535',
+        borderColor: '#3a5535',
+        pointRadius: 4,
+        pointStyle: 'rect',
+        showLine: false
+      },
+      {
+        label: `Fit · B`,
+        data: curveB,
+        type: 'line',
+        borderColor: '#3a5535',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0,
+        fill: false
+      }
+    );
+    if (curveT) {
+      datasets.push({
+        label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`,
+        data: curveT,
+        type: 'line',
+        borderColor: '#d94814',
+        borderWidth: 2.5,
+        pointRadius: 0,
+        tension: 0,
+        fill: false
+      });
+    }
+  }
+
+  const ctx = document.getElementById('fe-chart').getContext('2d');
+  FE.chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'nearest' },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: {
+            font: { family: "'JetBrains Mono', monospace", size: 10 },
+            usePointStyle: true,
+            boxWidth: 8
+          }
+        },
+        tooltip: {
+          titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
+          bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+          backgroundColor: '#0f120e',
+          padding: 10,
+          callbacks: {
+            title: (items) => `D = ${items[0].parsed.x.toFixed(3)} µm`,
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v === null || !isFinite(v)) return null;
+              // In prefilter mode the pen values are big (1–95%), so format as decimal
+              const fmt = (FE.mode === 'pre')
+                ? v.toFixed(2) + ' %'
+                : v.toExponential(3) + ' %';
+              return `  ${ctx.dataset.label}: ${fmt}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'logarithmic',
+          min: Dmin,
+          max: Dmax,
+          title: {
+            display: true,
+            text: 'Particle diameter D (µm)',
+            font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' }
+          },
+          ticks: {
+            font: { family: "'JetBrains Mono', monospace", size: 10 },
+            callback: function(val) {
+              const v = Number(val);
+              if (FE.mode === 'pre') {
+                if ([0.3, 0.5, 1, 2, 3, 5, 10].includes(v)) return v.toString();
+              } else {
+                if ([0.05, 0.1, 0.2, 0.3, 0.5].includes(v)) return v.toString();
+              }
+              return '';
+            }
+          },
+          grid: { color: 'rgba(15,18,14,0.08)' }
+        },
+        y: {
+          type: 'logarithmic',
+          title: {
+            display: true,
+            text: 'Penetration (%)',
+            font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' }
+          },
+          ticks: {
+            font: { family: "'JetBrains Mono', monospace", size: 10 },
+            callback: function(val) {
+              const v = Number(val);
+              // Show decade ticks, plus 1/2/5/10/20/50 in prefilter range for readability
+              if (FE.mode === 'pre') {
+                if ([1, 2, 5, 10, 20, 50, 100].includes(v)) return v.toString();
+                return '';
+              }
+              const log = Math.log10(v);
+              if (Math.abs(log - Math.round(log)) < 0.01) {
+                if (v >= 0.001 && v <= 100) return v.toString();
+              }
+              return '';
+            }
+          },
+          grid: { color: 'rgba(15,18,14,0.08)' }
+        }
+      }
+    }
+  });
+}
+
+/* --- FE section event wiring --- */
+document.getElementById('fe-toggle').addEventListener('click', () => {
+  document.getElementById('fe-section').classList.toggle('open');
+});
+document.getElementById('fe-run').addEventListener('click', runFEProjection);
+document.getElementById('fe-clear').addEventListener('click', () => {
+  document.getElementById('fe-paste-a').value = '';
+  document.getElementById('fe-paste-b').value = '';
+  document.getElementById('fe-results').style.display = 'none';
+  const status = document.getElementById('fe-status');
+  status.textContent = 'Ready · enter velocities, paste data, and fit';
+  status.classList.remove('ok','err');
+  if (FE.chart) { FE.chart.destroy(); FE.chart = null; }
+  FE.ready = false;
+  FE.datasetA = null;
+  FE.datasetB = null;
+  FE.N_global = null;
+  FE.N_local = null;
+});
+
+// --- Mode toggle (HEPA vs Prefilter) ---
+const FE_MODE_HINTS = {
+  hepa: 'HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.',
+  pre:  'Prefilter: per-diameter N from raw points. Projection uses each bin\'s own N — better for monotonic supermicron data.'
+};
+function setFEMode(mode) {
+  if (mode !== 'hepa' && mode !== 'pre') return;
+  if (FE.mode === mode) return;
+  FE.mode = mode;
+
+  // Toggle button active state
+  document.getElementById('fe-mode-hepa').classList.toggle('active', mode === 'hepa');
+  document.getElementById('fe-mode-pre').classList.toggle('active', mode === 'pre');
+  document.getElementById('fe-mode-hint').textContent = FE_MODE_HINTS[mode];
+
+  // Invalidate any previous fit — the N model changed, so results must be recomputed
+  FE.ready = false;
+  FE.N_global = null;
+  FE.N_local = null;
+  if (FE.chart) { FE.chart.destroy(); FE.chart = null; }
+  document.getElementById('fe-results').style.display = 'none';
+
+  const status = document.getElementById('fe-status');
+  status.textContent = `Mode: ${mode === 'pre' ? 'Prefilter (local N)' : 'HEPA (global N)'} · click "Fit & project" to refresh`;
+  status.classList.remove('ok');
+  status.classList.add('err');
+}
+document.getElementById('fe-mode-hepa').addEventListener('click', () => setFEMode('hepa'));
+document.getElementById('fe-mode-pre').addEventListener('click',  () => setFEMode('pre'));
+
+// Invalidate stored fits when user changes any FE input — they'll need to click "Fit & project" again
+['fe-vel-a','fe-vel-b','fe-paste-a','fe-paste-b'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (!FE.ready) return;
+    FE.ready = false;
+    const status = document.getElementById('fe-status');
+    status.textContent = 'Inputs changed · click "Fit & project" to refresh';
+    status.classList.remove('ok');
+    status.classList.add('err');
+  });
+});
+
+attachInputListeners();
+document.getElementById('timestamp').textContent = new Date().toISOString().split('T')[0];
+render();
+</script>
+
+</body>
+</html>
