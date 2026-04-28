@@ -12,637 +12,714 @@ declare global {
 
 const CALC_CSS = `
 #pfc-root {
-  --ink: #0f120e;
-  --paper: #f3efe4;
-  --paper-deep: #e8e1cf;
-  --grid: #c6bda4;
-  --accent: #d94814;
-  --accent-deep: #a83408;
-  --moss: #3a5535;
-  --rule: #1a1a16;
-  --warn: #b38600;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --serif: 'Fraunces', Georgia, serif;
+  --ink: var(--text-primary, #1a1a2e);
+  --paper: var(--surface-raised, #ffffff);
+  --paper-deep: var(--surface, #f4f6fb);
+  --grid: var(--border, rgba(108, 92, 231, 0.18));
+  --accent: var(--accent-primary, #6c5ce7);
+  --accent-deep: #5a4fce;
+  --moss: var(--text-secondary, #4a4a68);
+  --rule: var(--border, rgba(108, 92, 231, 0.18));
+  --warn: var(--accent-orange, #e17055);
 
-  background: var(--paper);
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.5;
-  background-image:
-    repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px),
-    repeating-linear-gradient(90deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px);
-  min-height: 100vh;
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+  font-size: 14px;
+  line-height: 1.55;
+  background: transparent;
+  max-width: var(--max-width, 1200px);
+  margin: 0 auto;
+  padding: 0 2rem 3rem;
 }
 #pfc-root *, #pfc-root *::before, #pfc-root *::after { box-sizing: border-box; }
 
 #pfc-root .pfc-breadcrumb {
-  padding: 10px 40px;
-  border-bottom: 1px solid rgba(15,18,14,0.15);
-  background: var(--paper-deep);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  padding: 0.75rem 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #8888a4);
 }
 #pfc-root .pfc-breadcrumb a {
-  color: var(--moss);
+  color: var(--accent-secondary, #00b894);
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 600;
 }
 #pfc-root .pfc-breadcrumb a:hover { color: var(--accent); }
 
 #pfc-root header {
-  border-bottom: 2px solid var(--ink);
-  padding: 28px 40px 20px;
+  padding: 1rem 0 2rem;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: end;
-  gap: 24px;
-  background: var(--paper);
+  gap: 1.5rem;
+  background: transparent;
+  border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
+  margin-bottom: 1.75rem;
 }
 #pfc-root .title-block h1 {
-  font-family: var(--serif);
+  font-family: inherit;
   font-weight: 800;
-  font-style: italic;
-  font-size: clamp(32px, 5vw, 54px);
-  line-height: 0.95;
+  font-style: normal;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1.1;
   margin: 0;
   letter-spacing: -0.02em;
+  color: var(--ink);
 }
 #pfc-root .title-block h1 .accent {
-  color: var(--accent);
-  font-style: normal;
-  font-weight: 400;
+  background: linear-gradient(135deg, var(--accent-primary, #6c5ce7), var(--accent-warm, #e84393));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
 }
-#pfc-root .title-block p {
-  margin: 8px 0 0;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+#pfc-root .title-block h1 em {
+  font-style: italic;
+  font-weight: 600;
   color: var(--moss);
 }
-#pfc-root .meta-block {
-  font-size: 10px;
+#pfc-root .title-block p {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
+  color: var(--moss);
+  font-weight: 600;
+}
+#pfc-root .meta-block {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   text-align: right;
   line-height: 1.7;
   color: var(--moss);
+  font-weight: 500;
 }
 #pfc-root .meta-block strong {
   display: block;
   color: var(--ink);
   font-weight: 700;
+  margin-bottom: 0.25rem;
 }
 
 #pfc-root main {
   display: grid;
-  grid-template-columns: minmax(340px, 420px) 1fr;
-  gap: 0;
-  min-height: calc(100vh - 200px);
+  grid-template-columns: minmax(320px, 400px) 1fr;
+  gap: 1.5rem;
 }
 #pfc-root aside.inputs {
-  border-right: 2px solid var(--ink);
-  padding: 24px 28px 80px;
   background: var(--paper);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-lg, 20px);
+  padding: 1.5rem 1.5rem 2rem;
+  box-shadow: 0 4px 24px rgba(108, 92, 231, 0.06);
+  align-self: start;
+  position: sticky;
+  top: calc(var(--nav-height, 70px) + 1rem);
 }
 #pfc-root section.outputs {
-  padding: 24px 32px 80px;
-  background: var(--paper-deep);
+  padding: 0;
+  background: transparent;
+  min-width: 0;
 }
 
-#pfc-root .sec { margin-bottom: 28px; }
+#pfc-root .sec { margin-bottom: 1.5rem; }
+#pfc-root .sec:last-child { margin-bottom: 0; }
 #pfc-root .sec-hd {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--ink);
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--grid);
 }
 #pfc-root .sec-hd .num {
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 10px;
-  padding: 3px 7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm, #e84393));
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
 #pfc-root .sec-hd h2 {
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 600;
-  font-size: 20px;
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 1rem;
   margin: 0;
   letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
 #pfc-root .row {
   display: grid;
-  grid-template-columns: 1fr 118px 54px;
+  grid-template-columns: 1fr 110px 44px;
   align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px dotted rgba(15,18,14,0.2);
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
 }
 #pfc-root .row:last-child { border-bottom: none; }
-#pfc-root .row label { font-size: 12px; color: var(--ink); }
+#pfc-root .row label {
+  font-size: 0.8rem;
+  color: var(--ink);
+  font-weight: 500;
+  line-height: 1.3;
+}
 #pfc-root .row label .sub {
   display: block;
-  font-size: 10px;
-  color: var(--moss);
+  font-size: 0.65rem;
+  color: var(--text-muted, #8888a4);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-top: 1px;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+  font-weight: 500;
 }
 #pfc-root .row input[type="number"] {
-  font-family: var(--mono);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 0.85rem;
   font-weight: 500;
-  padding: 6px 8px;
-  border: 1px solid var(--ink);
-  background: var(--paper);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--paper-deep);
   color: var(--ink);
   text-align: right;
   outline: none;
-  transition: box-shadow 0.15s, background 0.15s;
+  transition: all 0.15s ease;
 }
 #pfc-root .row input[type="number"]:focus {
-  background: #fffaea;
-  box-shadow: 0 0 0 3px rgba(217,72,20,0.25);
+  border-color: var(--accent);
+  background: var(--paper);
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
 }
 #pfc-root .row .unit {
-  font-size: 10px;
+  font-size: 0.7rem;
   color: var(--moss);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
+  font-weight: 600;
 }
 #pfc-root .input-note {
-  font-size: 10px;
+  font-size: 0.7rem;
   color: var(--moss);
   font-style: italic;
-  padding: 4px 0 2px 2px;
-  line-height: 1.4;
-  border-left: 2px solid var(--grid);
-  padding-left: 8px;
-  margin-top: 6px;
+  line-height: 1.45;
+  border-left: 2px solid var(--accent-secondary, #00b894);
+  padding: 0.35rem 0.6rem;
+  background: rgba(0, 184, 148, 0.05);
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+  margin-top: 0.5rem;
 }
 
 #pfc-root .toggle-row {
   display: flex;
   gap: 0;
-  margin-bottom: 10px;
-  border: 1px solid var(--ink);
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  background: var(--paper-deep);
 }
 #pfc-root .toggle-row button {
   flex: 1;
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: inherit;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 7px 8px;
-  background: var(--paper);
+  letter-spacing: 0.08em;
+  padding: 0.45rem 0.5rem;
+  background: transparent;
   border: none;
-  border-right: 1px solid var(--ink);
+  border-right: 1px solid var(--grid);
   cursor: pointer;
-  color: var(--ink);
-  transition: background 0.15s;
+  color: var(--moss);
+  font-weight: 600;
+  transition: all 0.15s ease;
 }
 #pfc-root .toggle-row button:last-child { border-right: none; }
 #pfc-root .toggle-row button.active {
-  background: var(--ink);
-  color: var(--paper);
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: #fff;
 }
 #pfc-root .toggle-row button:not(.active):hover {
-  background: var(--paper-deep);
+  background: rgba(108, 92, 231, 0.08);
+  color: var(--ink);
 }
 
 #pfc-root .out-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0;
-  margin-bottom: 32px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  background: transparent;
 }
 #pfc-root .out-cell {
-  padding: 14px 16px;
-  border-right: 1px solid var(--ink);
-  border-bottom: 1px solid var(--ink);
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
   position: relative;
+  min-height: 0;
 }
-#pfc-root .out-cell:last-child { border-right: none; }
 #pfc-root .out-cell .lbl {
-  font-size: 9px;
+  font-size: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--moss);
-  margin-bottom: 6px;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
 }
 #pfc-root .out-cell .val {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-style: italic;
-  font-size: 26px;
-  line-height: 1;
+  font-family: inherit;
+  font-weight: 700;
+  font-style: normal;
+  font-size: 1.25rem;
+  line-height: 1.1;
   color: var(--ink);
   letter-spacing: -0.01em;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem;
 }
 #pfc-root .out-cell .unit-s {
-  font-family: var(--mono);
+  font-family: inherit;
   font-style: normal;
   font-weight: 500;
-  font-size: 11px;
+  font-size: 0.7rem;
   color: var(--moss);
-  margin-left: 4px;
   letter-spacing: 0.04em;
+  align-self: center;
 }
 #pfc-root .out-cell.hero {
-  background: var(--ink);
-  color: var(--paper);
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm, #e84393));
+  color: #fff;
+  border-color: transparent;
   grid-column: span 2;
+  box-shadow: 0 6px 24px rgba(108, 92, 231, 0.25);
 }
-#pfc-root .out-cell.hero .lbl { color: rgba(243,239,228,0.6); }
-#pfc-root .out-cell.hero .val { color: var(--paper); font-size: 38px; }
-#pfc-root .out-cell.hero .unit-s { color: rgba(243,239,228,0.7); }
+#pfc-root .out-cell.hero .lbl { color: rgba(255,255,255,0.85); }
+#pfc-root .out-cell.hero .val { color: #fff; font-size: 1.75rem; }
+#pfc-root .out-cell.hero .unit-s { color: rgba(255,255,255,0.85); }
 #pfc-root .out-cell.accent-cell {
-  background: var(--accent);
-  color: var(--paper);
+  background: linear-gradient(135deg, var(--accent-secondary, #00b894), #00a380);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(0, 184, 148, 0.18);
 }
-#pfc-root .out-cell.accent-cell .lbl { color: rgba(243,239,228,0.75); }
-#pfc-root .out-cell.accent-cell .val { color: var(--paper); }
-#pfc-root .out-cell.accent-cell .unit-s { color: rgba(243,239,228,0.85); }
+#pfc-root .out-cell.accent-cell .lbl { color: rgba(255,255,255,0.85); }
+#pfc-root .out-cell.accent-cell .val { color: #fff; }
+#pfc-root .out-cell.accent-cell .unit-s { color: rgba(255,255,255,0.9); }
 
 #pfc-root .breakdown {
-  margin-bottom: 32px;
-  border: 2px solid var(--ink);
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
   background: var(--paper);
-  padding: 16px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: 0 2px 12px rgba(108, 92, 231, 0.04);
 }
 #pfc-root .breakdown-hd {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 14px;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.85rem;
   letter-spacing: -0.01em;
+  color: var(--ink);
 }
 #pfc-root .bar-container {
   display: flex;
-  height: 28px;
+  height: 24px;
   width: 100%;
-  border: 1px solid var(--ink);
-  margin-bottom: 12px;
+  border-radius: 6px;
+  margin-bottom: 0.85rem;
   overflow: hidden;
+  background: var(--paper-deep);
 }
 #pfc-root .bar-seg {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--paper);
-  font-size: 10px;
-  font-weight: 500;
-  border-right: 1px solid rgba(0,0,0,0.2);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 600;
   transition: width 0.3s ease;
   overflow: hidden;
   white-space: nowrap;
+  letter-spacing: 0.02em;
 }
-#pfc-root .bar-seg:last-child { border-right: none; }
 #pfc-root .legend {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px 20px;
-  font-size: 11px;
+  gap: 0.45rem 1.25rem;
+  font-size: 0.75rem;
 }
 #pfc-root .legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
 }
 #pfc-root .legend-swatch {
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--ink);
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
   flex-shrink: 0;
 }
-#pfc-root .legend-item .lname { flex: 1; color: var(--ink); }
-#pfc-root .legend-item .lval { font-weight: 600; color: var(--ink); }
-#pfc-root .legend-item .lpct { color: var(--moss); font-size: 10px; margin-left: 4px; }
+#pfc-root .legend-item .lname { flex: 1; color: var(--ink); font-weight: 500; }
+#pfc-root .legend-item .lval { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+#pfc-root .legend-item .lpct { color: var(--moss); font-size: 0.7rem; margin-left: 0.25rem; }
 
 #pfc-root .chart-box {
-  border: 2px solid var(--ink);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
   background: var(--paper);
-  padding: 18px 18px 14px;
-  margin-bottom: 24px;
+  padding: 1.1rem 1.25rem 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 12px rgba(108, 92, 231, 0.04);
 }
 #pfc-root .chart-hd {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 10px;
+  margin-bottom: 0.7rem;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 #pfc-root .chart-hd h3 {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 20px;
-  font-weight: 600;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 0.95rem;
+  font-weight: 700;
   margin: 0;
   letter-spacing: -0.01em;
+  color: var(--ink);
 }
 #pfc-root .chart-hd .chart-sub {
-  font-size: 10px;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--moss);
+  font-weight: 600;
 }
 #pfc-root .chart-wrap { position: relative; height: 340px; }
 
 #pfc-root .note-strip {
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 11px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
   line-height: 1.55;
   border-left: 3px solid var(--accent);
-  background: rgba(217,72,20,0.08);
+  background: rgba(108, 92, 231, 0.06);
+  border-radius: 0 var(--radius-md, 12px) var(--radius-md, 12px) 0;
   color: var(--ink);
 }
 #pfc-root .note-strip.warn {
   border-left-color: var(--warn);
-  background: rgba(179,134,0,0.1);
+  background: rgba(225, 112, 85, 0.08);
 }
 #pfc-root .note-strip .nlbl {
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 10px;
-  margin-right: 6px;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  margin-right: 0.4rem;
   color: var(--accent);
 }
 #pfc-root .note-strip.warn .nlbl { color: var(--warn); }
 
 #pfc-root footer {
-  border-top: 2px solid var(--ink);
-  padding: 20px 40px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
+  border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
+  padding: 1.25rem 0 0;
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
   color: var(--moss);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--paper);
+  background: transparent;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 #pfc-root footer em {
-  font-family: var(--serif);
+  font-family: inherit;
   font-style: italic;
   font-weight: 600;
   color: var(--ink);
-  text-transform: none;
   letter-spacing: 0;
-  font-size: 13px;
+  font-size: 0.8rem;
 }
 
 #pfc-root .fe-section {
-  margin-top: 32px;
-  border: 2px solid var(--ink);
+  margin-top: 1.5rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
   background: var(--paper);
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(108, 92, 231, 0.04);
 }
 #pfc-root .fe-toggle {
-  padding: 14px 20px;
+  padding: 1rem 1.25rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  background: var(--ink);
-  color: var(--paper);
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: #fff;
   user-select: none;
 }
 #pfc-root .fe-toggle h3 {
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 600;
-  font-size: 20px;
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 1rem;
   margin: 0;
   letter-spacing: -0.01em;
 }
 #pfc-root .fe-toggle h3 .fe-sub {
   display: block;
-  font-family: var(--mono);
+  font-family: inherit;
   font-style: normal;
-  font-weight: 400;
-  font-size: 10px;
-  color: rgba(243,239,228,0.65);
+  font-weight: 500;
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.85);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  margin-top: 4px;
+  letter-spacing: 0.1em;
+  margin-top: 0.3rem;
 }
 #pfc-root .fe-toggle .fe-caret {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 26px;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 1.5rem;
   transition: transform 0.2s;
+  font-weight: 300;
 }
 #pfc-root .fe-section.open .fe-caret { transform: rotate(90deg); }
-#pfc-root .fe-body { display: none; padding: 20px 20px 24px; }
+#pfc-root .fe-body { display: none; padding: 1.25rem 1.25rem 1.5rem; }
 #pfc-root .fe-section.open .fe-body { display: block; }
 
 #pfc-root .fe-paste-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 18px;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
 }
 #pfc-root .fe-paste-box { display: flex; flex-direction: column; }
 #pfc-root .fe-paste-box label {
-  font-size: 10px;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--moss);
-  margin-bottom: 6px;
+  margin-bottom: 0.4rem;
   font-weight: 700;
 }
 #pfc-root .fe-paste-box textarea {
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 10px;
-  border: 1px solid var(--ink);
-  background: var(--paper);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--paper-deep);
   color: var(--ink);
   resize: vertical;
   min-height: 140px;
   outline: none;
+  transition: all 0.15s ease;
 }
 #pfc-root .fe-paste-box textarea:focus {
-  background: #fffaea;
-  box-shadow: 0 0 0 3px rgba(217,72,20,0.2);
+  border-color: var(--accent);
+  background: var(--paper);
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15);
 }
 #pfc-root .fe-vel-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  padding: 6px 8px;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.6rem;
   background: var(--paper-deep);
-  border: 1px solid var(--ink);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
 }
 #pfc-root .fe-vel-row .fe-vel-lbl {
-  font-size: 10px;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--moss);
   flex: 1;
+  font-weight: 600;
 }
 #pfc-root .fe-vel-row input {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 0.8rem;
   font-weight: 500;
-  padding: 4px 6px;
-  border: 1px solid var(--ink);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
   background: var(--paper);
   color: var(--ink);
   text-align: right;
   outline: none;
   width: 90px;
+  transition: all 0.15s ease;
 }
 #pfc-root .fe-vel-row input:focus {
-  background: #fffaea;
-  box-shadow: 0 0 0 2px rgba(217,72,20,0.25);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.15);
 }
 #pfc-root .fe-vel-row .fe-vel-unit {
-  font-size: 10px;
+  font-size: 0.7rem;
   color: var(--moss);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   min-width: 28px;
+  font-weight: 600;
 }
 #pfc-root .fe-actions {
   display: flex;
-  gap: 10px;
+  gap: 0.6rem;
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 1.1rem;
   flex-wrap: wrap;
 }
 #pfc-root .fe-btn {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: inherit;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 9px 18px;
-  background: var(--accent);
-  color: var(--paper);
-  border: 1px solid var(--accent-deep);
+  letter-spacing: 0.08em;
+  padding: 0.55rem 1.1rem;
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   font-weight: 700;
-  transition: background 0.15s;
+  transition: all 0.2s ease;
 }
-#pfc-root .fe-btn:hover { background: var(--accent-deep); }
+#pfc-root .fe-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(108, 92, 231, 0.3);
+}
 #pfc-root .fe-btn.secondary {
   background: var(--paper);
   color: var(--ink);
-  border-color: var(--ink);
+  border: 1px solid var(--grid);
 }
-#pfc-root .fe-btn.secondary:hover { background: var(--paper-deep); }
+#pfc-root .fe-btn.secondary:hover {
+  background: var(--paper-deep);
+  border-color: var(--accent);
+  box-shadow: none;
+  transform: none;
+}
 #pfc-root .fe-parse-status {
-  font-size: 10px;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--moss);
+  font-weight: 600;
 }
-#pfc-root .fe-parse-status.ok { color: var(--moss); }
-#pfc-root .fe-parse-status.err { color: var(--accent); }
+#pfc-root .fe-parse-status.ok { color: var(--accent-secondary, #00b894); }
+#pfc-root .fe-parse-status.err { color: var(--warn); }
 
 #pfc-root .fe-summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0;
-  margin-bottom: 18px;
-  border: 1px solid var(--ink);
+  gap: 0.6rem;
+  margin-bottom: 1.1rem;
 }
 #pfc-root .fe-cell {
-  padding: 12px 14px;
-  border-right: 1px solid var(--ink);
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
 }
-#pfc-root .fe-cell:last-child { border-right: none; }
-#pfc-root .fe-cell.highlight { background: var(--ink); color: var(--paper); }
+#pfc-root .fe-cell.highlight {
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm, #e84393));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.22);
+}
 #pfc-root .fe-cell .fe-cell-lbl {
-  font-size: 9px;
+  font-size: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: var(--moss);
-  margin-bottom: 6px;
-}
-#pfc-root .fe-cell.highlight .fe-cell-lbl { color: rgba(243,239,228,0.6); }
-#pfc-root .fe-cell .fe-cell-val {
-  font-family: var(--serif);
-  font-style: italic;
+  margin-bottom: 0.3rem;
   font-weight: 600;
-  font-size: 18px;
+}
+#pfc-root .fe-cell.highlight .fe-cell-lbl { color: rgba(255,255,255,0.85); }
+#pfc-root .fe-cell .fe-cell-val {
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 1.05rem;
   line-height: 1.2;
+  color: var(--ink);
 }
+#pfc-root .fe-cell.highlight .fe-cell-val { color: #fff; }
 #pfc-root .fe-cell .fe-cell-det {
-  font-size: 10px;
+  font-size: 0.7rem;
   color: var(--moss);
-  font-family: var(--mono);
-  margin-top: 4px;
+  font-family: inherit;
+  margin-top: 0.3rem;
 }
-#pfc-root .fe-cell.highlight .fe-cell-det { color: rgba(243,239,228,0.7); }
+#pfc-root .fe-cell.highlight .fe-cell-det { color: rgba(255,255,255,0.85); }
 
 #pfc-root .fe-chart-box {
-  border: 1px solid var(--ink);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
   background: var(--paper);
-  padding: 16px;
-  margin-bottom: 16px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
 }
 #pfc-root .fe-chart-wrap { position: relative; height: 360px; }
 
 #pfc-root .fe-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
-  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 #pfc-root .fe-table th, #pfc-root .fe-table td {
-  padding: 5px 8px;
+  padding: 0.4rem 0.6rem;
   text-align: right;
-  border-bottom: 1px dotted rgba(15,18,14,0.2);
+  border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
 }
 #pfc-root .fe-table th {
-  font-size: 9px;
+  font-size: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--moss);
   font-weight: 700;
-  border-bottom: 1px solid var(--ink);
+  border-bottom: 2px solid var(--grid);
   text-align: right;
+  font-family: inherit;
 }
 #pfc-root .fe-table th:first-child, #pfc-root .fe-table td:first-child { text-align: left; }
 #pfc-root .fe-table tr.hero-row td {
-  background: rgba(217,72,20,0.1);
-  font-weight: 600;
+  background: rgba(108, 92, 231, 0.08);
+  font-weight: 700;
+  color: var(--accent);
 }
 
 @media (max-width: 720px) {
   #pfc-root .fe-paste-grid { grid-template-columns: 1fr; }
-  #pfc-root .fe-summary { grid-template-columns: 1fr; }
-  #pfc-root .fe-cell { border-right: none; border-bottom: 1px solid var(--ink); }
-  #pfc-root .fe-cell:last-child { border-bottom: none; }
+  #pfc-root .fe-summary { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 900px) {
   #pfc-root main { grid-template-columns: 1fr; }
-  #pfc-root aside.inputs { border-right: none; border-bottom: 2px solid var(--ink); }
+  #pfc-root aside.inputs { position: static; }
   #pfc-root header { grid-template-columns: 1fr; }
   #pfc-root .meta-block { text-align: left; }
-  #pfc-root .out-cell.hero { grid-column: span 2; }
+  #pfc-root .out-cell.hero { grid-column: 1 / -1; }
 }
 @media (max-width: 520px) {
-  #pfc-root header, #pfc-root aside.inputs, #pfc-root section.outputs {
-    padding-left: 18px;
-    padding-right: 18px;
-  }
+  #pfc-root { padding-left: 1rem; padding-right: 1rem; }
   #pfc-root .row { grid-template-columns: 1fr 90px 40px; }
-  #pfc-root .title-block h1 { font-size: 32px; }
+  #pfc-root .fe-summary { grid-template-columns: 1fr; }
 }
 `;
 
@@ -866,11 +943,11 @@ export default function PleatedFilterCalculatorPage() {
 
     let chart: any = null;
     const COLORS = {
-      grating: '#3a5535',
-      pleatTip: '#a87c3a',
-      pleat: '#d94814',
-      media_v: '#1a4a7a',
-      media_i: '#5c1a7a',
+      grating: '#00b894',
+      pleatTip: '#fdcb6e',
+      pleat: '#6c5ce7',
+      media_v: '#0984e3',
+      media_i: '#e84393',
     };
 
     function render() {
@@ -990,7 +1067,7 @@ export default function PleatedFilterCalculatorPage() {
       })();
       const optDP_unit = fromImperial(sweep.optDP, 'dp');
       const markerData = xs.map((x: number) => x === sweep.optPPI ? optDP_unit : (x === currentPPI ? currentDP : null));
-      const markerColors = xs.map((x: number) => x === sweep.optPPI ? '#d94814' : (x === currentPPI ? '#0f120e' : 'rgba(0,0,0,0)'));
+      const markerColors = xs.map((x: number) => x === sweep.optPPI ? '#e84393' : (x === currentPPI ? '#1a1a2e' : 'rgba(0,0,0,0)'));
 
       const ctx = (document.getElementById('chart-ppi') as HTMLCanvasElement).getContext('2d');
       if (chart) chart.destroy();
@@ -999,13 +1076,13 @@ export default function PleatedFilterCalculatorPage() {
         data: {
           labels: xs,
           datasets: [
-            { label: 'Total ΔP', data: ys_total, borderColor: '#0f120e', backgroundColor: 'rgba(15,18,14,0.05)', borderWidth: 2.5, tension: 0.15, pointRadius: 0, fill: false, order: 1 },
+            { label: 'Total ΔP', data: ys_total, borderColor: '#1a1a2e', backgroundColor: 'rgba(108,92,231,0.06)', borderWidth: 2.5, tension: 0.15, pointRadius: 0, fill: false, order: 1 },
             { label: 'Media', data: ys_media, borderColor: COLORS.media_v, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 2 },
             { label: 'Pleat + tips', data: ys_pleat, borderColor: COLORS.pleat, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 3 },
             { label: 'Grating', data: ys_grat, borderColor: COLORS.grating, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 4 },
             { label: 'Markers', data: markerData, type: 'scatter',
               pointRadius: xs.map((x: number) => x === sweep.optPPI || x === currentPPI ? 7 : 0),
-              pointHoverRadius: 8, pointBackgroundColor: markerColors, pointBorderColor: '#f3efe4', pointBorderWidth: 2, showLine: false, order: 0 },
+              pointHoverRadius: 8, pointBackgroundColor: markerColors, pointBorderColor: '#ffffff', pointBorderWidth: 2, showLine: false, order: 0 },
           ],
         },
         options: {
@@ -1013,11 +1090,11 @@ export default function PleatedFilterCalculatorPage() {
           interaction: { intersect: false, mode: 'index' },
           plugins: {
             legend: { position: 'top', align: 'end',
-              labels: { font: { family: "'JetBrains Mono', monospace", size: 10 }, usePointStyle: true, boxWidth: 8, filter: (item: any) => item.text !== 'Markers' } },
+              labels: { font: { family: 'inherit', size: 11 }, usePointStyle: true, boxWidth: 8, color: '#4a4a68', filter: (item: any) => item.text !== 'Markers' } },
             tooltip: {
-              titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
-              bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-              backgroundColor: '#0f120e', padding: 10,
+              titleFont: { family: 'inherit', weight: '700', size: 12 },
+              bodyFont: { family: 'inherit', size: 12 },
+              backgroundColor: 'rgba(26,26,46,0.95)', padding: 10, cornerRadius: 6,
               callbacks: {
                 title: (items: any) => `Pleat count: ${items[0].label}`,
                 label: (ctx: any) => {
@@ -1030,10 +1107,10 @@ export default function PleatedFilterCalculatorPage() {
             },
           },
           scales: {
-            x: { title: { display: true, text: 'Pleat count (pleats / filter)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
-              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }, grid: { color: 'rgba(15,18,14,0.08)' } },
-            y: { title: { display: true, text: `ΔP (${unit})`, font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
-              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }, grid: { color: 'rgba(15,18,14,0.08)' },
+            x: { title: { display: true, text: 'Pleat count (pleats / filter)', font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+              ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68' }, grid: { color: 'rgba(108,92,231,0.08)' } },
+            y: { title: { display: true, text: `ΔP (${unit})`, font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+              ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68' }, grid: { color: 'rgba(108,92,231,0.08)' },
               beginAtZero: true,
               max: Math.max(3 * optDP_unit, currentDP !== null && isFinite(currentDP) ? 1.2 * currentDP : 0) },
           },
@@ -1479,10 +1556,10 @@ export default function PleatedFilterCalculatorPage() {
       if (isPre) {
         datasets.push(
           { label: `A (${pA.V_cms.toFixed(2)} cm/s)`, data: pointsA, type: 'line',
-            borderColor: '#1a4a7a', backgroundColor: '#1a4a7a', borderWidth: 1.5,
+            borderColor: '#0984e3', backgroundColor: '#0984e3', borderWidth: 1.5,
             pointRadius: 4, pointStyle: 'triangle', tension: 0, fill: false },
           { label: `B (${pB.V_cms.toFixed(2)} cm/s)`, data: pointsB, type: 'line',
-            borderColor: '#3a5535', backgroundColor: '#3a5535', borderWidth: 1.5,
+            borderColor: '#00b894', backgroundColor: '#00b894', borderWidth: 1.5,
             pointRadius: 4, pointStyle: 'rect', tension: 0, fill: false }
         );
         if (rowsOut && rowsOut.length) {
@@ -1490,7 +1567,7 @@ export default function PleatedFilterCalculatorPage() {
             .filter((r) => isFinite(r.penT) && r.penT > 0 && r.penT < 100)
             .map((r) => ({ x: r.D, y: r.penT }));
           datasets.push({ label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`, data: projPts, type: 'line',
-            borderColor: '#d94814', backgroundColor: '#d94814', borderWidth: 2.5,
+            borderColor: '#6c5ce7', backgroundColor: '#6c5ce7', borderWidth: 2.5,
             pointRadius: 5, pointStyle: 'circle', tension: 0, fill: false });
         }
       } else {
@@ -1499,15 +1576,15 @@ export default function PleatedFilterCalculatorPage() {
         const curveT = fitT ? Ds.map((D) => ({ x: D, y: penFromFit(fitT, D) })) : null;
         datasets.push(
           { label: `Data · A (${pA.V_cms.toFixed(2)} cm/s)`, data: pointsA, type: 'scatter',
-            backgroundColor: '#1a4a7a', borderColor: '#1a4a7a', pointRadius: 4, pointStyle: 'triangle', showLine: false },
-          { label: `Fit · A`, data: curveA, type: 'line', borderColor: '#1a4a7a', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false },
+            backgroundColor: '#0984e3', borderColor: '#0984e3', pointRadius: 4, pointStyle: 'triangle', showLine: false },
+          { label: `Fit · A`, data: curveA, type: 'line', borderColor: '#0984e3', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false },
           { label: `Data · B (${pB.V_cms.toFixed(2)} cm/s)`, data: pointsB, type: 'scatter',
-            backgroundColor: '#3a5535', borderColor: '#3a5535', pointRadius: 4, pointStyle: 'rect', showLine: false },
-          { label: `Fit · B`, data: curveB, type: 'line', borderColor: '#3a5535', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false }
+            backgroundColor: '#00b894', borderColor: '#00b894', pointRadius: 4, pointStyle: 'rect', showLine: false },
+          { label: `Fit · B`, data: curveB, type: 'line', borderColor: '#00b894', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false }
         );
         if (curveT) {
           datasets.push({ label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`, data: curveT, type: 'line',
-            borderColor: '#d94814', borderWidth: 2.5, pointRadius: 0, tension: 0, fill: false });
+            borderColor: '#6c5ce7', borderWidth: 2.5, pointRadius: 0, tension: 0, fill: false });
         }
       }
 
@@ -1520,11 +1597,11 @@ export default function PleatedFilterCalculatorPage() {
           interaction: { intersect: false, mode: 'nearest' },
           plugins: {
             legend: { position: 'top', align: 'end',
-              labels: { font: { family: "'JetBrains Mono', monospace", size: 10 }, usePointStyle: true, boxWidth: 8 } },
+              labels: { font: { family: 'inherit', size: 11 }, usePointStyle: true, boxWidth: 8, color: '#4a4a68' } },
             tooltip: {
-              titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
-              bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-              backgroundColor: '#0f120e', padding: 10,
+              titleFont: { family: 'inherit', weight: '700', size: 12 },
+              bodyFont: { family: 'inherit', size: 12 },
+              backgroundColor: 'rgba(26,26,46,0.95)', padding: 10, cornerRadius: 6,
               callbacks: {
                 title: (items: any) => `D = ${items[0].parsed.x.toFixed(3)} µm`,
                 label: (ctx: any) => {
@@ -1538,8 +1615,8 @@ export default function PleatedFilterCalculatorPage() {
           },
           scales: {
             x: { type: 'logarithmic', min: Dmin, max: Dmax,
-              title: { display: true, text: 'Particle diameter D (µm)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
-              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 },
+              title: { display: true, text: 'Particle diameter D (µm)', font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+              ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68',
                 callback: function (val: any) {
                   const v = Number(val);
                   if (FE.mode === 'pre') {
@@ -1549,10 +1626,10 @@ export default function PleatedFilterCalculatorPage() {
                   }
                   return '';
                 } },
-              grid: { color: 'rgba(15,18,14,0.08)' } },
+              grid: { color: 'rgba(108,92,231,0.08)' } },
             y: { type: 'logarithmic',
-              title: { display: true, text: 'Penetration (%)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
-              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 },
+              title: { display: true, text: 'Penetration (%)', font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+              ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68',
                 callback: function (val: any) {
                   const v = Number(val);
                   if (FE.mode === 'pre') {
@@ -1565,7 +1642,7 @@ export default function PleatedFilterCalculatorPage() {
                   }
                   return '';
                 } },
-              grid: { color: 'rgba(15,18,14,0.08)' } },
+              grid: { color: 'rgba(108,92,231,0.08)' } },
           },
         },
       });
@@ -1662,12 +1739,6 @@ export default function PleatedFilterCalculatorPage() {
 
   return (
     <>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-      <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&display=swap"
-        rel="stylesheet"
-      />
       <Script
         src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
         strategy="afterInteractive"
@@ -2074,7 +2145,7 @@ export default function PleatedFilterCalculatorPage() {
                       <div className="fe-cell-lbl">Projected · V<sub>4</sub></div>
                       <div className="fe-cell-val">
                         <span id="fe-vt">—</span>{' '}
-                        <span style={{ fontSize: 11, color: 'rgba(243,239,228,0.7)' }}>cm/s</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)' }}>cm/s</span>
                       </div>
                       <div className="fe-cell-det">
                         MPPS: <span id="fe-mppsT">—</span> µm · Pen: <span id="fe-pmppsT">—</span> %
