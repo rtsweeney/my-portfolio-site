@@ -980,7 +980,7 @@ export default function PleatedFilterCalculatorPage() {
       });
 
       renderBreakdown(r);
-      renderChart(sweep, inp.PPI);
+      renderChart(sweep, inp.PPI, inp.F_W);
       renderWarnings(inp, r);
       if (FE.ready) {
         try { projectFEtoV4(); } catch (e) { console.error('FE projection error:', e); }
@@ -1052,23 +1052,30 @@ export default function PleatedFilterCalculatorPage() {
       return { points, optPPI, optDP };
     }
 
-    function renderChart(sweep: any, currentPPI: number) {
-      const unit = UNIT_LABELS[S.units].dp;
+    function renderChart(sweep: any, currentPPI: number, F_W: number) {
+      const inPPIMode = S.pleatMode === 'ppi';
+      const yUnit = 'inWC';
       const maxPPI_display = Math.max(Math.ceil(2 * sweep.optPPI), Math.ceil(1.5 * currentPPI), 60);
       const pointsShown = sweep.points.filter((p: any) => p.ppi <= maxPPI_display);
-      const xs = pointsShown.map((p: any) => p.ppi);
-      const ys_total = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.dp, 'dp'));
-      const ys_media = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.media, 'dp'));
-      const ys_pleat = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.pleat + p.pleatTip, 'dp'));
-      const ys_grat = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.grating, 'dp'));
+      const pleatCounts: number[] = pointsShown.map((p: any) => p.ppi);
+      const xs = inPPIMode
+        ? pleatCounts.map((pc) => +(pc / F_W).toFixed(3))
+        : pleatCounts;
+      const ys_total = pointsShown.map((p: any) => p.dp === null ? null : p.dp);
+      const ys_media = pointsShown.map((p: any) => p.dp === null ? null : p.media);
+      const ys_pleat = pointsShown.map((p: any) => p.dp === null ? null : p.pleat + p.pleatTip);
+      const ys_grat = pointsShown.map((p: any) => p.dp === null ? null : p.grating);
 
       const currentDP = (() => {
         const pt = sweep.points.find((p: any) => p.ppi === currentPPI);
-        return pt ? fromImperial(pt.dp, 'dp') : null;
+        return pt ? pt.dp : null;
       })();
-      const optDP_unit = fromImperial(sweep.optDP, 'dp');
-      const markerData = xs.map((x: number) => x === sweep.optPPI ? optDP_unit : (x === currentPPI ? currentDP : null));
-      const markerColors = xs.map((x: number) => x === sweep.optPPI ? '#e84393' : (x === currentPPI ? '#1a1a2e' : 'rgba(0,0,0,0)'));
+      const optDP_unit = sweep.optDP;
+      const markerData = pleatCounts.map((pc) => pc === sweep.optPPI ? optDP_unit : (pc === currentPPI ? currentDP : null));
+      const markerColors = pleatCounts.map((pc) => pc === sweep.optPPI ? '#e84393' : (pc === currentPPI ? '#1a1a2e' : 'rgba(0,0,0,0)'));
+
+      const xTitle = inPPIMode ? 'PPI (pleats / inch of filter width)' : 'Pleat count (pleats / filter)';
+      const tooltipXLabel = inPPIMode ? 'PPI' : 'Pleat count';
 
       const ctx = (document.getElementById('chart-ppi') as HTMLCanvasElement).getContext('2d');
       if (chart) chart.destroy();
@@ -1082,7 +1089,7 @@ export default function PleatedFilterCalculatorPage() {
             { label: 'Pleat + tips', data: ys_pleat, borderColor: COLORS.pleat, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 3 },
             { label: 'Grating', data: ys_grat, borderColor: COLORS.grating, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 4 },
             { label: 'Markers', data: markerData, type: 'scatter',
-              pointRadius: xs.map((x: number) => x === sweep.optPPI || x === currentPPI ? 7 : 0),
+              pointRadius: pleatCounts.map((pc) => pc === sweep.optPPI || pc === currentPPI ? 7 : 0),
               pointHoverRadius: 8, pointBackgroundColor: markerColors, pointBorderColor: '#ffffff', pointBorderWidth: 2, showLine: false, order: 0 },
           ],
         },
@@ -1097,20 +1104,20 @@ export default function PleatedFilterCalculatorPage() {
               bodyFont: { family: 'inherit', size: 12 },
               backgroundColor: 'rgba(26,26,46,0.95)', padding: 10, cornerRadius: 6,
               callbacks: {
-                title: (items: any) => `Pleat count: ${items[0].label}`,
+                title: (items: any) => `${tooltipXLabel}: ${items[0].label}`,
                 label: (ctx: any) => {
                   if (ctx.dataset.label === 'Markers') return null;
                   const v = ctx.parsed.y;
                   if (v === null) return null;
-                  return `  ${ctx.dataset.label}: ${fmt(v, 3)} ${unit}`;
+                  return `  ${ctx.dataset.label}: ${fmt(v, 3)} ${yUnit}`;
                 },
               },
             },
           },
           scales: {
-            x: { title: { display: true, text: 'Pleat count (pleats / filter)', font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+            x: { title: { display: true, text: xTitle, font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
               ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68' }, grid: { color: 'rgba(108,92,231,0.08)' } },
-            y: { title: { display: true, text: `ΔP (${unit})`, font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
+            y: { title: { display: true, text: `ΔP (${yUnit})`, font: { family: 'inherit', size: 11, weight: '600' }, color: '#4a4a68' },
               ticks: { font: { family: 'inherit', size: 10 }, color: '#4a4a68' }, grid: { color: 'rgba(108,92,231,0.08)' },
               beginAtZero: true,
               max: Math.max(3 * optDP_unit, currentDP !== null && isFinite(currentDP) ? 1.2 * currentDP : 0) },
