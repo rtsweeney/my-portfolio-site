@@ -23,6 +23,13 @@ const calculators = [
     icon: '&#127756;',
     accent: 'card-accent-pink',
   },
+  {
+    name: 'Pleated Filter',
+    description: 'Predict pressure drop, optimal pleat count, and fractional efficiency for a pleated air filter (Sothen & Tatarchuk 2009).',
+    href: '/calculators/pleated-filter-calculator',
+    icon: '&#128168;',
+    accent: 'card-accent-purple',
+  },
 ];
 
 export default function CalculatorsPage() {

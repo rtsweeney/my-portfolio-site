@@ -1,0 +1,2123 @@
+'use client';
+
+import Link from 'next/link';
+import Script from 'next/script';
+import { useEffect, useState } from 'react';
+
+declare global {
+  interface Window {
+    Chart: new (ctx: CanvasRenderingContext2D, cfg: unknown) => { destroy: () => void };
+  }
+}
+
+const CALC_CSS = `
+#pfc-root {
+  --ink: #0f120e;
+  --paper: #f3efe4;
+  --paper-deep: #e8e1cf;
+  --grid: #c6bda4;
+  --accent: #d94814;
+  --accent-deep: #a83408;
+  --moss: #3a5535;
+  --rule: #1a1a16;
+  --warn: #b38600;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --serif: 'Fraunces', Georgia, serif;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px),
+    repeating-linear-gradient(90deg, transparent 0, transparent 23px, rgba(15,18,14,0.025) 23px, rgba(15,18,14,0.025) 24px);
+  min-height: 100vh;
+}
+#pfc-root *, #pfc-root *::before, #pfc-root *::after { box-sizing: border-box; }
+
+#pfc-root .pfc-breadcrumb {
+  padding: 10px 40px;
+  border-bottom: 1px solid rgba(15,18,14,0.15);
+  background: var(--paper-deep);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+#pfc-root .pfc-breadcrumb a {
+  color: var(--moss);
+  text-decoration: none;
+  font-weight: 700;
+}
+#pfc-root .pfc-breadcrumb a:hover { color: var(--accent); }
+
+#pfc-root header {
+  border-bottom: 2px solid var(--ink);
+  padding: 28px 40px 20px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 24px;
+  background: var(--paper);
+}
+#pfc-root .title-block h1 {
+  font-family: var(--serif);
+  font-weight: 800;
+  font-style: italic;
+  font-size: clamp(32px, 5vw, 54px);
+  line-height: 0.95;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+#pfc-root .title-block h1 .accent {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 400;
+}
+#pfc-root .title-block p {
+  margin: 8px 0 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--moss);
+}
+#pfc-root .meta-block {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-align: right;
+  line-height: 1.7;
+  color: var(--moss);
+}
+#pfc-root .meta-block strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+#pfc-root main {
+  display: grid;
+  grid-template-columns: minmax(340px, 420px) 1fr;
+  gap: 0;
+  min-height: calc(100vh - 200px);
+}
+#pfc-root aside.inputs {
+  border-right: 2px solid var(--ink);
+  padding: 24px 28px 80px;
+  background: var(--paper);
+}
+#pfc-root section.outputs {
+  padding: 24px 32px 80px;
+  background: var(--paper-deep);
+}
+
+#pfc-root .sec { margin-bottom: 28px; }
+#pfc-root .sec-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ink);
+}
+#pfc-root .sec-hd .num {
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10px;
+  padding: 3px 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+#pfc-root .sec-hd h2 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+#pfc-root .row {
+  display: grid;
+  grid-template-columns: 1fr 118px 54px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px dotted rgba(15,18,14,0.2);
+}
+#pfc-root .row:last-child { border-bottom: none; }
+#pfc-root .row label { font-size: 12px; color: var(--ink); }
+#pfc-root .row label .sub {
+  display: block;
+  font-size: 10px;
+  color: var(--moss);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 1px;
+}
+#pfc-root .row input[type="number"] {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 8px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  text-align: right;
+  outline: none;
+  transition: box-shadow 0.15s, background 0.15s;
+}
+#pfc-root .row input[type="number"]:focus {
+  background: #fffaea;
+  box-shadow: 0 0 0 3px rgba(217,72,20,0.25);
+}
+#pfc-root .row .unit {
+  font-size: 10px;
+  color: var(--moss);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+#pfc-root .input-note {
+  font-size: 10px;
+  color: var(--moss);
+  font-style: italic;
+  padding: 4px 0 2px 2px;
+  line-height: 1.4;
+  border-left: 2px solid var(--grid);
+  padding-left: 8px;
+  margin-top: 6px;
+}
+
+#pfc-root .toggle-row {
+  display: flex;
+  gap: 0;
+  margin-bottom: 10px;
+  border: 1px solid var(--ink);
+}
+#pfc-root .toggle-row button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 7px 8px;
+  background: var(--paper);
+  border: none;
+  border-right: 1px solid var(--ink);
+  cursor: pointer;
+  color: var(--ink);
+  transition: background 0.15s;
+}
+#pfc-root .toggle-row button:last-child { border-right: none; }
+#pfc-root .toggle-row button.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+#pfc-root .toggle-row button:not(.active):hover {
+  background: var(--paper-deep);
+}
+
+#pfc-root .out-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0;
+  margin-bottom: 32px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+}
+#pfc-root .out-cell {
+  padding: 14px 16px;
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  position: relative;
+}
+#pfc-root .out-cell:last-child { border-right: none; }
+#pfc-root .out-cell .lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--moss);
+  margin-bottom: 6px;
+}
+#pfc-root .out-cell .val {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-style: italic;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+#pfc-root .out-cell .unit-s {
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--moss);
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+#pfc-root .out-cell.hero {
+  background: var(--ink);
+  color: var(--paper);
+  grid-column: span 2;
+}
+#pfc-root .out-cell.hero .lbl { color: rgba(243,239,228,0.6); }
+#pfc-root .out-cell.hero .val { color: var(--paper); font-size: 38px; }
+#pfc-root .out-cell.hero .unit-s { color: rgba(243,239,228,0.7); }
+#pfc-root .out-cell.accent-cell {
+  background: var(--accent);
+  color: var(--paper);
+}
+#pfc-root .out-cell.accent-cell .lbl { color: rgba(243,239,228,0.75); }
+#pfc-root .out-cell.accent-cell .val { color: var(--paper); }
+#pfc-root .out-cell.accent-cell .unit-s { color: rgba(243,239,228,0.85); }
+
+#pfc-root .breakdown {
+  margin-bottom: 32px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  padding: 16px;
+}
+#pfc-root .breakdown-hd {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  letter-spacing: -0.01em;
+}
+#pfc-root .bar-container {
+  display: flex;
+  height: 28px;
+  width: 100%;
+  border: 1px solid var(--ink);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+#pfc-root .bar-seg {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--paper);
+  font-size: 10px;
+  font-weight: 500;
+  border-right: 1px solid rgba(0,0,0,0.2);
+  transition: width 0.3s ease;
+  overflow: hidden;
+  white-space: nowrap;
+}
+#pfc-root .bar-seg:last-child { border-right: none; }
+#pfc-root .legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 20px;
+  font-size: 11px;
+}
+#pfc-root .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#pfc-root .legend-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--ink);
+  flex-shrink: 0;
+}
+#pfc-root .legend-item .lname { flex: 1; color: var(--ink); }
+#pfc-root .legend-item .lval { font-weight: 600; color: var(--ink); }
+#pfc-root .legend-item .lpct { color: var(--moss); font-size: 10px; margin-left: 4px; }
+
+#pfc-root .chart-box {
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  padding: 18px 18px 14px;
+  margin-bottom: 24px;
+}
+#pfc-root .chart-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+#pfc-root .chart-hd h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+#pfc-root .chart-hd .chart-sub {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--moss);
+}
+#pfc-root .chart-wrap { position: relative; height: 340px; }
+
+#pfc-root .note-strip {
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  line-height: 1.55;
+  border-left: 3px solid var(--accent);
+  background: rgba(217,72,20,0.08);
+  color: var(--ink);
+}
+#pfc-root .note-strip.warn {
+  border-left-color: var(--warn);
+  background: rgba(179,134,0,0.1);
+}
+#pfc-root .note-strip .nlbl {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+#pfc-root .note-strip.warn .nlbl { color: var(--warn); }
+
+#pfc-root footer {
+  border-top: 2px solid var(--ink);
+  padding: 20px 40px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--moss);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--paper);
+}
+#pfc-root footer em {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+#pfc-root .fe-section {
+  margin-top: 32px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+}
+#pfc-root .fe-toggle {
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background: var(--ink);
+  color: var(--paper);
+  user-select: none;
+}
+#pfc-root .fe-toggle h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+#pfc-root .fe-toggle h3 .fe-sub {
+  display: block;
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: rgba(243,239,228,0.65);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 4px;
+}
+#pfc-root .fe-toggle .fe-caret {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 26px;
+  transition: transform 0.2s;
+}
+#pfc-root .fe-section.open .fe-caret { transform: rotate(90deg); }
+#pfc-root .fe-body { display: none; padding: 20px 20px 24px; }
+#pfc-root .fe-section.open .fe-body { display: block; }
+
+#pfc-root .fe-paste-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+#pfc-root .fe-paste-box { display: flex; flex-direction: column; }
+#pfc-root .fe-paste-box label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--moss);
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+#pfc-root .fe-paste-box textarea {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+  min-height: 140px;
+  outline: none;
+}
+#pfc-root .fe-paste-box textarea:focus {
+  background: #fffaea;
+  box-shadow: 0 0 0 3px rgba(217,72,20,0.2);
+}
+#pfc-root .fe-vel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: var(--paper-deep);
+  border: 1px solid var(--ink);
+}
+#pfc-root .fe-vel-row .fe-vel-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--moss);
+  flex: 1;
+}
+#pfc-root .fe-vel-row input {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 6px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  text-align: right;
+  outline: none;
+  width: 90px;
+}
+#pfc-root .fe-vel-row input:focus {
+  background: #fffaea;
+  box-shadow: 0 0 0 2px rgba(217,72,20,0.25);
+}
+#pfc-root .fe-vel-row .fe-vel-unit {
+  font-size: 10px;
+  color: var(--moss);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  min-width: 28px;
+}
+#pfc-root .fe-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+#pfc-root .fe-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 9px 18px;
+  background: var(--accent);
+  color: var(--paper);
+  border: 1px solid var(--accent-deep);
+  cursor: pointer;
+  font-weight: 700;
+  transition: background 0.15s;
+}
+#pfc-root .fe-btn:hover { background: var(--accent-deep); }
+#pfc-root .fe-btn.secondary {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+#pfc-root .fe-btn.secondary:hover { background: var(--paper-deep); }
+#pfc-root .fe-parse-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+#pfc-root .fe-parse-status.ok { color: var(--moss); }
+#pfc-root .fe-parse-status.err { color: var(--accent); }
+
+#pfc-root .fe-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-bottom: 18px;
+  border: 1px solid var(--ink);
+}
+#pfc-root .fe-cell {
+  padding: 12px 14px;
+  border-right: 1px solid var(--ink);
+}
+#pfc-root .fe-cell:last-child { border-right: none; }
+#pfc-root .fe-cell.highlight { background: var(--ink); color: var(--paper); }
+#pfc-root .fe-cell .fe-cell-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--moss);
+  margin-bottom: 6px;
+}
+#pfc-root .fe-cell.highlight .fe-cell-lbl { color: rgba(243,239,228,0.6); }
+#pfc-root .fe-cell .fe-cell-val {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1.2;
+}
+#pfc-root .fe-cell .fe-cell-det {
+  font-size: 10px;
+  color: var(--moss);
+  font-family: var(--mono);
+  margin-top: 4px;
+}
+#pfc-root .fe-cell.highlight .fe-cell-det { color: rgba(243,239,228,0.7); }
+
+#pfc-root .fe-chart-box {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+#pfc-root .fe-chart-wrap { position: relative; height: 360px; }
+
+#pfc-root .fe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  font-family: var(--mono);
+}
+#pfc-root .fe-table th, #pfc-root .fe-table td {
+  padding: 5px 8px;
+  text-align: right;
+  border-bottom: 1px dotted rgba(15,18,14,0.2);
+}
+#pfc-root .fe-table th {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+  font-weight: 700;
+  border-bottom: 1px solid var(--ink);
+  text-align: right;
+}
+#pfc-root .fe-table th:first-child, #pfc-root .fe-table td:first-child { text-align: left; }
+#pfc-root .fe-table tr.hero-row td {
+  background: rgba(217,72,20,0.1);
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  #pfc-root .fe-paste-grid { grid-template-columns: 1fr; }
+  #pfc-root .fe-summary { grid-template-columns: 1fr; }
+  #pfc-root .fe-cell { border-right: none; border-bottom: 1px solid var(--ink); }
+  #pfc-root .fe-cell:last-child { border-bottom: none; }
+}
+@media (max-width: 900px) {
+  #pfc-root main { grid-template-columns: 1fr; }
+  #pfc-root aside.inputs { border-right: none; border-bottom: 2px solid var(--ink); }
+  #pfc-root header { grid-template-columns: 1fr; }
+  #pfc-root .meta-block { text-align: left; }
+  #pfc-root .out-cell.hero { grid-column: span 2; }
+}
+@media (max-width: 520px) {
+  #pfc-root header, #pfc-root aside.inputs, #pfc-root section.outputs {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  #pfc-root .row { grid-template-columns: 1fr 90px 40px; }
+  #pfc-root .title-block h1 { font-size: 32px; }
+}
+`;
+
+export default function PleatedFilterCalculatorPage() {
+  const [chartLoaded, setChartLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!chartLoaded) return;
+    if (typeof window === 'undefined') return;
+    if (!window.Chart) return;
+
+    // ===== CALCULATOR LOGIC =====
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const Chart: any = (window as any).Chart;
+
+    const S = {
+      units: 'imperial' as 'imperial' | 'metric',
+      mediaMode: 'ab' as 'dp' | 'ab' | 'perm',
+      flowMode: 'cfm' as 'face' | 'cfm',
+      pleatMode: 'count' as 'count' | 'ppi',
+    };
+
+    function getHead(rho_lbft3: number, V_fpm: number) {
+      const V_fps = V_fpm / 60;
+      const psf = (rho_lbft3 * V_fps * V_fps) / (2 * 32.174);
+      return psf / 5.2023;
+    }
+
+    function K_contraction(A_small: number, A_large: number) {
+      const r = A_small / A_large;
+      return 0.5 * Math.pow(1 - r, 0.75);
+    }
+    function K_expansion(A_small: number, A_large: number) {
+      const r = A_small / A_large;
+      return Math.pow(1 - r, 2);
+    }
+    function K_grating(blockagePct: number) {
+      const Afree = 1 - blockagePct / 100;
+      if (Afree <= 0.0001) return 10000;
+      return (1.707 - Afree) / (Afree * Afree);
+    }
+
+    function geometry(o: { F_H: number; F_W: number; P_D: number; PPI: number; M_T: number }) {
+      const P_L = o.P_D;
+      const P_H = o.F_H;
+      const P_O = o.F_W / o.PPI;
+      const sinArg = (0.5 * P_O) / P_L;
+      const beta = Math.min(0.999, Math.max(0.001, sinArg));
+      const beta_angle_rad = Math.asin(beta);
+      const gamma = Math.PI / 2 - beta_angle_rad;
+      const P_T = 2 * Math.sin(gamma) * o.M_T;
+      const A_T = 2 * o.M_T * gamma;
+      const mediaArea = o.PPI * P_H * (2 * P_L - A_T);
+      return { P_L, P_H, P_O, beta, beta_angle_rad, gamma, P_T, A_T, mediaArea };
+    }
+
+    function K_P(o: { F_H: number; P_D: number; beta: number }) {
+      const F_D = o.P_D;
+      const eta = 0.05 * (o.F_H / F_D);
+      const chi = Math.pow(1 / o.beta, 4 / 3);
+      return eta * chi;
+    }
+
+    function computeDeltaP(inp: any) {
+      const { F_H, F_W, P_D, PPI, M_T, A, B, gratingPct, V_face, rho, kpCal = 1.0 } = inp;
+      const g = geometry({ F_H, F_W, P_D, PPI, M_T });
+      const A1 = F_H * F_W;
+      const A2 = A1 * (1 - gratingPct / 100);
+      const A3 = F_H * F_W - PPI * g.P_T * g.P_H;
+      const A4 = g.mediaArea;
+      const Q = V_face * A1;
+      const V2 = Q / A2;
+      const V3 = Q / A3;
+      const V4 = Q / A4;
+      const K_G = K_grating(gratingPct);
+      let K_C: number, K_E: number;
+      if (A3 < A2) {
+        K_C = K_contraction(A3, A2);
+        K_E = K_expansion(A3, A2);
+      } else {
+        K_C = K_expansion(A2, A3);
+        K_E = K_contraction(A2, A3);
+      }
+      const K_Pcoef_raw = K_P({ F_H, P_D, beta: g.beta });
+      const K_Pcoef = kpCal * K_Pcoef_raw;
+      const head2 = getHead(rho, V2);
+      const head3 = getHead(rho, V3);
+      const dp_grating = 2 * K_G * head2;
+      const dp_pleatTip = (K_C + K_E) * head3;
+      const dp_pleat = K_Pcoef * head3;
+      const dp_media_visc = A * V4;
+      const dp_media_inert = B * V4 * V4;
+      const dp_total = dp_grating + dp_pleatTip + dp_pleat + dp_media_visc + dp_media_inert;
+      return {
+        dp_total, dp_grating, dp_pleatTip, dp_pleat, dp_media_visc, dp_media_inert,
+        dp_media: dp_media_visc + dp_media_inert,
+        A1, A2, A3, A4, V2, V3, V4, Q,
+        K_G, K_C, K_E, K_Pcoef, K_Pcoef_raw, kpCal,
+        ...g,
+      };
+    }
+
+    function deriveAB(dp_ref: number, V_ref: number, linFrac: number) {
+      const A = (linFrac * dp_ref) / V_ref;
+      const B = ((1 - linFrac) * dp_ref) / (V_ref * V_ref);
+      return { A, B };
+    }
+
+    function toImperial(val: number, type: string) {
+      if (S.units === 'imperial') return val;
+      switch (type) {
+        case 'len': return val / 25.4;
+        case 'mt': return val / 25.4;
+        case 'dp': return val / 248.84;
+        case 'vel': return val / 0.00508;
+        case 'vol': return val / 1.699;
+        case 'rho': return val / 16.018;
+        case 'area': return val * 10.7639;
+        case 'smlen': return val / 25.4;
+        default: return val;
+      }
+    }
+    function fromImperial(val: number, type: string) {
+      if (S.units === 'imperial') return val;
+      switch (type) {
+        case 'len': return val * 25.4;
+        case 'mt': return val * 25.4;
+        case 'dp': return val * 248.84;
+        case 'vel': return val * 0.00508;
+        case 'vol': return val * 1.699;
+        case 'rho': return val * 16.018;
+        case 'area': return val / 10.7639;
+        case 'smlen': return val * 25.4;
+        default: return val;
+      }
+    }
+
+    const UNIT_LABELS: Record<string, Record<string, string>> = {
+      imperial: { len: 'in', mt: 'in', dp: 'inWC', vel: 'fpm', vol: 'CFM', rho: 'lb/ft³', area: 'ft²', smlen: 'in' },
+      metric: { len: 'mm', mt: 'mm', dp: 'Pa', vel: 'm/s', vol: 'm³/h', rho: 'kg/m³', area: 'm²', smlen: 'mm' },
+    };
+
+    const DEFAULTS: Record<string, Record<string, number>> = {
+      imperial: {
+        F_H: 23.375, F_W: 23.375, P_D: 1.7, PLEAT_COUNT: 25, PPI: 1.07, M_T: 0.05,
+        M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
+        A_CONST: -0.001325, B_CONST: 9.814e-6,
+        GRATING: 34.5, V_FACE: 527, Q_VOL: 2000, RHO: 0.0725, KP_CAL: 1.0,
+      },
+      metric: {
+        F_H: 593.7, F_W: 593.7, P_D: 43.2, PLEAT_COUNT: 25, PPI: 1.07, M_T: 1.27,
+        M_DP: 2.5, LIN_FRAC: 0.99, M_PERM: 85, LIN_FRAC_PERM: 1.0,
+        A_CONST: -0.001325, B_CONST: 9.814e-6,
+        GRATING: 34.5, V_FACE: 2.68, Q_VOL: 3400, RHO: 1.161, KP_CAL: 1.0,
+      },
+    };
+
+    function readInputs() {
+      const $ = (id: string) => parseFloat((document.getElementById(id) as HTMLInputElement).value);
+      let F_H = $('F_H'), F_W = $('F_W'), P_D = $('P_D'), M_T = $('M_T');
+      const gratingPct = $('GRATING');
+      let rho = $('RHO');
+      F_H = toImperial(F_H, 'len');
+      F_W = toImperial(F_W, 'len');
+      P_D = toImperial(P_D, 'len');
+      M_T = toImperial(M_T, 'mt');
+      rho = toImperial(rho, 'rho');
+
+      let PLEAT_COUNT: number;
+      if (S.pleatMode === 'count') {
+        PLEAT_COUNT = Math.max(1, Math.round($('PLEAT_COUNT')));
+      } else {
+        const ppi = Math.max(0.01, $('PPI'));
+        PLEAT_COUNT = Math.max(1, Math.round(ppi * F_W));
+      }
+
+      let V_face: number;
+      if (S.flowMode === 'face') {
+        V_face = toImperial($('V_FACE'), 'vel');
+      } else {
+        const Q = toImperial($('Q_VOL'), 'vol');
+        const face_ft2 = (F_H * F_W) / 144;
+        V_face = Q / face_ft2;
+      }
+
+      let A: number, B: number;
+      if (S.mediaMode === 'dp') {
+        const dp_ref_mmWC = $('M_DP');
+        const dp_ref_in = dp_ref_mmWC * 0.0393701;
+        const V_ref_fpm = 10.5;
+        const linFrac = Math.min(1, Math.max(0, $('LIN_FRAC')));
+        ({ A, B } = deriveAB(dp_ref_in, V_ref_fpm, linFrac));
+      } else if (S.mediaMode === 'perm') {
+        const perm_Lm2s = Math.max(0.001, $('M_PERM'));
+        const V_ref_ms = perm_Lm2s / 1000;
+        const V_ref_fpm = V_ref_ms * 196.85;
+        const dp_ref_in = 125 / 248.84;
+        const linFrac = Math.min(1, Math.max(0, $('LIN_FRAC_PERM')));
+        ({ A, B } = deriveAB(dp_ref_in, V_ref_fpm, linFrac));
+      } else {
+        A = $('A_CONST');
+        B = $('B_CONST');
+      }
+
+      const kpCalRaw = parseFloat((document.getElementById('KP_CAL') as HTMLInputElement).value);
+      const kpCal = isFinite(kpCalRaw) && kpCalRaw > 0 ? kpCalRaw : 1.0;
+
+      return { F_H, F_W, P_D, PPI: PLEAT_COUNT, M_T, A, B, gratingPct, V_face, rho, kpCal };
+    }
+
+    function fmt(v: number, digits = 3) {
+      if (!isFinite(v)) return '—';
+      const abs = Math.abs(v);
+      if (abs === 0) return '0';
+      if (abs < 0.001) return v.toExponential(2);
+      if (abs < 10) return v.toFixed(digits);
+      if (abs < 100) return v.toFixed(2);
+      if (abs < 10000) return v.toFixed(1);
+      return v.toFixed(0);
+    }
+
+    let chart: any = null;
+    const COLORS = {
+      grating: '#3a5535',
+      pleatTip: '#a87c3a',
+      pleat: '#d94814',
+      media_v: '#1a4a7a',
+      media_i: '#5c1a7a',
+    };
+
+    function render() {
+      const inp = readInputs();
+      const r = computeDeltaP(inp);
+      const dp_imp = r.dp_total;
+      (document.getElementById('o_dpT') as HTMLElement).textContent = fmt(fromImperial(dp_imp, 'dp'), 3);
+      (document.getElementById('o_area') as HTMLElement).textContent = fmt(fromImperial(r.A4 / 144, 'area'), 2);
+      (document.getElementById('o_beta') as HTMLElement).textContent = fmt((r.beta * 180) / Math.PI, 2);
+      (document.getElementById('o_po') as HTMLElement).textContent = fmt(fromImperial(r.P_O, 'smlen'), 3);
+      (document.getElementById('o_q') as HTMLElement).textContent = fmt(fromImperial(r.Q / 144, 'vol'), 0);
+      (document.getElementById('o_v4') as HTMLElement).textContent = fmt(fromImperial(r.V4, 'vel'), S.units === 'imperial' ? 1 : 3);
+      (document.getElementById('o_ppi') as HTMLElement).textContent = String(inp.PPI);
+      (document.getElementById('o_kp') as HTMLElement).textContent = fmt(r.K_Pcoef, 2);
+      const kpUnitEl = document.querySelector('#o_kp + .unit-s') as HTMLElement | null;
+      if (kpUnitEl) {
+        kpUnitEl.textContent = Math.abs(r.kpCal - 1.0) > 0.005 ? `× ${fmt(r.kpCal, 2)}` : '–';
+      }
+
+      const sweep = sweepPPI(inp);
+      (document.getElementById('o_optppi') as HTMLElement).textContent = String(sweep.optPPI);
+      const optPPI_density = sweep.optPPI / inp.F_W;
+      (document.getElementById('o_optppi_density') as HTMLElement).textContent = fmt(optPPI_density, 2);
+      (document.getElementById('o_dpopt') as HTMLElement).textContent = fmt(sweep.optDP, 3);
+
+      document.querySelectorAll('#pfc-root [data-unit]').forEach((el) => {
+        const t = el.getAttribute('data-unit') as string;
+        if (UNIT_LABELS[S.units][t]) (el as HTMLElement).textContent = UNIT_LABELS[S.units][t];
+      });
+
+      renderBreakdown(r);
+      renderChart(sweep, inp.PPI);
+      renderWarnings(inp, r);
+      if (FE.ready) {
+        try { projectFEtoV4(); } catch (e) { console.error('FE projection error:', e); }
+      }
+    }
+
+    function renderBreakdown(r: any) {
+      const total = r.dp_total;
+      const legendSegs = [
+        { key: 'grating', name: 'Grating (K_G)', val: r.dp_grating, color: COLORS.grating },
+        { key: 'pleatTip', name: 'Pleat-tip contr./exp.', val: r.dp_pleatTip, color: COLORS.pleatTip },
+        { key: 'pleat', name: 'Pleat flow (K_P)', val: r.dp_pleat, color: COLORS.pleat },
+        { key: 'media_v', name: 'Media — viscous (AV)', val: r.dp_media_visc, color: COLORS.media_v },
+        { key: 'media_i', name: 'Media — inertial (BV²)', val: r.dp_media_inert, color: COLORS.media_i },
+      ];
+      const barSegs = [
+        { name: 'Grating', val: r.dp_grating, color: COLORS.grating },
+        { name: 'Pleat tip', val: r.dp_pleatTip, color: COLORS.pleatTip },
+        { name: 'Pleat flow', val: r.dp_pleat, color: COLORS.pleat },
+        { name: 'Media', val: r.dp_media, color: COLORS.media_v },
+      ];
+      const bar = document.getElementById('bar-bd') as HTMLElement;
+      const leg = document.getElementById('legend-bd') as HTMLElement;
+      bar.innerHTML = '';
+      leg.innerHTML = '';
+
+      barSegs.forEach((s) => {
+        const pct = total > 0 ? (s.val / total) * 100 : 0;
+        if (pct > 0) {
+          const seg = document.createElement('div');
+          seg.className = 'bar-seg';
+          seg.style.width = pct + '%';
+          seg.style.background = s.color;
+          if (pct > 6) seg.textContent = pct.toFixed(0) + '%';
+          bar.appendChild(seg);
+        }
+      });
+
+      legendSegs.forEach((s) => {
+        const pct = total > 0 ? (s.val / total) * 100 : 0;
+        const dpLabel = fromImperial(s.val, 'dp');
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+          <div class="legend-swatch" style="background:${s.color}"></div>
+          <div class="lname">${s.name}</div>
+          <div class="lval">${fmt(dpLabel, 3)} ${UNIT_LABELS[S.units].dp}</div>
+          <div class="lpct">(${pct.toFixed(1)}%)</div>
+        `;
+        leg.appendChild(item);
+      });
+    }
+
+    function sweepPPI(inp: any) {
+      const points: any[] = [];
+      let optPPI = inp.PPI, optDP = Infinity;
+      const minPPI = 5, maxPPI = 200;
+      for (let p = minPPI; p <= maxPPI; p++) {
+        const test = { ...inp, PPI: p };
+        const P_O = test.F_W / p;
+        if ((0.5 * P_O) / test.P_D > 0.999) {
+          points.push({ ppi: p, dp: null });
+          continue;
+        }
+        const r = computeDeltaP(test);
+        points.push({ ppi: p, dp: r.dp_total, grating: r.dp_grating, pleatTip: r.dp_pleatTip, pleat: r.dp_pleat, media: r.dp_media });
+        if (r.dp_total < optDP) { optDP = r.dp_total; optPPI = p; }
+      }
+      return { points, optPPI, optDP };
+    }
+
+    function renderChart(sweep: any, currentPPI: number) {
+      const unit = UNIT_LABELS[S.units].dp;
+      const maxPPI_display = Math.max(Math.ceil(2 * sweep.optPPI), Math.ceil(1.5 * currentPPI), 60);
+      const pointsShown = sweep.points.filter((p: any) => p.ppi <= maxPPI_display);
+      const xs = pointsShown.map((p: any) => p.ppi);
+      const ys_total = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.dp, 'dp'));
+      const ys_media = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.media, 'dp'));
+      const ys_pleat = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.pleat + p.pleatTip, 'dp'));
+      const ys_grat = pointsShown.map((p: any) => p.dp === null ? null : fromImperial(p.grating, 'dp'));
+
+      const currentDP = (() => {
+        const pt = sweep.points.find((p: any) => p.ppi === currentPPI);
+        return pt ? fromImperial(pt.dp, 'dp') : null;
+      })();
+      const optDP_unit = fromImperial(sweep.optDP, 'dp');
+      const markerData = xs.map((x: number) => x === sweep.optPPI ? optDP_unit : (x === currentPPI ? currentDP : null));
+      const markerColors = xs.map((x: number) => x === sweep.optPPI ? '#d94814' : (x === currentPPI ? '#0f120e' : 'rgba(0,0,0,0)'));
+
+      const ctx = (document.getElementById('chart-ppi') as HTMLCanvasElement).getContext('2d');
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: xs,
+          datasets: [
+            { label: 'Total ΔP', data: ys_total, borderColor: '#0f120e', backgroundColor: 'rgba(15,18,14,0.05)', borderWidth: 2.5, tension: 0.15, pointRadius: 0, fill: false, order: 1 },
+            { label: 'Media', data: ys_media, borderColor: COLORS.media_v, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 2 },
+            { label: 'Pleat + tips', data: ys_pleat, borderColor: COLORS.pleat, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 3 },
+            { label: 'Grating', data: ys_grat, borderColor: COLORS.grating, borderWidth: 1.4, borderDash: [4, 3], tension: 0.15, pointRadius: 0, fill: false, order: 4 },
+            { label: 'Markers', data: markerData, type: 'scatter',
+              pointRadius: xs.map((x: number) => x === sweep.optPPI || x === currentPPI ? 7 : 0),
+              pointHoverRadius: 8, pointBackgroundColor: markerColors, pointBorderColor: '#f3efe4', pointBorderWidth: 2, showLine: false, order: 0 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'index' },
+          plugins: {
+            legend: { position: 'top', align: 'end',
+              labels: { font: { family: "'JetBrains Mono', monospace", size: 10 }, usePointStyle: true, boxWidth: 8, filter: (item: any) => item.text !== 'Markers' } },
+            tooltip: {
+              titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
+              bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+              backgroundColor: '#0f120e', padding: 10,
+              callbacks: {
+                title: (items: any) => `Pleat count: ${items[0].label}`,
+                label: (ctx: any) => {
+                  if (ctx.dataset.label === 'Markers') return null;
+                  const v = ctx.parsed.y;
+                  if (v === null) return null;
+                  return `  ${ctx.dataset.label}: ${fmt(v, 3)} ${unit}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: { title: { display: true, text: 'Pleat count (pleats / filter)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
+              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }, grid: { color: 'rgba(15,18,14,0.08)' } },
+            y: { title: { display: true, text: `ΔP (${unit})`, font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
+              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 } }, grid: { color: 'rgba(15,18,14,0.08)' },
+              beginAtZero: true,
+              max: Math.max(3 * optDP_unit, currentDP !== null && isFinite(currentDP) ? 1.2 * currentDP : 0) },
+          },
+        },
+      });
+    }
+
+    function renderWarnings(inp: any, r: any) {
+      const warnings: string[] = [];
+      if (inp.P_D > 4) warnings.push(`Pleat depth ${fmt(inp.P_D, 2)}" is above validated range (≤ 4").`);
+      if (inp.PPI > 60) warnings.push(`Pleat count ${inp.PPI} is above validated range (≤ 60 pleats).`);
+      if (inp.M_T > 2 / 25.4) warnings.push(`Media thickness above validated range (> 2 mm).`);
+      if (inp.V_face > 1000) warnings.push(`Face velocity ${fmt(inp.V_face, 0)} fpm is above tested range (> 1000 fpm).`);
+      const P_O = inp.F_W / inp.PPI;
+      if ((0.5 * P_O) / inp.P_D > 0.99) warnings.push(`Pleat opening too large for pleat depth — β approaches 90°. Decrease pleat count or increase depth.`);
+      if (r.P_T * inp.PPI > 0.9 * inp.F_W) warnings.push(`Pleat tips occupy >90% of filter width — geometry infeasible.`);
+      const box = document.getElementById('warn-box') as HTMLElement;
+      box.innerHTML = '';
+      if (warnings.length === 0) return;
+      warnings.forEach((w) => {
+        const el = document.createElement('div');
+        el.className = 'note-strip warn';
+        el.innerHTML = `<span class="nlbl">Caution</span>${w}`;
+        box.appendChild(el);
+      });
+    }
+
+    function attachInputListeners() {
+      document.querySelectorAll('#pfc-root input[type="number"]').forEach((inp) => {
+        inp.addEventListener('input', render);
+      });
+    }
+
+    function setUnits(u: 'imperial' | 'metric') {
+      if (S.units === u) return;
+      S.units = u;
+      document.querySelectorAll('#pfc-root .toggle-row button[data-units]').forEach((b) => {
+        const btn = b as HTMLElement;
+        btn.classList.toggle('active', btn.dataset.units === u);
+      });
+      document.querySelectorAll('#pfc-root [data-unit]').forEach((el) => {
+        const t = el.getAttribute('data-unit') as string;
+        if (UNIT_LABELS[u][t]) (el as HTMLElement).textContent = UNIT_LABELS[u][t];
+      });
+      const d = DEFAULTS[u];
+      Object.entries(d).forEach(([k, v]) => {
+        const el = document.getElementById(k) as HTMLInputElement | null;
+        if (el) el.value = String(v);
+      });
+      render();
+    }
+
+    function setMediaMode(m: 'dp' | 'ab' | 'perm') {
+      S.mediaMode = m;
+      document.querySelectorAll('#pfc-root .toggle-row button[data-mediamode]').forEach((b) => {
+        const btn = b as HTMLElement;
+        btn.classList.toggle('active', btn.dataset.mediamode === m);
+      });
+      (document.getElementById('mode-dp') as HTMLElement).style.display = m === 'dp' ? '' : 'none';
+      (document.getElementById('mode-ab') as HTMLElement).style.display = m === 'ab' ? '' : 'none';
+      (document.getElementById('mode-perm') as HTMLElement).style.display = m === 'perm' ? '' : 'none';
+      render();
+    }
+
+    function setFlowMode(f: 'face' | 'cfm') {
+      S.flowMode = f;
+      document.querySelectorAll('#pfc-root .toggle-row button[data-flowmode]').forEach((b) => {
+        const btn = b as HTMLElement;
+        btn.classList.toggle('active', btn.dataset.flowmode === f);
+      });
+      (document.getElementById('flowmode-face') as HTMLElement).style.display = f === 'face' ? '' : 'none';
+      (document.getElementById('flowmode-cfm') as HTMLElement).style.display = f === 'cfm' ? '' : 'none';
+      render();
+    }
+
+    function setPleatMode(p: 'count' | 'ppi') {
+      S.pleatMode = p;
+      document.querySelectorAll('#pfc-root .toggle-row button[data-pleatmode]').forEach((b) => {
+        const btn = b as HTMLElement;
+        btn.classList.toggle('active', btn.dataset.pleatmode === p);
+      });
+      (document.getElementById('pleatmode-count') as HTMLElement).style.display = p === 'count' ? '' : 'none';
+      (document.getElementById('pleatmode-ppi') as HTMLElement).style.display = p === 'ppi' ? '' : 'none';
+      render();
+    }
+
+    const unitListeners: Array<[Element, EventListener]> = [];
+    document.querySelectorAll('#pfc-root .toggle-row button[data-units]').forEach((b) => {
+      const fn = () => setUnits((b as HTMLElement).dataset.units as 'imperial' | 'metric');
+      b.addEventListener('click', fn);
+      unitListeners.push([b, fn]);
+    });
+    document.querySelectorAll('#pfc-root .toggle-row button[data-mediamode]').forEach((b) => {
+      const fn = () => setMediaMode((b as HTMLElement).dataset.mediamode as 'dp' | 'ab' | 'perm');
+      b.addEventListener('click', fn);
+      unitListeners.push([b, fn]);
+    });
+    document.querySelectorAll('#pfc-root .toggle-row button[data-flowmode]').forEach((b) => {
+      const fn = () => setFlowMode((b as HTMLElement).dataset.flowmode as 'face' | 'cfm');
+      b.addEventListener('click', fn);
+      unitListeners.push([b, fn]);
+    });
+    document.querySelectorAll('#pfc-root .toggle-row button[data-pleatmode]').forEach((b) => {
+      const fn = () => setPleatMode((b as HTMLElement).dataset.pleatmode as 'count' | 'ppi');
+      b.addEventListener('click', fn);
+      unitListeners.push([b, fn]);
+    });
+
+    // ===== FRACTIONAL EFFICIENCY PROJECTOR =====
+    const FE: any = {
+      mode: 'hepa',
+      datasetA: null,
+      datasetB: null,
+      N_global: null,
+      N_local: null,
+      sizes: null,
+      ready: false,
+      projection: null,
+      chart: null,
+    };
+
+    function parseTSIDataset(text: string) {
+      const lines = text.split(/\r?\n/);
+      const rows: any[] = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (!/^\d+(\.\d+)?[\s\t]/.test(trimmed)) continue;
+        const parts = trimmed.split(/\s+/);
+        if (parts.length < 3) continue;
+        const nums = parts.map((p) => parseFloat(p));
+        if (!isFinite(nums[0]) || !isFinite(nums[2])) continue;
+        rows.push({ D: nums[0], Eff: nums[1], Pen: nums[2], P95: nums[3], Res: nums[4], Cup: nums[5], Cdn: nums[6], Cnt: nums[7] });
+      }
+      if (rows.length < 3) return { error: `Only ${rows.length} data rows parsed — need at least 3 for a quadratic fit.` };
+      return { rows };
+    }
+
+    function fitQuadraticLogLog(rows: any[]): any {
+      const N = rows.length;
+      let Sx0 = 0, Sx1 = 0, Sx2 = 0, Sx3 = 0, Sx4 = 0, Sy = 0, Sxy = 0, Sx2y = 0;
+      const points: { x: number; y: number }[] = [];
+      for (const r of rows) {
+        if (r.D <= 0 || r.Pen <= 0) continue;
+        const x = Math.log(r.D);
+        const y = Math.log(r.Pen / 100);
+        points.push({ x, y });
+        Sx0 += 1; Sx1 += x; Sx2 += x * x; Sx3 += x * x * x; Sx4 += x * x * x * x;
+        Sy += y; Sxy += x * y; Sx2y += x * x * y;
+      }
+      const M = [
+        [Sx4, Sx3, Sx2, Sx2y],
+        [Sx3, Sx2, Sx1, Sxy],
+        [Sx2, Sx1, Sx0, Sy],
+      ];
+      for (let i = 0; i < 3; i++) {
+        let piv = i;
+        for (let k = i + 1; k < 3; k++) if (Math.abs(M[k][i]) > Math.abs(M[piv][i])) piv = k;
+        if (piv !== i) [M[i], M[piv]] = [M[piv], M[i]];
+        if (Math.abs(M[i][i]) < 1e-14) return { error: 'Fit failed — singular matrix (data too degenerate).' };
+        for (let k = i + 1; k < 3; k++) {
+          const f = M[k][i] / M[i][i];
+          for (let j = i; j < 4; j++) M[k][j] -= f * M[i][j];
+        }
+      }
+      const coef = [0, 0, 0];
+      for (let i = 2; i >= 0; i--) {
+        let s = M[i][3];
+        for (let j = i + 1; j < 3; j++) s -= M[i][j] * coef[j];
+        coef[i] = s / M[i][i];
+      }
+      const [A, B, C] = coef;
+      const lnMPPS = -B / (2 * A);
+      const mpps = Math.exp(lnMPPS);
+      const lnPenMPPS = C - (B * B) / (4 * A);
+      const penMPPS = Math.exp(lnPenMPPS) * 100;
+      const yMean = Sy / N;
+      let SStot = 0, SSres = 0;
+      for (const p of points) {
+        const yHat = A * p.x * p.x + B * p.x + C;
+        SSres += (p.y - yHat) ** 2;
+        SStot += (p.y - yMean) ** 2;
+      }
+      const r2 = SStot > 0 ? 1 - SSres / SStot : 1;
+      return { A, B, C, mpps, penMPPS, r2 };
+    }
+
+    function penFromFit(fit: any, D: number) {
+      const lnD = Math.log(D);
+      const lnPen = fit.A * lnD * lnD + fit.B * lnD + fit.C;
+      return Math.exp(lnPen) * 100;
+    }
+
+    function solveGlobalN(fitA: any, V_A: number, fitB: any, V_B: number, sizes: number[]) {
+      const lnVRatio = Math.log(V_B / V_A);
+      if (lnVRatio === 0) return NaN;
+      const Ns: number[] = [];
+      for (const D of sizes) {
+        const penA = penFromFit(fitA, D);
+        const penB = penFromFit(fitB, D);
+        const lpA = Math.log(penA / 100);
+        const lpB = Math.log(penB / 100);
+        if (lpA >= 0 || lpB >= 0) continue;
+        const ratio = lpB / lpA;
+        if (ratio <= 0 || !isFinite(ratio)) continue;
+        Ns.push(Math.log(ratio) / lnVRatio);
+      }
+      if (Ns.length === 0) return NaN;
+      return Ns.reduce((a, b) => a + b, 0) / Ns.length;
+    }
+
+    function solveLocalN(rowsA: any[], V_A: number, rowsB: any[], V_B: number) {
+      const lnVRatio = Math.log(V_B / V_A);
+      if (lnVRatio === 0) return [];
+      const bMap = new Map<number, any>();
+      for (const r of rowsB) bMap.set(Number(r.D.toFixed(4)), r);
+      const out: any[] = [];
+      for (const rA of rowsA) {
+        const key = Number(rA.D.toFixed(4));
+        const rB = bMap.get(key);
+        if (!rB) continue;
+        const penA = rA.Pen, penB = rB.Pen;
+        if (!(penA > 0 && penA < 100 && penB > 0 && penB < 100)) continue;
+        const lpA = Math.log(penA / 100);
+        const lpB = Math.log(penB / 100);
+        const ratio = lpB / lpA;
+        if (ratio <= 0 || !isFinite(ratio)) continue;
+        const N = Math.log(ratio) / lnVRatio;
+        if (!isFinite(N)) continue;
+        out.push({ D: rA.D, N, penA, penB });
+      }
+      return out.sort((a, b) => a.D - b.D);
+    }
+
+    function nAtDiameter(localN: any[], D: number) {
+      if (!localN || localN.length === 0) return NaN;
+      if (localN.length === 1) return localN[0].N;
+      if (D <= localN[0].D) return localN[0].N;
+      if (D >= localN[localN.length - 1].D) return localN[localN.length - 1].N;
+      const lnD = Math.log(D);
+      for (let i = 0; i < localN.length - 1; i++) {
+        const d0 = localN[i].D, d1 = localN[i + 1].D;
+        if (D >= d0 && D <= d1) {
+          const x0 = Math.log(d0), x1 = Math.log(d1);
+          const t = (lnD - x0) / (x1 - x0);
+          return localN[i].N + t * (localN[i + 1].N - localN[i].N);
+        }
+      }
+      return localN[localN.length - 1].N;
+    }
+
+    function projectPen(pen_ref_pct: number, V_ref: number, V_target: number, N: number) {
+      const lp_ref = Math.log(pen_ref_pct / 100);
+      const lp_new = lp_ref * Math.pow(V_target / V_ref, N);
+      return Math.exp(lp_new) * 100;
+    }
+
+    function fpmToCMS(V_fpm: number) { return V_fpm * 0.508; }
+
+    function runFEFits() {
+      const status = document.getElementById('fe-status') as HTMLElement;
+      status.classList.remove('ok', 'err');
+      const V_A = parseFloat((document.getElementById('fe-vel-a') as HTMLInputElement).value);
+      const V_B = parseFloat((document.getElementById('fe-vel-b') as HTMLInputElement).value);
+      if (!isFinite(V_A) || V_A <= 0) { status.textContent = 'Dataset A: enter a valid face velocity (cm/s).'; status.classList.add('err'); return false; }
+      if (!isFinite(V_B) || V_B <= 0) { status.textContent = 'Dataset B: enter a valid face velocity (cm/s).'; status.classList.add('err'); return false; }
+      if (Math.abs(V_A - V_B) < 1e-6) { status.textContent = 'Velocities A and B must differ.'; status.classList.add('err'); return false; }
+
+      const textA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value;
+      const textB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value;
+      const pA = parseTSIDataset(textA);
+      const pB = parseTSIDataset(textB);
+      if (pA.error) { status.textContent = 'Dataset A: ' + pA.error; status.classList.add('err'); return false; }
+      if (pB.error) { status.textContent = 'Dataset B: ' + pB.error; status.classList.add('err'); return false; }
+
+      const fitA = fitQuadraticLogLog(pA.rows!);
+      const fitB = fitQuadraticLogLog(pB.rows!);
+      if (fitA.error) { status.textContent = 'Dataset A fit: ' + fitA.error; status.classList.add('err'); return false; }
+      if (fitB.error) { status.textContent = 'Dataset B fit: ' + fitB.error; status.classList.add('err'); return false; }
+
+      const sizes = pA.rows!.map((r: any) => r.D).sort((a: number, b: number) => a - b);
+      let N_global: number | null = null;
+      let N_local: any[] | null = null;
+
+      if (FE.mode === 'pre') {
+        N_local = solveLocalN(pA.rows!, V_A, pB.rows!, V_B);
+        if (N_local.length === 0) {
+          status.textContent = 'Could not solve local N — check that penetrations are 0–100% at matching diameters.';
+          status.classList.add('err'); return false;
+        }
+        N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
+      } else {
+        N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
+        if (!isFinite(N_global)) {
+          status.textContent = 'Could not solve global N — check that penetrations are < 100%.';
+          status.classList.add('err'); return false;
+        }
+      }
+
+      FE.datasetA = { V_cms: V_A, rows: pA.rows, fit: fitA };
+      FE.datasetB = { V_cms: V_B, rows: pB.rows, fit: fitB };
+      FE.N_global = N_global;
+      FE.N_local = N_local;
+      FE.sizes = sizes;
+      FE.ready = true;
+      return true;
+    }
+
+    function projectFEtoV4() {
+      if (!FE.ready) return;
+      const inp = readInputs();
+      const r = computeDeltaP(inp);
+      const V4_cms = fpmToCMS(r.V4);
+      const pA = FE.datasetA, pB = FE.datasetB, fitA = pA.fit, fitB = pB.fit;
+      const isPre = FE.mode === 'pre';
+      const closer = Math.abs(V4_cms - pA.V_cms) <= Math.abs(V4_cms - pB.V_cms) ? 'A' : 'B';
+      const V_ref = closer === 'A' ? pA.V_cms : pB.V_cms;
+      const fit_ref = closer === 'A' ? fitA : fitB;
+      const rows_ref = closer === 'A' ? pA.rows : pB.rows;
+
+      const rawRefMap = new Map<number, number>();
+      for (const rr of rows_ref) rawRefMap.set(Number(rr.D.toFixed(4)), rr.Pen);
+
+      const rowsOut: any[] = [];
+      for (const D of FE.sizes) {
+        const penA = penFromFit(fitA, D);
+        const penB = penFromFit(fitB, D);
+        const N_here = isPre ? nAtDiameter(FE.N_local, D) : FE.N_global;
+        let pen_ref: number;
+        if (isPre) {
+          const raw = rawRefMap.get(Number(D.toFixed(4)));
+          pen_ref = raw !== undefined ? raw : penFromFit(fit_ref, D);
+        } else {
+          pen_ref = penFromFit(fit_ref, D);
+        }
+        const penT = projectPen(pen_ref, V_ref, V4_cms, N_here);
+        rowsOut.push({ D, penA, penB, N_here, penT, effT: 100 - penT });
+      }
+
+      let fitT: any = null;
+      if (!isPre) {
+        const projRows = rowsOut
+          .filter((row) => isFinite(row.penT) && row.penT > 0 && row.penT < 100)
+          .map((row) => ({ D: row.D, Pen: row.penT }));
+        if (projRows.length >= 3) {
+          fitT = fitQuadraticLogLog(projRows);
+          if (fitT.error) fitT = null;
+        }
+      }
+
+      FE.projection = { V_cms: V4_cms, rows: rowsOut, fit: fitT };
+      (document.getElementById('fe-va') as HTMLElement).textContent = pA.V_cms.toFixed(3);
+      (document.getElementById('fe-vb') as HTMLElement).textContent = pB.V_cms.toFixed(3);
+      (document.getElementById('fe-vt') as HTMLElement).textContent = V4_cms.toFixed(3);
+
+      const nLbl = document.getElementById('fe-n-lbl') as HTMLElement;
+      const nDet = document.getElementById('fe-n-det') as HTMLElement;
+      const nVal = document.getElementById('fe-nglobal') as HTMLElement;
+      if (isPre) {
+        const Ns = FE.N_local.map((x: any) => x.N);
+        const Nmean = Ns.reduce((a: number, b: number) => a + b, 0) / Ns.length;
+        const Nmin = Math.min(...Ns), Nmax = Math.max(...Ns);
+        nLbl.textContent = 'Local N · mean';
+        nVal.textContent = Nmean.toFixed(3);
+        nDet.textContent = `range ${Nmin.toFixed(2)} – ${Nmax.toFixed(2)} · per-D table below`;
+      } else {
+        nLbl.textContent = 'Global N';
+        nVal.textContent = (FE.N_global as number).toFixed(3);
+        nDet.textContent = 'velocity exponent · Pierce eq. 4';
+      }
+
+      if (isPre) {
+        ['fe-mppsA', 'fe-pmppsA', 'fe-mppsB', 'fe-pmppsB', 'fe-mppsT', 'fe-pmppsT'].forEach((id) => {
+          (document.getElementById(id) as HTMLElement).textContent = '—';
+        });
+      } else {
+        (document.getElementById('fe-mppsA') as HTMLElement).textContent = fitA.mpps.toFixed(3);
+        (document.getElementById('fe-pmppsA') as HTMLElement).textContent = fitA.penMPPS.toExponential(3);
+        (document.getElementById('fe-mppsB') as HTMLElement).textContent = fitB.mpps.toFixed(3);
+        (document.getElementById('fe-pmppsB') as HTMLElement).textContent = fitB.penMPPS.toExponential(3);
+        if (fitT) {
+          (document.getElementById('fe-mppsT') as HTMLElement).textContent = fitT.mpps.toFixed(3);
+          (document.getElementById('fe-pmppsT') as HTMLElement).textContent = fitT.penMPPS.toExponential(3);
+        } else {
+          (document.getElementById('fe-mppsT') as HTMLElement).textContent = '—';
+          (document.getElementById('fe-pmppsT') as HTMLElement).textContent = '—';
+        }
+      }
+
+      const tbody = document.getElementById('fe-tbody') as HTMLElement;
+      tbody.innerHTML = '';
+      const mppsT = fitT ? fitT.mpps : NaN;
+      for (const row of rowsOut) {
+        const tr = document.createElement('tr');
+        const isMPPS = !isPre && isFinite(mppsT) && Math.abs(row.D - mppsT) < 0.02;
+        if (isMPPS) tr.classList.add('hero-row');
+        const nCell = isFinite(row.N_here) ? row.N_here.toFixed(3) : '—';
+        const fmtPen = isPre
+          ? (v: number) => (isFinite(v) ? v.toFixed(3) : '—')
+          : (v: number) => (isFinite(v) ? v.toExponential(3) : '—');
+        tr.innerHTML = `
+          <td>${row.D.toFixed(3)}</td>
+          <td>${fmtPen(row.penA)}</td>
+          <td>${fmtPen(row.penB)}</td>
+          <td>${nCell}</td>
+          <td>${fmtPen(row.penT)}</td>
+          <td>${isFinite(row.penT) ? row.effT.toFixed(4) : '—'}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      renderFEChart(pA, pB, fitA, fitB, fitT, V4_cms, rowsOut);
+      (document.getElementById('fe-results') as HTMLElement).style.display = '';
+      const status = document.getElementById('fe-status') as HTMLElement;
+      const Nlabel = isPre
+        ? `local N (mean ${(FE.N_local.reduce((a: number, b: any) => a + b.N, 0) / FE.N_local.length).toFixed(2)})`
+        : `global N = ${(FE.N_global as number).toFixed(3)}`;
+      status.textContent = `Linked to V₄ = ${r.V4.toFixed(1)} fpm (${V4_cms.toFixed(3)} cm/s) · ${Nlabel}`;
+      status.classList.remove('err');
+      status.classList.add('ok');
+    }
+
+    function runFEProjection() {
+      if (runFEFits()) projectFEtoV4();
+    }
+
+    function renderFEChart(pA: any, pB: any, fitA: any, fitB: any, fitT: any, V4_cms: number, rowsOut: any[]) {
+      const isPre = FE.mode === 'pre';
+      const Dmin = isPre ? 0.3 : 0.05;
+      const Dmax = isPre ? 10.0 : 0.4;
+      const nPts = 80;
+      const Ds: number[] = [];
+      for (let i = 0; i < nPts; i++) {
+        const frac = i / (nPts - 1);
+        const lnD = Math.log(Dmin) + frac * (Math.log(Dmax) - Math.log(Dmin));
+        Ds.push(Math.exp(lnD));
+      }
+      const pointsA = pA.rows.slice().sort((a: any, b: any) => a.D - b.D).map((r: any) => ({ x: r.D, y: r.Pen }));
+      const pointsB = pB.rows.slice().sort((a: any, b: any) => a.D - b.D).map((r: any) => ({ x: r.D, y: r.Pen }));
+      if (FE.chart) FE.chart.destroy();
+      const datasets: any[] = [];
+
+      if (isPre) {
+        datasets.push(
+          { label: `A (${pA.V_cms.toFixed(2)} cm/s)`, data: pointsA, type: 'line',
+            borderColor: '#1a4a7a', backgroundColor: '#1a4a7a', borderWidth: 1.5,
+            pointRadius: 4, pointStyle: 'triangle', tension: 0, fill: false },
+          { label: `B (${pB.V_cms.toFixed(2)} cm/s)`, data: pointsB, type: 'line',
+            borderColor: '#3a5535', backgroundColor: '#3a5535', borderWidth: 1.5,
+            pointRadius: 4, pointStyle: 'rect', tension: 0, fill: false }
+        );
+        if (rowsOut && rowsOut.length) {
+          const projPts = rowsOut.slice().sort((a, b) => a.D - b.D)
+            .filter((r) => isFinite(r.penT) && r.penT > 0 && r.penT < 100)
+            .map((r) => ({ x: r.D, y: r.penT }));
+          datasets.push({ label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`, data: projPts, type: 'line',
+            borderColor: '#d94814', backgroundColor: '#d94814', borderWidth: 2.5,
+            pointRadius: 5, pointStyle: 'circle', tension: 0, fill: false });
+        }
+      } else {
+        const curveA = Ds.map((D) => ({ x: D, y: penFromFit(fitA, D) }));
+        const curveB = Ds.map((D) => ({ x: D, y: penFromFit(fitB, D) }));
+        const curveT = fitT ? Ds.map((D) => ({ x: D, y: penFromFit(fitT, D) })) : null;
+        datasets.push(
+          { label: `Data · A (${pA.V_cms.toFixed(2)} cm/s)`, data: pointsA, type: 'scatter',
+            backgroundColor: '#1a4a7a', borderColor: '#1a4a7a', pointRadius: 4, pointStyle: 'triangle', showLine: false },
+          { label: `Fit · A`, data: curveA, type: 'line', borderColor: '#1a4a7a', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false },
+          { label: `Data · B (${pB.V_cms.toFixed(2)} cm/s)`, data: pointsB, type: 'scatter',
+            backgroundColor: '#3a5535', borderColor: '#3a5535', pointRadius: 4, pointStyle: 'rect', showLine: false },
+          { label: `Fit · B`, data: curveB, type: 'line', borderColor: '#3a5535', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false }
+        );
+        if (curveT) {
+          datasets.push({ label: `Projected · V₄ = ${V4_cms.toFixed(2)} cm/s`, data: curveT, type: 'line',
+            borderColor: '#d94814', borderWidth: 2.5, pointRadius: 0, tension: 0, fill: false });
+        }
+      }
+
+      const ctx = (document.getElementById('fe-chart') as HTMLCanvasElement).getContext('2d');
+      FE.chart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'nearest' },
+          plugins: {
+            legend: { position: 'top', align: 'end',
+              labels: { font: { family: "'JetBrains Mono', monospace", size: 10 }, usePointStyle: true, boxWidth: 8 } },
+            tooltip: {
+              titleFont: { family: "'JetBrains Mono', monospace", weight: '700', size: 11 },
+              bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+              backgroundColor: '#0f120e', padding: 10,
+              callbacks: {
+                title: (items: any) => `D = ${items[0].parsed.x.toFixed(3)} µm`,
+                label: (ctx: any) => {
+                  const v = ctx.parsed.y;
+                  if (v === null || !isFinite(v)) return null;
+                  const fmtV = FE.mode === 'pre' ? v.toFixed(2) + ' %' : v.toExponential(3) + ' %';
+                  return `  ${ctx.dataset.label}: ${fmtV}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: { type: 'logarithmic', min: Dmin, max: Dmax,
+              title: { display: true, text: 'Particle diameter D (µm)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
+              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 },
+                callback: function (val: any) {
+                  const v = Number(val);
+                  if (FE.mode === 'pre') {
+                    if ([0.3, 0.5, 1, 2, 3, 5, 10].includes(v)) return v.toString();
+                  } else {
+                    if ([0.05, 0.1, 0.2, 0.3, 0.5].includes(v)) return v.toString();
+                  }
+                  return '';
+                } },
+              grid: { color: 'rgba(15,18,14,0.08)' } },
+            y: { type: 'logarithmic',
+              title: { display: true, text: 'Penetration (%)', font: { family: "'JetBrains Mono', monospace", size: 11, weight: '600' } },
+              ticks: { font: { family: "'JetBrains Mono', monospace", size: 10 },
+                callback: function (val: any) {
+                  const v = Number(val);
+                  if (FE.mode === 'pre') {
+                    if ([1, 2, 5, 10, 20, 50, 100].includes(v)) return v.toString();
+                    return '';
+                  }
+                  const log = Math.log10(v);
+                  if (Math.abs(log - Math.round(log)) < 0.01) {
+                    if (v >= 0.001 && v <= 100) return v.toString();
+                  }
+                  return '';
+                } },
+              grid: { color: 'rgba(15,18,14,0.08)' } },
+          },
+        },
+      });
+    }
+
+    // ---- FE event wiring ----
+    const feToggleEl = document.getElementById('fe-toggle') as HTMLElement;
+    const feToggleHandler = () => {
+      (document.getElementById('fe-section') as HTMLElement).classList.toggle('open');
+    };
+    feToggleEl.addEventListener('click', feToggleHandler);
+
+    const feRunEl = document.getElementById('fe-run') as HTMLElement;
+    feRunEl.addEventListener('click', runFEProjection);
+
+    const feClearEl = document.getElementById('fe-clear') as HTMLElement;
+    const feClearHandler = () => {
+      (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value = '';
+      (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value = '';
+      (document.getElementById('fe-results') as HTMLElement).style.display = 'none';
+      const status = document.getElementById('fe-status') as HTMLElement;
+      status.textContent = 'Ready · enter velocities, paste data, and fit';
+      status.classList.remove('ok', 'err');
+      if (FE.chart) { FE.chart.destroy(); FE.chart = null; }
+      FE.ready = false;
+      FE.datasetA = null;
+      FE.datasetB = null;
+      FE.N_global = null;
+      FE.N_local = null;
+    };
+    feClearEl.addEventListener('click', feClearHandler);
+
+    const FE_MODE_HINTS: Record<string, string> = {
+      hepa: 'HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.',
+      pre: "Prefilter: per-diameter N from raw points. Projection uses each bin's own N — better for monotonic supermicron data.",
+    };
+    function setFEMode(mode: 'hepa' | 'pre') {
+      if (mode !== 'hepa' && mode !== 'pre') return;
+      if (FE.mode === mode) return;
+      FE.mode = mode;
+      (document.getElementById('fe-mode-hepa') as HTMLElement).classList.toggle('active', mode === 'hepa');
+      (document.getElementById('fe-mode-pre') as HTMLElement).classList.toggle('active', mode === 'pre');
+      (document.getElementById('fe-mode-hint') as HTMLElement).textContent = FE_MODE_HINTS[mode];
+      FE.ready = false;
+      FE.N_global = null;
+      FE.N_local = null;
+      if (FE.chart) { FE.chart.destroy(); FE.chart = null; }
+      (document.getElementById('fe-results') as HTMLElement).style.display = 'none';
+      const status = document.getElementById('fe-status') as HTMLElement;
+      status.textContent = `Mode: ${mode === 'pre' ? 'Prefilter (local N)' : 'HEPA (global N)'} · click "Fit & project" to refresh`;
+      status.classList.remove('ok');
+      status.classList.add('err');
+    }
+    const feHepaEl = document.getElementById('fe-mode-hepa') as HTMLElement;
+    const feHepaHandler = () => setFEMode('hepa');
+    feHepaEl.addEventListener('click', feHepaHandler);
+    const fePreEl = document.getElementById('fe-mode-pre') as HTMLElement;
+    const fePreHandler = () => setFEMode('pre');
+    fePreEl.addEventListener('click', fePreHandler);
+
+    const feInputIds = ['fe-vel-a', 'fe-vel-b', 'fe-paste-a', 'fe-paste-b'];
+    const feInputHandlers: Array<[Element, EventListener]> = [];
+    feInputIds.forEach((id) => {
+      const el = document.getElementById(id) as HTMLElement;
+      const fn = () => {
+        if (!FE.ready) return;
+        FE.ready = false;
+        const status = document.getElementById('fe-status') as HTMLElement;
+        status.textContent = 'Inputs changed · click "Fit & project" to refresh';
+        status.classList.remove('ok');
+        status.classList.add('err');
+      };
+      el.addEventListener('input', fn);
+      feInputHandlers.push([el, fn]);
+    });
+
+    attachInputListeners();
+    (document.getElementById('timestamp') as HTMLElement).textContent =
+      new Date().toISOString().split('T')[0];
+    render();
+
+    return () => {
+      if (chart) chart.destroy();
+      if (FE.chart) FE.chart.destroy();
+      feToggleEl.removeEventListener('click', feToggleHandler);
+      feRunEl.removeEventListener('click', runFEProjection);
+      feClearEl.removeEventListener('click', feClearHandler);
+      feHepaEl.removeEventListener('click', feHepaHandler);
+      fePreEl.removeEventListener('click', fePreHandler);
+      feInputHandlers.forEach(([el, fn]) => el.removeEventListener('input', fn));
+      unitListeners.forEach(([el, fn]) => el.removeEventListener('click', fn));
+    };
+  }, [chartLoaded]);
+
+  return (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&display=swap"
+        rel="stylesheet"
+      />
+      <Script
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+        strategy="afterInteractive"
+        onLoad={() => setChartLoaded(true)}
+      />
+      <style dangerouslySetInnerHTML={{ __html: CALC_CSS }} />
+
+      <div id="pfc-root">
+        <div className="pfc-breadcrumb">
+          <Link href="/calculators">&larr; Calculators</Link>
+        </div>
+
+        <header>
+          <div className="title-block">
+            <h1>
+              Pleated <span className="accent">Filter</span> <em>Calculator</em>
+            </h1>
+            <p>Initial Pressure Drop Model · Sothen &amp; Tatarchuk 2009</p>
+          </div>
+          <div className="meta-block">
+            <strong>
+              ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + BV₄²
+            </strong>
+            Seven-region flow model<br />
+            Idelchik friction coefficients<br />
+            K<sub>P</sub> = 0.11 · (F<sub>HD</sub>/F<sub>D</sub>) · (1/β)<sup>4/3</sup>
+          </div>
+        </header>
+
+        <main>
+          <aside className="inputs">
+            <div className="sec">
+              <div className="toggle-row" role="radiogroup" aria-label="Unit system">
+                <button type="button" data-units="imperial" className="active">Imperial</button>
+                <button type="button" data-units="metric">Metric</button>
+              </div>
+            </div>
+
+            <div className="sec">
+              <div className="sec-hd"><span className="num">01</span><h2>Filter geometry</h2></div>
+
+              <div className="row">
+                <label>Filter height<span className="sub">along pleat tip</span></label>
+                <input type="number" id="F_H" step="0.01" defaultValue="23.375" />
+                <span className="unit" data-unit="len">in</span>
+              </div>
+              <div className="row">
+                <label>Filter width<span className="sub">pleating direction</span></label>
+                <input type="number" id="F_W" step="0.01" defaultValue="23.375" />
+                <span className="unit" data-unit="len">in</span>
+              </div>
+              <div className="row">
+                <label>Pleat depth<span className="sub">depth of single pleat</span></label>
+                <input type="number" id="P_D" step="0.01" defaultValue="1.7" />
+                <span className="unit" data-unit="len">in</span>
+              </div>
+
+              <div className="toggle-row" style={{ marginTop: 8 }} role="radiogroup" aria-label="Pleat density input mode">
+                <button type="button" data-pleatmode="count" className="active">Pleat count</button>
+                <button type="button" data-pleatmode="ppi">PPI (per inch)</button>
+              </div>
+
+              <div id="pleatmode-count">
+                <div className="row">
+                  <label>Pleat count<span className="sub">total pleats across filter width</span></label>
+                  <input type="number" id="PLEAT_COUNT" step="1" defaultValue="25" min="1" />
+                  <span className="unit">–</span>
+                </div>
+              </div>
+              <div id="pleatmode-ppi" style={{ display: 'none' }}>
+                <div className="row">
+                  <label>PPI<span className="sub">pleats per inch of filter width</span></label>
+                  <input type="number" id="PPI" step="0.01" defaultValue="1.07" min="0.1" />
+                  <span className="unit">1/in</span>
+                </div>
+              </div>
+
+              <div className="row">
+                <label>Grating blockage<span className="sub">front + back face obstruction</span></label>
+                <input type="number" id="GRATING" step="0.1" min="0" max="90" defaultValue="34.5" />
+                <span className="unit">%</span>
+              </div>
+              <div className="input-note">Note: 0.1&quot; glue beads spaced 1&quot; apart ≈ 10% blockage.</div>
+            </div>
+
+            <div className="sec">
+              <div className="sec-hd"><span className="num">02</span><h2>Media properties</h2></div>
+
+              <div className="row">
+                <label>Media thickness<span className="sub">single layer</span></label>
+                <input type="number" id="M_T" step="0.001" defaultValue="0.05" />
+                <span className="unit" data-unit="mt">in</span>
+              </div>
+
+              <div className="toggle-row" style={{ marginTop: 6 }} role="radiogroup" aria-label="Media dP input mode">
+                <button type="button" data-mediamode="dp">ΔP @ 10.5 fpm</button>
+                <button type="button" data-mediamode="ab" className="active">A &amp; B direct</button>
+                <button type="button" data-mediamode="perm">Perm @ 125 Pa</button>
+              </div>
+
+              <div id="mode-dp" style={{ display: 'none' }}>
+                <div className="row">
+                  <label>Media ΔP at 10.5 fpm<span className="sub">flat-sheet, clean, at V<sub>ref</sub> = 10.5 fpm</span></label>
+                  <input type="number" id="M_DP" step="0.01" defaultValue="2.5" />
+                  <span className="unit">mmWC</span>
+                </div>
+                <div className="row">
+                  <label>Linear fraction<span className="sub">0 = all V², 1 = all V</span></label>
+                  <input type="number" id="LIN_FRAC" step="0.01" min="0" max="1" defaultValue="0.99" />
+                  <span className="unit">–</span>
+                </div>
+              </div>
+
+              <div id="mode-ab">
+                <div className="row">
+                  <label>Media constant A<span className="sub">viscous</span></label>
+                  <input type="number" id="A_CONST" step="0.00001" defaultValue="-0.001325" />
+                  <span className="unit">inWC·min/ft</span>
+                </div>
+                <div className="row">
+                  <label>Media constant B<span className="sub">inertial</span></label>
+                  <input type="number" id="B_CONST" step="0.0000001" defaultValue="0.000009814" />
+                  <span className="unit">inWC·min²/ft²</span>
+                </div>
+              </div>
+
+              <div id="mode-perm" style={{ display: 'none' }}>
+                <div className="row">
+                  <label>Permeability @ 125 Pa<span className="sub">flat-sheet, clean (EN ISO 9237 / ASTM D737)</span></label>
+                  <input type="number" id="M_PERM" step="0.1" defaultValue="85" min="0.1" />
+                  <span className="unit">L/m²/s</span>
+                </div>
+                <div className="row">
+                  <label>Linear fraction<span className="sub">0 = all V², 1 = all V (≈1 for Darcy regime)</span></label>
+                  <input type="number" id="LIN_FRAC_PERM" step="0.01" min="0" max="1" defaultValue="1.00" />
+                  <span className="unit">–</span>
+                </div>
+                <div className="input-note">
+                  Permeability of <strong>85 L/m²/s</strong> = velocity of 0.085 m/s (8.5 cm/s) at 125 Pa.
+                  Use linear fraction = 1.0 for pure viscous (Darcy) behavior — typical for clean filter media at low Re.
+                </div>
+              </div>
+            </div>
+
+            <div className="sec">
+              <div className="sec-hd"><span className="num">03</span><h2>Flow conditions</h2></div>
+              <div className="toggle-row" role="radiogroup" aria-label="Flow input mode">
+                <button type="button" data-flowmode="face">Face velocity</button>
+                <button type="button" data-flowmode="cfm" className="active">Volumetric flow</button>
+              </div>
+
+              <div id="flowmode-face" style={{ display: 'none' }}>
+                <div className="row">
+                  <label>Face velocity<span className="sub">at filter face</span></label>
+                  <input type="number" id="V_FACE" step="1" defaultValue="527" />
+                  <span className="unit" data-unit="vel">fpm</span>
+                </div>
+              </div>
+              <div id="flowmode-cfm">
+                <div className="row">
+                  <label>Volumetric flow<span className="sub">through filter</span></label>
+                  <input type="number" id="Q_VOL" step="10" defaultValue="2000" />
+                  <span className="unit" data-unit="vol">CFM</span>
+                </div>
+              </div>
+
+              <div className="row">
+                <label>Air density<span className="sub">at operating temp</span></label>
+                <input type="number" id="RHO" step="0.001" defaultValue="0.0725" />
+                <span className="unit" data-unit="rho">lb/ft³</span>
+              </div>
+            </div>
+
+            <div className="sec">
+              <div className="sec-hd"><span className="num">04</span><h2>Advanced</h2></div>
+              <div className="row">
+                <label>K<sub>P</sub> calibration<span className="sub">scales pleat friction term</span></label>
+                <input type="number" id="KP_CAL" step="0.01" min="0.01" max="5" defaultValue="1.00" />
+                <span className="unit">×</span>
+              </div>
+              <div className="input-note">
+                1.0 = dissertation formula. Lower (~0.3–0.5) for filters where the unmodified formula
+                over-predicts pleat friction and forces non-physical media constants.
+              </div>
+            </div>
+          </aside>
+
+          <section className="outputs">
+            <div className="note-strip">
+              <span className="nlbl">Model domain</span>
+              Validated for 20&quot;×20&quot; faces with depths 1–4&quot;, pleat counts 12–60, media thickness &lt; 2 mm,
+              face velocity &lt; 1000 fpm. Extrapolations beyond these bounds are flagged below.
+            </div>
+
+            <div id="warn-box"></div>
+
+            <div className="out-grid">
+              <div className="out-cell hero">
+                <div className="lbl">Total filter ΔP</div>
+                <div className="val">
+                  <span id="o_dpT">—</span>
+                  <span className="unit-s" data-unit="dp">inWC</span>
+                </div>
+              </div>
+              <div className="out-cell accent-cell">
+                <div className="lbl">Media area</div>
+                <div className="val">
+                  <span id="o_area">—</span>
+                  <span className="unit-s" data-unit="area">ft²</span>
+                </div>
+              </div>
+
+              <div className="out-cell">
+                <div className="lbl">Pleat pitch β</div>
+                <div className="val">
+                  <span id="o_beta">—</span>
+                  <span className="unit-s">°</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">Pleat opening P<sub>O</sub></div>
+                <div className="val">
+                  <span id="o_po">—</span>
+                  <span className="unit-s" data-unit="smlen">in</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">Volumetric flow</div>
+                <div className="val">
+                  <span id="o_q">—</span>
+                  <span className="unit-s" data-unit="vol">CFM</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">Media velocity V₄</div>
+                <div className="val">
+                  <span id="o_v4">—</span>
+                  <span className="unit-s" data-unit="vel">fpm</span>
+                </div>
+              </div>
+
+              <div className="out-cell">
+                <div className="lbl">Pleat count (input)</div>
+                <div className="val">
+                  <span id="o_ppi">—</span>
+                  <span className="unit-s">pleats</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">Optimal pleat count</div>
+                <div className="val">
+                  <span id="o_optppi">—</span>
+                  <span className="unit-s">pleats</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">Optimal PPI</div>
+                <div className="val">
+                  <span id="o_optppi_density">—</span>
+                  <span className="unit-s">1/in</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">ΔP at optimum</div>
+                <div className="val">
+                  <span id="o_dpopt">—</span>
+                  <span className="unit-s">inWC</span>
+                </div>
+              </div>
+              <div className="out-cell">
+                <div className="lbl">K<sub>P</sub> (pleat coef.)</div>
+                <div className="val">
+                  <span id="o_kp">—</span>
+                  <span className="unit-s">–</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="breakdown">
+              <div className="breakdown-hd">ΔP breakdown by term</div>
+              <div className="bar-container" id="bar-bd"></div>
+              <div className="legend" id="legend-bd"></div>
+            </div>
+
+            <div className="chart-box">
+              <div className="chart-hd">
+                <h3>Pleating curve · ΔP vs. pleat count</h3>
+                <div className="chart-sub">U-curve · media + viscous + grating</div>
+              </div>
+              <div className="chart-wrap">
+                <canvas id="chart-ppi"></canvas>
+              </div>
+            </div>
+
+            <div className="fe-section" id="fe-section">
+              <div className="fe-toggle" id="fe-toggle">
+                <h3>
+                  Fractional efficiency projector
+                  <span className="fe-sub">Pierce velocity-scaling · TSI 3160 data</span>
+                </h3>
+                <span className="fe-caret">›</span>
+              </div>
+              <div className="fe-body">
+                <div className="note-strip">
+                  <span className="nlbl">How it works</span>
+                  Paste two fractional efficiency datasets at different face velocities.
+                  The tool fits each curve to Pierce&apos;s quadratic model (ln Pen = A(ln D)² + B ln D + C),
+                  back-calculates the velocity exponent N, and projects the penetration
+                  curve to the media velocity V<sub>4</sub> computed by this calculator.
+                </div>
+
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--moss)' }}>
+                    Mode
+                  </span>
+                  <div className="toggle-row" style={{ marginBottom: 0, maxWidth: 380, flex: 1, minWidth: 260 }}>
+                    <button id="fe-mode-hepa" className="active" data-mode="hepa">HEPA · 0.05–0.4 µm · global N</button>
+                    <button id="fe-mode-pre" data-mode="pre">Prefilter · 0.3–10 µm · local N</button>
+                  </div>
+                  <span id="fe-mode-hint" style={{ fontSize: 10, color: 'var(--moss)', fontStyle: 'italic', flexBasis: '100%' }}>
+                    HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.
+                  </span>
+                </div>
+
+                <div className="fe-paste-grid">
+                  <div className="fe-paste-box">
+                    <label>Dataset A · Low velocity</label>
+                    <div className="fe-vel-row">
+                      <span className="fe-vel-lbl">Face velocity</span>
+                      <input type="number" id="fe-vel-a" step="0.001" defaultValue="2.003" />
+                      <span className="fe-vel-unit">cm/s</span>
+                    </div>
+                    <textarea
+                      id="fe-paste-a"
+                      placeholder="Paste data starting with the column header row..."
+                      defaultValue={`D (µm) \tEff. (%)\tPen. (%)\tP-95% (%)\tResistance (mmH2O) \tC-up (1/cm³)\tC-dn (1/cm³)\tCounts-dn
+0.07\t99.995139\t0.004862\t0.005105\t10.696250\t2.07E+05\t1.01E+01\t1.51E+03
+0.09\t99.992376\t0.007624\t0.007933\t10.722750\t1.80E+05\t1.37E+01\t2.32E+03
+0.11\t99.987745\t0.012255\t0.012736\t10.717250\t1.34E+05\t1.64E+01\t2.47E+03
+0.14\t99.976530\t0.023471\t0.023770\t10.717250\t2.79E+05\t6.19E+01\t9.23E+03
+0.2\t99.981590\t0.018410\t0.018880\t10.739750\t2.19E+05\t4.04E+01\t6.11E+03
+0.25\t99.984553\t0.015447\t0.016084\t10.675500\t9.90E+04\t1.50E+01\t2.28E+03
+0.3\t99.990293\t0.009708\t0.010407\t10.724250\t4.82E+04\t4.78E+00\t7.41E+02`}
+                    />
+                  </div>
+                  <div className="fe-paste-box">
+                    <label>Dataset B · High velocity</label>
+                    <div className="fe-vel-row">
+                      <span className="fe-vel-lbl">Face velocity</span>
+                      <input type="number" id="fe-vel-b" step="0.001" defaultValue="5.339" />
+                      <span className="fe-vel-unit">cm/s</span>
+                    </div>
+                    <textarea
+                      id="fe-paste-b"
+                      placeholder="Paste data starting with the column header row..."
+                      defaultValue={`D (µm) \tEff. (%)\tPen. (%)\tP-95% (%)\tResistance (mmH2O) \tC-up (1/cm³)\tC-dn (1/cm³)\tCounts-dn
+0.07\t99.918725\t0.081275\t0.081763\t28.659667\t8.24E+04\t6.71E+01\t1.04E+04
+0.09\t99.892137\t0.107863\t0.107863\t28.732667\t7.08E+04\t7.64E+01\t1.23E+04
+0.11\t99.866019\t0.133981\t0.135628\t28.752667\t5.18E+04\t6.94E+01\t1.04E+04
+0.14\t99.852168\t0.147832\t0.147832\t28.668000\t1.28E+05\t1.90E+02\t2.84E+04
+0.2\t99.910370\t0.089630\t0.089630\t28.689000\t8.91E+04\t8.02E+01\t1.20E+04
+0.25\t99.944497\t0.055503\t0.057604\t28.804000\t3.29E+04\t1.79E+01\t2.71E+03
+0.3\t99.967221\t0.032779\t0.034843\t28.779000\t1.94E+04\t6.44E+00\t9.80E+02`}
+                    />
+                  </div>
+                </div>
+
+                <div className="fe-actions">
+                  <button className="fe-btn" id="fe-run">Fit &amp; project to V₄</button>
+                  <button className="fe-btn secondary" id="fe-clear">Clear</button>
+                  <span className="fe-parse-status" id="fe-status">
+                    Ready · enter velocities, paste data, and fit
+                  </span>
+                </div>
+
+                <div id="fe-results" style={{ display: 'none' }}>
+                  <div className="fe-summary">
+                    <div className="fe-cell">
+                      <div className="fe-cell-lbl">Dataset A · V<sub>A</sub></div>
+                      <div className="fe-cell-val">
+                        <span id="fe-va">—</span>{' '}
+                        <span style={{ fontSize: 11, color: 'var(--moss)' }}>cm/s</span>
+                      </div>
+                      <div className="fe-cell-det">
+                        MPPS: <span id="fe-mppsA">—</span> µm · Pen: <span id="fe-pmppsA">—</span> %
+                      </div>
+                    </div>
+                    <div className="fe-cell">
+                      <div className="fe-cell-lbl">Dataset B · V<sub>B</sub></div>
+                      <div className="fe-cell-val">
+                        <span id="fe-vb">—</span>{' '}
+                        <span style={{ fontSize: 11, color: 'var(--moss)' }}>cm/s</span>
+                      </div>
+                      <div className="fe-cell-det">
+                        MPPS: <span id="fe-mppsB">—</span> µm · Pen: <span id="fe-pmppsB">—</span> %
+                      </div>
+                    </div>
+                    <div className="fe-cell">
+                      <div className="fe-cell-lbl" id="fe-n-lbl">Global N</div>
+                      <div className="fe-cell-val"><span id="fe-nglobal">—</span></div>
+                      <div className="fe-cell-det" id="fe-n-det">velocity exponent · Pierce eq. 4</div>
+                    </div>
+                    <div className="fe-cell highlight">
+                      <div className="fe-cell-lbl">Projected · V<sub>4</sub></div>
+                      <div className="fe-cell-val">
+                        <span id="fe-vt">—</span>{' '}
+                        <span style={{ fontSize: 11, color: 'rgba(243,239,228,0.7)' }}>cm/s</span>
+                      </div>
+                      <div className="fe-cell-det">
+                        MPPS: <span id="fe-mppsT">—</span> µm · Pen: <span id="fe-pmppsT">—</span> %
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="fe-chart-box">
+                    <div className="chart-hd" style={{ marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 16 }}>Fractional penetration curves</h3>
+                      <div className="chart-sub">Log-log · quadratic fits</div>
+                    </div>
+                    <div className="fe-chart-wrap">
+                      <canvas id="fe-chart"></canvas>
+                    </div>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="fe-table" id="fe-table">
+                      <thead>
+                        <tr>
+                          <th>D (µm)</th>
+                          <th>Pen A (%)</th>
+                          <th>Pen B (%)</th>
+                          <th>N</th>
+                          <th>Pen @ V₄ (%)</th>
+                          <th>Eff @ V₄ (%)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="fe-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <footer>
+          <div>Based on <em>Ryan A. Sothen, 2009 Auburn Dissertation</em></div>
+          <div>v1.0 · open source · <span id="timestamp"></span></div>
+        </footer>
+      </div>
+    </>
+  );
+}
