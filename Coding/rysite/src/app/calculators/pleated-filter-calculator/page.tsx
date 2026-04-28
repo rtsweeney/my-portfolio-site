@@ -308,11 +308,9 @@ const CALC_CSS = `
   box-shadow: 0 4px 16px rgba(0, 184, 148, 0.18);
 }
 #pfc-root .out-cell.accent-cell .lbl { color: rgba(255,255,255,0.85); }
-#pfc-root .out-cell.accent-cell .val { color: #fff; }
+#pfc-root .out-cell.accent-cell .val { color: #fff; font-size: 0.88rem; gap: 0.3rem; flex-wrap: nowrap; }
 #pfc-root .out-cell.accent-cell .unit-s { color: rgba(255,255,255,0.9); }
-#pfc-root .out-cell.wide { grid-column: span 2; }
-#pfc-root .out-cell.hero .val,
-#pfc-root .out-cell.accent-cell .val { gap: 0.45rem; }
+#pfc-root .out-cell.hero .val { gap: 0.45rem; }
 #pfc-root .out-cell.hero .val .alt-unit,
 #pfc-root .out-cell.accent-cell .val .alt-unit {
   color: inherit;
@@ -2052,7 +2050,7 @@ export default function PleatedFilterCalculatorPage() {
                 </div>
               </div>
 
-              <div className="out-cell wide">
+              <div className="out-cell">
                 <div className="lbl">Pleat pitch β</div>
                 <div className="val">
                   <span id="o_beta">—</span>
@@ -2118,12 +2116,6 @@ export default function PleatedFilterCalculatorPage() {
               </div>
             </div>
 
-            <div className="breakdown">
-              <div className="breakdown-hd">ΔP breakdown by term</div>
-              <div className="bar-container" id="bar-bd"></div>
-              <div className="legend" id="legend-bd"></div>
-            </div>
-
             <div className="chart-box">
               <div className="chart-hd">
                 <h3>Pleating curve · ΔP vs. pleat count</h3>
@@ -2132,6 +2124,12 @@ export default function PleatedFilterCalculatorPage() {
               <div className="chart-wrap">
                 <canvas id="chart-ppi"></canvas>
               </div>
+            </div>
+
+            <div className="breakdown">
+              <div className="breakdown-hd">ΔP breakdown by term</div>
+              <div className="bar-container" id="bar-bd"></div>
+              <div className="legend" id="legend-bd"></div>
             </div>
 
             <div className="fe-section" id="fe-section">
