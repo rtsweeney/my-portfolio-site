@@ -1848,7 +1848,6 @@ export default function PleatedFilterCalculatorPage() {
       <style dangerouslySetInnerHTML={{ __html: CALC_CSS }} />
 
       <div id="pfc-root">
-
         <header>
           <div className="title-block">
             <h1>
