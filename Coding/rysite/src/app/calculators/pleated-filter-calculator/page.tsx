@@ -1861,7 +1861,7 @@ export default function PleatedFilterCalculatorPage() {
             </strong>
             Seven-region flow model<br />
             Idelchik friction coefficients<br />
-            K<sub>P</sub> = 0.11 · (F<sub>H</sub>/P<sub>D</sub>) · (1/β)<sup>4/3</sup>
+            K<sub>P</sub> = 0.11 · (F<sub>HD</sub>/F<sub>D</sub>) · (1/β)<sup>4/3</sup>
           </div>
         </header>
 
