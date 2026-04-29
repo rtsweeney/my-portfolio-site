@@ -1856,7 +1856,7 @@ export default function PleatedFilterCalculatorPage() {
           </div>
           <div className="meta-block">
             <strong>
-              ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + βV₄²
+              ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + &beta;V₄²
             </strong>
             Seven-region flow model<br />
             Idelchik friction coefficients<br />
