@@ -1848,9 +1848,6 @@ export default function PleatedFilterCalculatorPage() {
       <style dangerouslySetInnerHTML={{ __html: CALC_CSS }} />
 
       <div id="pfc-root">
-        <div className="pfc-breadcrumb">
-          <Link href="/calculators">&larr; Calculators</Link>
-        </div>
 
         <header>
           <div className="title-block">
@@ -1861,11 +1858,11 @@ export default function PleatedFilterCalculatorPage() {
           </div>
           <div className="meta-block">
             <strong>
-              ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + BV₄²
+              ΔP<sub>T</sub> = ½ρ[(2K<sub>G</sub>)V₂² + (K<sub>C</sub>+K<sub>E</sub>+K<sub>P</sub>)V₃²] + AV₄ + βV₄²
             </strong>
             Seven-region flow model<br />
             Idelchik friction coefficients<br />
-            K<sub>P</sub> = 0.11 · (F<sub>HD</sub>/F<sub>D</sub>) · (1/β)<sup>4/3</sup>
+            K<sub>P</sub> = 0.11 · (F<sub>H</sub>/P<sub>D</sub>) · (1/β)<sup>4/3</sup>
           </div>
         </header>
 
