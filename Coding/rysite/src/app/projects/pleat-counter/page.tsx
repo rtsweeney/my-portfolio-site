@@ -82,37 +82,10 @@ function insetQuad(q: Quad, frac: number): Quad {
 // ── Center-Out Filter Boundary Detection ─────────────────────────────────────
 // Assumes the center of the image contains pleats. Detects the pleat period &
 // orientation from a central patch, then walks outward in each direction with
-// a sliding window, measuring autocorrelation strength at the known period.
-// The boundary is the last position where the periodic signal is sustained;
+// a sliding window, re-estimating the period in a narrow range around the
+// previous step's value so the search tracks foreshortening.  The boundary is
+// the last position where any nearby period is still strongly autocorrelated;
 // once strength stays below threshold for several consecutive windows, we stop.
-
-/** Autocorrelation strength of a profile evaluated near a known target period.
- *  Returns the maximum normalized ACF value over lags in [period*0.85, period*1.15]. */
-function periodicityAtPeriod(profile: Float32Array, period: number): number {
-  const n = profile.length;
-  const lo = Math.max(2, Math.floor(period * 0.85));
-  const hi = Math.min(Math.floor(n / 2), Math.ceil(period * 1.15));
-  if (hi < lo || n < 4) return 0;
-
-  let mean = 0;
-  for (let i = 0; i < n; i++) mean += profile[i];
-  mean /= n;
-  let energy = 0;
-  for (let i = 0; i < n; i++) {
-    const d = profile[i] - mean;
-    energy += d * d;
-  }
-  if (energy < 1e-10) return 0;
-
-  let best = -Infinity;
-  for (let lag = lo; lag <= hi; lag++) {
-    let s = 0;
-    for (let i = 0; i < n - lag; i++) s += (profile[i] - mean) * (profile[i + lag] - mean);
-    const acf = s / energy;
-    if (acf > best) best = acf;
-  }
-  return Math.max(0, best);
-}
 
 function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const fallbackMargin = Math.round(Math.min(w, h) * 0.05);
@@ -164,31 +137,45 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   if (period < minPer || baseStrength < 0.05) return fallbackQuad();
 
   // 3. Walk outward along the period axis using the precomputed full profile.
+  //    The local period is allowed to drift between windows (perspective
+  //    foreshortening makes pleats compress as you approach the far edge), so
+  //    each step seeds the next from its own period estimate within ±35%.
   const pProfile = horiz ? xProfile : yProfile;
   const pTotal = pProfile.length;
   const winLen = Math.max(8, Math.round(period * 4));
   const pStride = Math.max(1, Math.round(period * 0.5));
-  const strengthThresh = Math.max(0.08, baseStrength * 0.4);
+  const strengthThresh = Math.max(0.05, baseStrength * 0.35);
   const failsRequired = 3;
+  const periodTol = 0.35;
 
-  const windowStrength = (prof: Float32Array, start: number, len: number): number => {
-    if (start < 0 || start + len > prof.length || len < period * 2) return 0;
+  // Search for a strong period in [seed*(1-tol), seed*(1+tol)] within a slice.
+  const localPeriod = (
+    prof: Float32Array, start: number, len: number, seed: number,
+  ): { period: number; strength: number } => {
+    if (start < 0 || start + len > prof.length || len < seed * 2) {
+      return { period: seed, strength: 0 };
+    }
     const slice = prof.slice(start, start + len);
     const det = detrend(smoothProfile(slice, smR));
-    return periodicityAtPeriod(det, period);
+    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
+    const hi = Math.min(Math.floor(slice.length / 2), Math.ceil(seed * (1 + periodTol)));
+    if (hi <= lo) return { period: seed, strength: 0 };
+    return estimatePeriodAutocorr(det, lo, hi);
   };
 
   const findEdgeAlongProfile = (prof: Float32Array, totalLen: number, dir: -1 | 1): number => {
     const center = Math.floor(totalLen / 2);
     let winStart = center - Math.floor(winLen / 2);
     let lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
+    let seed = period;
     let fails = 0;
     while (true) {
       winStart += dir * pStride;
       if (winStart < 0 || winStart + winLen > totalLen) break;
-      const s = windowStrength(prof, winStart, winLen);
-      if (s >= strengthThresh) {
+      const { period: lp, strength } = localPeriod(prof, winStart, winLen, seed);
+      if (strength >= strengthThresh && lp >= minPer) {
         lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
+        seed = lp;
         fails = 0;
       } else if (++fails >= failsRequired) {
         break;
@@ -201,9 +188,9 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const pHi = findEdgeAlongProfile(pProfile, pTotal, +1);
   if (pHi - pLo < period * 3) return fallbackQuad();
 
-  // 4. Walk outward along the ridge axis. At each ridge-axis position, build a
-  //    period-axis profile from a thin band restricted to the detected pLo..pHi
-  //    range, then check periodicity at the known period.
+  // 4. Walk outward along the ridge axis. At each ridge band, build a
+  //    period-axis profile from the detected pLo..pHi range and look for a
+  //    period in a window around the previous step's estimate.
   const rTotal = horiz ? h : w;
   const ridgeWinH = Math.max(3, Math.round(period));
   const rStride = Math.max(1, Math.round(period * 0.5));
@@ -211,8 +198,12 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const pBandHi = Math.min(pTotal, Math.round(pHi));
   const pBandLen = pBandHi - pBandLo;
 
-  const ridgeStrengthAt = (rStart: number, len: number): number => {
-    if (rStart < 0 || rStart + len > rTotal || pBandLen < period * 2) return 0;
+  const ridgePeriodAt = (
+    rStart: number, len: number, seed: number,
+  ): { period: number; strength: number } => {
+    if (rStart < 0 || rStart + len > rTotal || pBandLen < seed * 2) {
+      return { period: seed, strength: 0 };
+    }
     const prof = new Float32Array(pBandLen);
     if (horiz) {
       for (let x = pBandLo; x < pBandHi; x++) {
@@ -228,20 +219,25 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
       }
     }
     const det = detrend(smoothProfile(prof, smR));
-    return periodicityAtPeriod(det, period);
+    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
+    const hi = Math.min(Math.floor(pBandLen / 2), Math.ceil(seed * (1 + periodTol)));
+    if (hi <= lo) return { period: seed, strength: 0 };
+    return estimatePeriodAutocorr(det, lo, hi);
   };
 
   const findRidgeEdge = (dir: -1 | 1): number => {
     const center = Math.floor(rTotal / 2);
     let winStart = center - Math.floor(ridgeWinH / 2);
     let lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
+    let seed = period;
     let fails = 0;
     while (true) {
       winStart += dir * rStride;
       if (winStart < 0 || winStart + ridgeWinH > rTotal) break;
-      const s = ridgeStrengthAt(winStart, ridgeWinH);
-      if (s >= strengthThresh) {
+      const { period: lp, strength } = ridgePeriodAt(winStart, ridgeWinH, seed);
+      if (strength >= strengthThresh && lp >= minPer) {
         lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
+        seed = lp;
         fails = 0;
       } else if (++fails >= failsRequired) {
         break;
