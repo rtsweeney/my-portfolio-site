@@ -35,52 +35,6 @@ function toGrayscale(data: Uint8ClampedArray): Float32Array {
   return g;
 }
 
-function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Array {
-  if (r <= 0) return Float32Array.from(src);
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  const rowPs = new Float32Array(w + 1);
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    rowPs[0] = 0;
-    for (let x = 0; x < w; x++) rowPs[x + 1] = rowPs[x] + src[row + x];
-    for (let x = 0; x < w; x++) {
-      const lo = Math.max(0, x - r), hi = Math.min(w - 1, x + r);
-      tmp[row + x] = (rowPs[hi + 1] - rowPs[lo]) / (hi - lo + 1);
-    }
-  }
-  const colPs = new Float32Array(h + 1);
-  for (let x = 0; x < w; x++) {
-    colPs[0] = 0;
-    for (let y = 0; y < h; y++) colPs[y + 1] = colPs[y] + tmp[y * w + x];
-    for (let y = 0; y < h; y++) {
-      const lo = Math.max(0, y - r), hi = Math.min(h - 1, y + r);
-      out[y * w + x] = (colPs[hi + 1] - colPs[lo]) / (hi - lo + 1);
-    }
-  }
-  return out;
-}
-
-function otsuThreshold(gray: Float32Array): number {
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < gray.length; i++) hist[Math.min(255, Math.max(0, gray[i] | 0))]++;
-  const total = gray.length;
-  let sum = 0;
-  for (let i = 0; i < 256; i++) sum += i * hist[i];
-  let wB = 0, sumB = 0, maxVar = 0, threshold = 128;
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t];
-    if (!wB) continue;
-    const wF = total - wB;
-    if (!wF) break;
-    sumB += t * hist[t];
-    const mB = sumB / wB, mF = (sum - sumB) / wF;
-    const v = wB * wF * (mB - mF) * (mB - mF);
-    if (v > maxVar) { maxVar = v; threshold = t; }
-  }
-  return threshold;
-}
-
 // ── Quad Helpers ──────────────────────────────────────────────────────────────
 
 function quadBounds(q: Quad): Rect {
@@ -125,206 +79,189 @@ function insetQuad(q: Quad, frac: number): Quad {
   return q.map(([x, y]) => [x + (cx - x) * frac, y + (cy - y) * frac] as Pt) as Quad;
 }
 
-// ── Theil-Sen Robust Line Fitting ────────────────────────────────────────────
-// Fits y = slope*x + intercept (or x = slope*y + intercept) using median of
-// pairwise slopes — robust to up to ~29% outliers.
+// ── Center-Out Filter Boundary Detection ─────────────────────────────────────
+// Assumes the center of the image contains pleats. Detects the pleat period &
+// orientation from a central patch, then walks outward in each direction with
+// a sliding window, measuring autocorrelation strength at the known period.
+// The boundary is the last position where the periodic signal is sustained;
+// once strength stays below threshold for several consecutive windows, we stop.
 
-function theilSenFit(points: Pt[]): { slope: number; intercept: number } {
-  const n = points.length;
-  if (n === 0) return { slope: 0, intercept: 0 };
-  if (n === 1) return { slope: 0, intercept: points[0][1] };
+/** Autocorrelation strength of a profile evaluated near a known target period.
+ *  Returns the maximum normalized ACF value over lags in [period*0.85, period*1.15]. */
+function periodicityAtPeriod(profile: Float32Array, period: number): number {
+  const n = profile.length;
+  const lo = Math.max(2, Math.floor(period * 0.85));
+  const hi = Math.min(Math.floor(n / 2), Math.ceil(period * 1.15));
+  if (hi < lo || n < 4) return 0;
 
-  const slopes: number[] = [];
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += profile[i];
+  mean /= n;
+  let energy = 0;
   for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const dx = points[j][0] - points[i][0];
-      if (Math.abs(dx) > 0.5) slopes.push((points[j][1] - points[i][1]) / dx);
-    }
+    const d = profile[i] - mean;
+    energy += d * d;
   }
-  if (slopes.length === 0) return { slope: 0, intercept: points[0][1] };
+  if (energy < 1e-10) return 0;
 
-  slopes.sort((a, b) => a - b);
-  const slope = slopes[Math.floor(slopes.length / 2)];
-  const intercepts = points.map(([x, y]) => y - slope * x).sort((a, b) => a - b);
-  const intercept = intercepts[Math.floor(intercepts.length / 2)];
-  return { slope, intercept };
-}
-
-/** Intersect two lines.
- *  lineH: y = sH*x + bH  (roughly horizontal edges — top/bottom)
- *  lineV: x = sV*y + bV  (roughly vertical edges — left/right)
- */
-function intersectHV(
-  lineH: { slope: number; intercept: number },
-  lineV: { slope: number; intercept: number },
-): Pt {
-  // y = sH*x + bH  and  x = sV*y + bV
-  // Substitute x into y equation:  y = sH*(sV*y + bV) + bH
-  //   y = sH*sV*y + sH*bV + bH
-  //   y*(1 - sH*sV) = sH*bV + bH
-  const denom = 1 - lineH.slope * lineV.slope;
-  if (Math.abs(denom) < 1e-12) {
-    // Parallel or degenerate — fallback
-    const y = lineH.intercept;
-    return [lineV.slope * y + lineV.intercept, y];
+  let best = -Infinity;
+  for (let lag = lo; lag <= hi; lag++) {
+    let s = 0;
+    for (let i = 0; i < n - lag; i++) s += (profile[i] - mean) * (profile[i + lag] - mean);
+    const acf = s / energy;
+    if (acf > best) best = acf;
   }
-  const y = (lineH.slope * lineV.intercept + lineH.intercept) / denom;
-  const x = lineV.slope * y + lineV.intercept;
-  return [x, y];
+  return Math.max(0, best);
 }
-
-// ── Perspective-Aware Filter Boundary Detection ──────────────────────────────
-// Detects the pleated filter *media* as a quadrilateral (handles perspective &
-// tilt).  Uses a two-pass "media-first" strategy:
-//   Pass 1 – find the overall textured region (filter + frame)
-//   Pass 2 – within that region, isolate the dense pleated media core by
-//            applying morphological opening (erode → dilate) to strip away thin
-//            high-variance edges from the frame, then re-scan for boundaries.
-// This targets the inner media boundary rather than the outer filter edge.
 
 function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
-  // 1. Compute local variance map (high variance = textured filter media)
-  const varR = Math.max(4, Math.round(Math.min(w, h) * 0.015));
-  const gray2 = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) gray2[i] = gray[i] * gray[i];
-  const meanImg = boxBlur(gray, w, h, varR);
-  const meanSqImg = boxBlur(gray2, w, h, varR);
-  const variance = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) variance[i] = Math.max(0, meanSqImg[i] - meanImg[i] * meanImg[i]);
+  const fallbackMargin = Math.round(Math.min(w, h) * 0.05);
+  const fallbackQuad = (): Quad => {
+    const m = fallbackMargin;
+    return [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
+  };
 
-  // Smooth variance for more stable boundaries
-  const smoothVar = boxBlur(variance, w, h, Math.max(2, Math.round(Math.min(w, h) * 0.01)));
+  // 1. Build full-width / full-height profiles using a central perpendicular band.
+  //    xProfile[x] = mean gray over central y-band → varies along x → reveals
+  //    a period when pleat ridges run vertically (pleats repeat horizontally).
+  //    yProfile[y] = mean gray over central x-band → reveals horizontal ridges.
+  const cFrac = 0.30;
+  const cyLo = Math.floor(h * (0.5 - cFrac / 2));
+  const cyHi = Math.floor(h * (0.5 + cFrac / 2));
+  const cxLo = Math.floor(w * (0.5 - cFrac / 2));
+  const cxHi = Math.floor(w * (0.5 + cFrac / 2));
+  if (cyHi <= cyLo + 2 || cxHi <= cxLo + 2) return fallbackQuad();
 
-  // 2. Scale to 0-255 and compute initial Otsu threshold
-  let maxVar = 0;
-  for (let i = 0; i < w * h; i++) maxVar = Math.max(maxVar, smoothVar[i]);
-  const sqrtScale = maxVar > 0 ? 255 / Math.sqrt(maxVar) : 1;
-  const varScaled = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) varScaled[i] = Math.sqrt(smoothVar[i]) * sqrtScale;
+  const xProfile = new Float32Array(w);
+  for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let y = cyLo; y < cyHi; y++) s += gray[y * w + x];
+    xProfile[x] = s / (cyHi - cyLo);
+  }
+  const yProfile = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = cxLo; x < cxHi; x++) s += gray[y * w + x];
+    yProfile[y] = s / (cxHi - cxLo);
+  }
 
-  // 3. Media-first: morphological opening to keep only bulk media texture.
-  //    Erode (min-filter via negated boxBlur trick) then dilate.  We approximate
-  //    an erode by thresholding after a box-blur of the binary mask — pixels
-  //    that survive are far from the boundary (= media core).
-  const otsuT = otsuThreshold(varScaled);
-  // Binary mask: 1 where variance exceeds Otsu, 0 otherwise
-  const binaryMask = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) binaryMask[i] = varScaled[i] > otsuT ? 1 : 0;
+  // 2. Detect orientation & period from the central slice of each profile.
+  const smR = 1;
+  const xCenter = xProfile.slice(cxLo, cxHi);
+  const yCenter = yProfile.slice(cyLo, cyHi);
+  const xCenterDet = detrend(smoothProfile(xCenter, smR));
+  const yCenterDet = detrend(smoothProfile(yCenter, smR));
 
-  // Erode: blur the binary mask and threshold at a high fraction (0.85) —
-  // only pixels surrounded by other "on" pixels survive.
-  const erodeR = Math.max(3, Math.round(Math.min(w, h) * 0.025));
-  const eroded = boxBlur(binaryMask, w, h, erodeR);
-  const erodedBin = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) erodedBin[i] = eroded[i] > 0.85 ? 1 : 0;
+  const minPer = 4;
+  const xRes = estimatePeriodAutocorr(xCenterDet, minPer, Math.floor(xCenter.length * 0.4));
+  const yRes = estimatePeriodAutocorr(yCenterDet, minPer, Math.floor(yCenter.length * 0.4));
 
-  // Dilate: blur the eroded mask and threshold at a low fraction (0.15) —
-  // expands back to roughly original size but without thin frame edges.
-  const dilated = boxBlur(erodedBin, w, h, erodeR);
-  const mediaMask = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) mediaMask[i] = dilated[i] > 0.15 ? varScaled[i] : 0;
+  // horiz=true → period along x → ridges are vertical (count peaks across columns).
+  const horiz = xRes.strength >= yRes.strength;
+  const period = horiz ? xRes.period : yRes.period;
+  const baseStrength = horiz ? xRes.strength : yRes.strength;
 
-  // Re-threshold on the cleaned media mask.  Use a raised threshold (Otsu on
-  // the surviving pixels) to tightly hug the media boundary.
-  const mediaThresh = otsuThreshold(mediaMask);
-  // Blend: use the higher of original Otsu and media-specific threshold so we
-  // don't accidentally expand beyond the outer edge.
-  const varThresh = Math.max(otsuT, mediaThresh * 0.9);
+  if (period < minPer || baseStrength < 0.05) return fallbackQuad();
 
-  // Build the final scan target — zero out pixels outside the media core so
-  // edge scanning only locks on to the media, not the frame.
-  const scanMap = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) scanMap[i] = mediaMask[i] > 0 ? varScaled[i] : 0;
+  // 3. Walk outward along the period axis using the precomputed full profile.
+  const pProfile = horiz ? xProfile : yProfile;
+  const pTotal = pProfile.length;
+  const winLen = Math.max(8, Math.round(period * 4));
+  const pStride = Math.max(1, Math.round(period * 0.5));
+  const strengthThresh = Math.max(0.08, baseStrength * 0.4);
+  const failsRequired = 3;
 
-  // 4. Scan from each side to find boundary points (on the media scanMap)
-  const N = 30; // sample positions per edge
-  const windowSize = Math.max(3, Math.round(Math.min(w, h) * 0.02));
+  const windowStrength = (prof: Float32Array, start: number, len: number): number => {
+    if (start < 0 || start + len > prof.length || len < period * 2) return 0;
+    const slice = prof.slice(start, start + len);
+    const det = detrend(smoothProfile(slice, smR));
+    return periodicityAtPeriod(det, period);
+  };
 
-  // Top edge: for each x, scan downward to find where media texture begins
-  const topPts: Pt[] = [];
-  for (let i = 0; i < N; i++) {
-    const x = Math.floor((i + 0.5) * w / N);
-    for (let y = 0; y <= h - windowSize; y++) {
-      let avg = 0;
-      for (let dy = 0; dy < windowSize; dy++) avg += scanMap[(y + dy) * w + x];
-      avg /= windowSize;
-      if (avg > varThresh) { topPts.push([x, y]); break; }
+  const findEdgeAlongProfile = (prof: Float32Array, totalLen: number, dir: -1 | 1): number => {
+    const center = Math.floor(totalLen / 2);
+    let winStart = center - Math.floor(winLen / 2);
+    let lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
+    let fails = 0;
+    while (true) {
+      winStart += dir * pStride;
+      if (winStart < 0 || winStart + winLen > totalLen) break;
+      const s = windowStrength(prof, winStart, winLen);
+      if (s >= strengthThresh) {
+        lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
+        fails = 0;
+      } else if (++fails >= failsRequired) {
+        break;
+      }
     }
-  }
+    return Math.max(0, Math.min(totalLen, lastGoodEdge));
+  };
 
-  // Bottom edge: scan upward
-  const bottomPts: Pt[] = [];
-  for (let i = 0; i < N; i++) {
-    const x = Math.floor((i + 0.5) * w / N);
-    for (let y = h - 1; y >= windowSize - 1; y--) {
-      let avg = 0;
-      for (let dy = 0; dy < windowSize; dy++) avg += scanMap[(y - dy) * w + x];
-      avg /= windowSize;
-      if (avg > varThresh) { bottomPts.push([x, y]); break; }
+  const pLo = findEdgeAlongProfile(pProfile, pTotal, -1);
+  const pHi = findEdgeAlongProfile(pProfile, pTotal, +1);
+  if (pHi - pLo < period * 3) return fallbackQuad();
+
+  // 4. Walk outward along the ridge axis. At each ridge-axis position, build a
+  //    period-axis profile from a thin band restricted to the detected pLo..pHi
+  //    range, then check periodicity at the known period.
+  const rTotal = horiz ? h : w;
+  const ridgeWinH = Math.max(3, Math.round(period));
+  const rStride = Math.max(1, Math.round(period * 0.5));
+  const pBandLo = Math.max(0, Math.round(pLo));
+  const pBandHi = Math.min(pTotal, Math.round(pHi));
+  const pBandLen = pBandHi - pBandLo;
+
+  const ridgeStrengthAt = (rStart: number, len: number): number => {
+    if (rStart < 0 || rStart + len > rTotal || pBandLen < period * 2) return 0;
+    const prof = new Float32Array(pBandLen);
+    if (horiz) {
+      for (let x = pBandLo; x < pBandHi; x++) {
+        let s = 0;
+        for (let y = rStart; y < rStart + len; y++) s += gray[y * w + x];
+        prof[x - pBandLo] = s / len;
+      }
+    } else {
+      for (let y = pBandLo; y < pBandHi; y++) {
+        let s = 0;
+        for (let x = rStart; x < rStart + len; x++) s += gray[y * w + x];
+        prof[y - pBandLo] = s / len;
+      }
     }
-  }
+    const det = detrend(smoothProfile(prof, smR));
+    return periodicityAtPeriod(det, period);
+  };
 
-  // Left edge: for each y, scan rightward
-  const leftPts: Pt[] = [];
-  for (let i = 0; i < N; i++) {
-    const y = Math.floor((i + 0.5) * h / N);
-    for (let x = 0; x <= w - windowSize; x++) {
-      let avg = 0;
-      for (let dx = 0; dx < windowSize; dx++) avg += scanMap[y * w + x + dx];
-      avg /= windowSize;
-      if (avg > varThresh) { leftPts.push([y, x]); break; } // note: [y, x] for fitting x = f(y)
+  const findRidgeEdge = (dir: -1 | 1): number => {
+    const center = Math.floor(rTotal / 2);
+    let winStart = center - Math.floor(ridgeWinH / 2);
+    let lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
+    let fails = 0;
+    while (true) {
+      winStart += dir * rStride;
+      if (winStart < 0 || winStart + ridgeWinH > rTotal) break;
+      const s = ridgeStrengthAt(winStart, ridgeWinH);
+      if (s >= strengthThresh) {
+        lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
+        fails = 0;
+      } else if (++fails >= failsRequired) {
+        break;
+      }
     }
-  }
+    return Math.max(0, Math.min(rTotal, lastGoodEdge));
+  };
 
-  // Right edge: scan leftward
-  const rightPts: Pt[] = [];
-  for (let i = 0; i < N; i++) {
-    const y = Math.floor((i + 0.5) * h / N);
-    for (let x = w - 1; x >= windowSize - 1; x--) {
-      let avg = 0;
-      for (let dx = 0; dx < windowSize; dx++) avg += scanMap[y * w + x - dx];
-      avg /= windowSize;
-      if (avg > varThresh) { rightPts.push([y, x]); break; } // [y, x]
-    }
-  }
+  const rLo = findRidgeEdge(-1);
+  const rHi = findRidgeEdge(+1);
 
-  // 5. Fit lines using Theil-Sen
-  // Top/bottom: y = slope*x + intercept  (points are [x, y])
-  // Left/right: x = slope*y + intercept  (points are [y, x])
-  const minPtsForLine = 4;
+  // 5. Assemble axis-aligned quad and validate.
+  const xL = Math.max(0, Math.round(horiz ? pLo : rLo));
+  const xR = Math.min(w - 1, Math.round(horiz ? pHi : rHi));
+  const yT = Math.max(0, Math.round(horiz ? rLo : pLo));
+  const yB = Math.min(h - 1, Math.round(horiz ? rHi : pHi));
 
-  const defaultMargin = Math.round(Math.min(w, h) * 0.05);
-  const topLine = topPts.length >= minPtsForLine
-    ? theilSenFit(topPts) : { slope: 0, intercept: defaultMargin };
-  const bottomLine = bottomPts.length >= minPtsForLine
-    ? theilSenFit(bottomPts) : { slope: 0, intercept: h - defaultMargin };
-  const leftLine = leftPts.length >= minPtsForLine
-    ? theilSenFit(leftPts) : { slope: 0, intercept: defaultMargin };
-  const rightLine = rightPts.length >= minPtsForLine
-    ? theilSenFit(rightPts) : { slope: 0, intercept: w - defaultMargin };
+  if (xR - xL < w * 0.15 || yB - yT < h * 0.15) return fallbackQuad();
 
-  // 6. Intersect the 4 lines to get corners
-  const tl = intersectHV(topLine, leftLine);
-  const tr = intersectHV(topLine, rightLine);
-  const br = intersectHV(bottomLine, rightLine);
-  const bl = intersectHV(bottomLine, leftLine);
-
-  // 7. Clamp corners to image bounds with margin
-  const clampPt = ([x, y]: Pt): Pt => [
-    Math.max(0, Math.min(w - 1, x)),
-    Math.max(0, Math.min(h - 1, y)),
-  ];
-  let quad: Quad = [clampPt(tl), clampPt(tr), clampPt(br), clampPt(bl)];
-
-  // 8. Validate — if quad is too small or degenerate, fall back to full image with margin
-  const qb = quadBounds(quad);
-  if (qb.w < w * 0.15 || qb.h < h * 0.15) {
-    const m = defaultMargin;
-    quad = [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
-  }
-
-  // 9. Small inset to ensure we're inside the media, not on the frame edge
-  return insetQuad(quad, 0.01);
+  return insetQuad([[xL, yT], [xR, yT], [xR, yB], [xL, yB]], 0.005);
 }
 
 // ── Profile Utilities ─────────────────────────────────────────────────────────
