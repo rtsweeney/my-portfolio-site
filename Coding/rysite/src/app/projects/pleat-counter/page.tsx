@@ -80,12 +80,13 @@ function insetQuad(q: Quad, frac: number): Quad {
 }
 
 // ── Center-Out Filter Boundary Detection ─────────────────────────────────────
-// Assumes the center of the image contains pleats. Detects the pleat period &
-// orientation from a central patch, then walks outward in each direction with
-// a sliding window, re-estimating the period in a narrow range around the
-// previous step's value so the search tracks foreshortening.  The boundary is
-// the last position where any nearby period is still strongly autocorrelated;
-// once strength stays below threshold for several consecutive windows, we stop.
+// Pleats produce dense edges perpendicular to the ridge direction throughout
+// the filter face — the rest of the image (frame, background) has far fewer.
+// We measure directional gradient density from the center outward and stop
+// where density falls below a fraction of the center baseline.  No periodicity
+// search is required; the signal is the sheer amount of perpendicular-axis
+// gradient energy, which holds up under perspective foreshortening and varying
+// pleat density.
 
 function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const fallbackMargin = Math.round(Math.min(w, h) * 0.05);
@@ -94,10 +95,19 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
     return [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
   };
 
-  // 1. Build full-width / full-height profiles using a central perpendicular band.
-  //    xProfile[x] = mean gray over central y-band → varies along x → reveals
-  //    a period when pleat ridges run vertically (pleats repeat horizontally).
-  //    yProfile[y] = mean gray over central x-band → reveals horizontal ridges.
+  // 1. Central differences for directional gradient magnitudes.
+  const gx = new Float32Array(w * h);
+  const gy = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    const row = y * w;
+    for (let x = 1; x < w - 1; x++) {
+      gx[row + x] = Math.abs(gray[row + x + 1] - gray[row + x - 1]);
+      gy[row + x] = Math.abs(gray[row + x + w] - gray[row + x - w]);
+    }
+  }
+
+  // 2. Detect ridge orientation from the central patch.  Vertical pleats →
+  //    many vertical edges → high |gx|.  Horizontal pleats → high |gy|.
   const cFrac = 0.30;
   const cyLo = Math.floor(h * (0.5 - cFrac / 2));
   const cyHi = Math.floor(h * (0.5 + cFrac / 2));
@@ -105,149 +115,119 @@ function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
   const cxHi = Math.floor(w * (0.5 + cFrac / 2));
   if (cyHi <= cyLo + 2 || cxHi <= cxLo + 2) return fallbackQuad();
 
-  const xProfile = new Float32Array(w);
-  for (let x = 0; x < w; x++) {
-    let s = 0;
-    for (let y = cyLo; y < cyHi; y++) s += gray[y * w + x];
-    xProfile[x] = s / (cyHi - cyLo);
-  }
-  const yProfile = new Float32Array(h);
-  for (let y = 0; y < h; y++) {
-    let s = 0;
-    for (let x = cxLo; x < cxHi; x++) s += gray[y * w + x];
-    yProfile[y] = s / (cxHi - cxLo);
-  }
-
-  // 2. Detect orientation & period from the central slice of each profile.
-  const smR = 1;
-  const xCenter = xProfile.slice(cxLo, cxHi);
-  const yCenter = yProfile.slice(cyLo, cyHi);
-  const xCenterDet = detrend(smoothProfile(xCenter, smR));
-  const yCenterDet = detrend(smoothProfile(yCenter, smR));
-
-  const minPer = 4;
-  const xRes = estimatePeriodAutocorr(xCenterDet, minPer, Math.floor(xCenter.length * 0.4));
-  const yRes = estimatePeriodAutocorr(yCenterDet, minPer, Math.floor(yCenter.length * 0.4));
-
-  // horiz=true → period along x → ridges are vertical (count peaks across columns).
-  const horiz = xRes.strength >= yRes.strength;
-  const period = horiz ? xRes.period : yRes.period;
-  const baseStrength = horiz ? xRes.strength : yRes.strength;
-
-  if (period < minPer || baseStrength < 0.05) return fallbackQuad();
-
-  // 3. Walk outward along the period axis using the precomputed full profile.
-  //    The local period is allowed to drift between windows (perspective
-  //    foreshortening makes pleats compress as you approach the far edge), so
-  //    each step seeds the next from its own period estimate within ±35%.
-  const pProfile = horiz ? xProfile : yProfile;
-  const pTotal = pProfile.length;
-  const winLen = Math.max(8, Math.round(period * 4));
-  const pStride = Math.max(1, Math.round(period * 0.5));
-  const strengthThresh = Math.max(0.05, baseStrength * 0.35);
-  const failsRequired = 3;
-  const periodTol = 0.35;
-
-  // Search for a strong period in [seed*(1-tol), seed*(1+tol)] within a slice.
-  const localPeriod = (
-    prof: Float32Array, start: number, len: number, seed: number,
-  ): { period: number; strength: number } => {
-    if (start < 0 || start + len > prof.length || len < seed * 2) {
-      return { period: seed, strength: 0 };
+  let sumGx = 0, sumGy = 0;
+  for (let y = cyLo; y < cyHi; y++) {
+    const row = y * w;
+    for (let x = cxLo; x < cxHi; x++) {
+      sumGx += gx[row + x];
+      sumGy += gy[row + x];
     }
-    const slice = prof.slice(start, start + len);
-    const det = detrend(smoothProfile(slice, smR));
-    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
-    const hi = Math.min(Math.floor(slice.length / 2), Math.ceil(seed * (1 + periodTol)));
-    if (hi <= lo) return { period: seed, strength: 0 };
-    return estimatePeriodAutocorr(det, lo, hi);
-  };
+  }
+  // horiz=true → period along x (vertical ridges), use |gx| for density.
+  const horiz = sumGx >= sumGy;
+  const gMap = horiz ? gx : gy;
 
-  const findEdgeAlongProfile = (prof: Float32Array, totalLen: number, dir: -1 | 1): number => {
+  // 3. Density profile along the period axis: for each column (or row), sum
+  //    the perpendicular-direction gradient magnitudes over the central band.
+  const pTotal = horiz ? w : h;
+  const cPerpLo = horiz ? cyLo : cxLo;
+  const cPerpHi = horiz ? cyHi : cxHi;
+  const cParaLo = horiz ? cxLo : cyLo;
+  const cParaHi = horiz ? cxHi : cyHi;
+  const perpSpan = cPerpHi - cPerpLo;
+
+  const pDensity = new Float32Array(pTotal);
+  if (horiz) {
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let y = cPerpLo; y < cPerpHi; y++) s += gMap[y * w + x];
+      pDensity[x] = s / perpSpan;
+    }
+  } else {
+    for (let y = 0; y < h; y++) {
+      let s = 0;
+      for (let x = cPerpLo; x < cPerpHi; x++) s += gMap[y * w + x];
+      pDensity[y] = s / perpSpan;
+    }
+  }
+
+  // Smooth at ~1% of the image dimension to suppress per-pleat ripple while
+  // preserving the broad in-filter / out-of-filter contrast.
+  const smR = Math.max(2, Math.round(Math.min(w, h) * 0.01));
+  const pSmooth = smoothProfile(pDensity, smR);
+
+  // Center baseline = median density over the central span.
+  const centerSlice = (prof: Float32Array, lo: number, hi: number): number => {
+    const arr = Array.from(prof.slice(lo, hi));
+    if (arr.length === 0) return 0;
+    arr.sort((a, b) => a - b);
+    return arr[Math.floor(arr.length / 2)];
+  };
+  const pCenterMed = centerSlice(pSmooth, cParaLo, cParaHi);
+
+  // Sanity floor: if the central patch has barely any gradient, the image
+  // probably doesn't contain pleats at the center — fall back to safe margin.
+  if (pCenterMed < 1.0) return fallbackQuad();
+
+  const pThresh = pCenterMed * 0.4;
+  const minBelowRun = Math.max(5, Math.round(pTotal * 0.02));
+
+  const findEdge = (
+    prof: Float32Array, totalLen: number, dir: -1 | 1, threshold: number, runLen: number,
+  ): number => {
     const center = Math.floor(totalLen / 2);
-    let winStart = center - Math.floor(winLen / 2);
-    let lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
-    let seed = period;
-    let fails = 0;
+    let p = center;
+    let lastGood = center;
+    let belowCount = 0;
     while (true) {
-      winStart += dir * pStride;
-      if (winStart < 0 || winStart + winLen > totalLen) break;
-      const { period: lp, strength } = localPeriod(prof, winStart, winLen, seed);
-      if (strength >= strengthThresh && lp >= minPer) {
-        lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
-        seed = lp;
-        fails = 0;
-      } else if (++fails >= failsRequired) {
+      p += dir;
+      if (p < 0 || p >= totalLen) { lastGood = dir === 1 ? totalLen - 1 : 0; break; }
+      if (prof[p] >= threshold) {
+        lastGood = p;
+        belowCount = 0;
+      } else if (++belowCount >= runLen) {
         break;
       }
     }
-    return Math.max(0, Math.min(totalLen, lastGoodEdge));
+    return lastGood;
   };
 
-  const pLo = findEdgeAlongProfile(pProfile, pTotal, -1);
-  const pHi = findEdgeAlongProfile(pProfile, pTotal, +1);
-  if (pHi - pLo < period * 3) return fallbackQuad();
+  const pLo = findEdge(pSmooth, pTotal, -1, pThresh, minBelowRun);
+  const pHi = findEdge(pSmooth, pTotal, +1, pThresh, minBelowRun);
+  if (pHi - pLo < pTotal * 0.15) return fallbackQuad();
 
-  // 4. Walk outward along the ridge axis. At each ridge band, build a
-  //    period-axis profile from the detected pLo..pHi range and look for a
-  //    period in a window around the previous step's estimate.
+  // 4. Density profile along the ridge axis: for each row (or column), sum the
+  //    same perpendicular-direction gradients over the detected period band.
   const rTotal = horiz ? h : w;
-  const ridgeWinH = Math.max(3, Math.round(period));
-  const rStride = Math.max(1, Math.round(period * 0.5));
   const pBandLo = Math.max(0, Math.round(pLo));
   const pBandHi = Math.min(pTotal, Math.round(pHi));
   const pBandLen = pBandHi - pBandLo;
+  if (pBandLen < 4) return fallbackQuad();
 
-  const ridgePeriodAt = (
-    rStart: number, len: number, seed: number,
-  ): { period: number; strength: number } => {
-    if (rStart < 0 || rStart + len > rTotal || pBandLen < seed * 2) {
-      return { period: seed, strength: 0 };
+  const rDensity = new Float32Array(rTotal);
+  if (horiz) {
+    for (let y = 0; y < h; y++) {
+      let s = 0;
+      for (let x = pBandLo; x < pBandHi; x++) s += gMap[y * w + x];
+      rDensity[y] = s / pBandLen;
     }
-    const prof = new Float32Array(pBandLen);
-    if (horiz) {
-      for (let x = pBandLo; x < pBandHi; x++) {
-        let s = 0;
-        for (let y = rStart; y < rStart + len; y++) s += gray[y * w + x];
-        prof[x - pBandLo] = s / len;
-      }
-    } else {
-      for (let y = pBandLo; y < pBandHi; y++) {
-        let s = 0;
-        for (let x = rStart; x < rStart + len; x++) s += gray[y * w + x];
-        prof[y - pBandLo] = s / len;
-      }
+  } else {
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let y = pBandLo; y < pBandHi; y++) s += gMap[y * w + x];
+      rDensity[x] = s / pBandLen;
     }
-    const det = detrend(smoothProfile(prof, smR));
-    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
-    const hi = Math.min(Math.floor(pBandLen / 2), Math.ceil(seed * (1 + periodTol)));
-    if (hi <= lo) return { period: seed, strength: 0 };
-    return estimatePeriodAutocorr(det, lo, hi);
-  };
+  }
+  const rSmooth = smoothProfile(rDensity, smR);
+  const rCenterLo = horiz ? cyLo : cxLo;
+  const rCenterHi = horiz ? cyHi : cxHi;
+  const rCenterMed = centerSlice(rSmooth, rCenterLo, rCenterHi);
+  if (rCenterMed < 1.0) return fallbackQuad();
 
-  const findRidgeEdge = (dir: -1 | 1): number => {
-    const center = Math.floor(rTotal / 2);
-    let winStart = center - Math.floor(ridgeWinH / 2);
-    let lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
-    let seed = period;
-    let fails = 0;
-    while (true) {
-      winStart += dir * rStride;
-      if (winStart < 0 || winStart + ridgeWinH > rTotal) break;
-      const { period: lp, strength } = ridgePeriodAt(winStart, ridgeWinH, seed);
-      if (strength >= strengthThresh && lp >= minPer) {
-        lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
-        seed = lp;
-        fails = 0;
-      } else if (++fails >= failsRequired) {
-        break;
-      }
-    }
-    return Math.max(0, Math.min(rTotal, lastGoodEdge));
-  };
-
-  const rLo = findRidgeEdge(-1);
-  const rHi = findRidgeEdge(+1);
+  const rThresh = rCenterMed * 0.4;
+  const rRun = Math.max(5, Math.round(rTotal * 0.02));
+  const rLo = findEdge(rSmooth, rTotal, -1, rThresh, rRun);
+  const rHi = findEdge(rSmooth, rTotal, +1, rThresh, rRun);
 
   // 5. Assemble axis-aligned quad and validate.
   const xL = Math.max(0, Math.round(horiz ? pLo : rLo));
