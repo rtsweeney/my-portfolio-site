@@ -8,6 +8,7 @@ import {
   ROUND_LABELS,
   ROUND_RADII,
   type Match,
+  type RoundKey,
   type BracketNode,
   parseScoreboard,
   buildBracket,
@@ -20,8 +21,17 @@ import {
   formatMoneyLine,
   matchScoreLabel,
 } from './worldcup';
+import { lookupCountryFacts } from './countryfacts';
 
 const REFRESH_MS = 60_000;
+
+const ROUND_COLORS: Record<string, string> = {
+  r32: '#6c5ce7',
+  r16: '#00b894',
+  qf: '#e84393',
+  sf: '#e17055',
+  final: '#fdcb6e',
+};
 
 function Flag({ src, abbrev, size = 22 }: { src: string; abbrev: string; size?: number }) {
   const [failed, setFailed] = useState(false);
@@ -71,10 +81,14 @@ function BracketMatchNode({
 }) {
   const m = node.match;
   const isFinal = node.round === 'final';
-  const w = isFinal ? 118 : 92;
-  const h = isFinal ? 74 : 58;
+  const w = isFinal ? 128 : 94;
+  const h = isFinal ? 78 : 58;
+  const flagW = isFinal ? 26 : 22;
+  const flagH = isFinal ? 18 : 15;
   const live = m?.state === 'in';
   const winner = m ? matchWinnerId(m) : null;
+  const undecided = !m || (!m.home.decided && !m.away.decided);
+  const accent = ROUND_COLORS[node.round] ?? 'var(--border)';
 
   const row = (team: Match['home'] | undefined, score: number | null, dy: number) => {
     const decided = team?.decided;
@@ -83,31 +97,26 @@ function BracketMatchNode({
     return (
       <g transform={`translate(0 ${dy})`} opacity={dimmed ? 0.45 : 1}>
         {team?.logo && decided ? (
-          <image
-            href={team.logo}
-            x={-w / 2 + 7}
-            y={-8}
-            width={22}
-            height={16}
-            preserveAspectRatio="xMidYMid meet"
-          />
+          <g transform={`translate(${-w / 2 + 10} ${-flagH / 2})`} clipPath={isFinal ? 'url(#wcflagL)' : 'url(#wcflag)'}>
+            <image href={team.logo} width={flagW} height={flagH} preserveAspectRatio="xMidYMid slice" />
+          </g>
         ) : (
-          <rect x={-w / 2 + 7} y={-7} width={22} height={14} rx={3} fill="var(--surface-hover)" />
+          <rect x={-w / 2 + 10} y={-flagH / 2} width={flagW} height={flagH} rx={3} fill="var(--surface-hover)" />
         )}
         <text
-          x={-w / 2 + 34}
+          x={-w / 2 + 10 + flagW + 7}
           y={4.5}
-          fontSize={isFinal ? 14 : 12.5}
+          fontSize={isFinal ? 14.5 : 12.5}
           fontWeight={isWinner ? 800 : 600}
-          fill="var(--text-primary)"
+          fill={decided ? 'var(--text-primary)' : 'var(--text-muted)'}
         >
           {decided ? team!.abbrev : 'TBD'}
         </text>
         <text
           x={w / 2 - 9}
           y={4.5}
-          fontSize={isFinal ? 14 : 12.5}
-          fontWeight={isWinner ? 800 : 600}
+          fontSize={isFinal ? 14.5 : 12.5}
+          fontWeight={isWinner ? 800 : 700}
           fill={live ? 'var(--accent-warm)' : 'var(--text-secondary)'}
           textAnchor="end"
         >
@@ -122,34 +131,48 @@ function BracketMatchNode({
       transform={`translate(${node.x} ${node.y})`}
       onClick={() => m && onSelect(m.id)}
       style={{ cursor: m ? 'pointer' : 'default' }}
-      className={live ? 'wc-node wc-node-live' : 'wc-node'}
+      className="wc-node"
     >
       <rect
         x={-w / 2}
         y={-h / 2}
         width={w}
         height={h}
-        rx={12}
+        rx={13}
         fill="var(--surface-raised)"
-        stroke={selected ? 'var(--accent-primary)' : live ? 'var(--accent-warm)' : 'var(--border)'}
+        stroke={selected ? 'var(--accent-primary)' : live ? 'var(--accent-warm)' : 'var(--glass-border)'}
         strokeWidth={selected || live ? 2.5 : 1.2}
+        strokeDasharray={undecided && !selected ? '4 3' : undefined}
+        opacity={undecided ? 0.85 : 1}
+        filter="url(#wcshadow)"
       />
+      <rect x={-w / 2} y={-h / 2 + 9} width={4} height={h - 18} rx={2} fill={accent} opacity={undecided ? 0.35 : 0.9} />
       {row(m?.home, m?.homeScore ?? null, -h / 4)}
-      <line
-        x1={-w / 2 + 7}
-        y1={0}
-        x2={w / 2 - 7}
-        y2={0}
-        stroke="var(--border-subtle)"
-        strokeWidth={1}
-      />
+      <line x1={-w / 2 + 9} y1={0} x2={w / 2 - 9} y2={0} stroke="var(--border-subtle)" strokeWidth={1} />
       {row(m?.away, m?.awayScore ?? null, h / 4)}
-      {live && (
-        <circle cx={w / 2 - 6} cy={-h / 2 + 6} r={4} fill="var(--accent-warm)" className="wc-pulse" />
-      )}
+      {live && <circle cx={w / 2 - 6} cy={-h / 2 + 6} r={4.5} fill="var(--accent-warm)" className="wc-pulse" />}
     </g>
   );
 }
+
+const RAD = Math.PI / 180;
+const polar = (angleDeg: number, r: number): [number, number] => [
+  500 + r * Math.cos(angleDeg * RAD),
+  500 + r * Math.sin(angleDeg * RAD),
+];
+
+function arcTopPath(r: number): string {
+  const [x1, y1] = polar(-150, r);
+  const [x2, y2] = polar(-30, r);
+  return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+}
+
+const RING_LABELS: { round: RoundKey; r: number; text: string }[] = [
+  { round: 'r32', r: 470, text: 'ROUND OF 32' },
+  { round: 'r16', r: 344, text: 'ROUND OF 16' },
+  { round: 'qf', r: 244, text: 'QUARTERFINALS' },
+  { round: 'sf', r: 146, text: 'SEMIFINALS' },
+];
 
 function CircularBracket({
   matches,
@@ -163,30 +186,82 @@ function CircularBracket({
   const root = useMemo(() => buildBracket(matches), [matches]);
   const nodes = useMemo(() => flattenBracket(root), [root]);
 
-  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+  // A connector lights up teal once the outer match is decided and its winner
+  // has taken their place in the inner match.
+  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number; advanced: boolean }[] = [];
   for (const n of nodes) {
     for (const c of n.children) {
-      if (c) connectors.push({ key: `${n.round}-${c.match?.id ?? c.angle}`, x1: c.x, y1: c.y, x2: n.x, y2: n.y });
+      if (!c) continue;
+      const winnerId = c.match ? matchWinnerId(c.match) : null;
+      const advanced =
+        winnerId !== null && n.match !== null && (n.match.home.id === winnerId || n.match.away.id === winnerId);
+      connectors.push({ key: `${n.round}-${c.match?.id ?? c.angle}`, x1: c.x, y1: c.y, x2: n.x, y2: n.y, advanced });
     }
   }
+
+  // Gentle outward bow so the connectors feel like a spiral, not spokes.
+  const connectorPath = (x1: number, y1: number, x2: number, y2: number) => {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const vx = mx - 500;
+    const vy = my - 500;
+    const len = Math.hypot(vx, vy) || 1;
+    const k = (len + 16) / len;
+    return `M ${x1} ${y1} Q ${500 + vx * k} ${500 + vy * k} ${x2} ${y2}`;
+  };
 
   return (
     <div className="wc-bracket-wrap">
       <svg viewBox="0 0 1000 1000" className="wc-bracket-svg" role="img" aria-label="World Cup knockout bracket">
+        <defs>
+          <filter id="wcshadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#1a1a2e" floodOpacity="0.14" />
+          </filter>
+          <clipPath id="wcflag">
+            <rect width={22} height={15} rx={3} />
+          </clipPath>
+          <clipPath id="wcflagL">
+            <rect width={26} height={18} rx={3.5} />
+          </clipPath>
+          <radialGradient id="wcgold">
+            <stop offset="0%" stopColor="#fdcb6e" stopOpacity="0.35" />
+            <stop offset="70%" stopColor="#fdcb6e" stopOpacity="0.08" />
+            <stop offset="100%" stopColor="#fdcb6e" stopOpacity="0" />
+          </radialGradient>
+          {RING_LABELS.map((l) => (
+            <path key={l.round} id={`wc-ring-${l.round}`} d={arcTopPath(l.r)} fill="none" />
+          ))}
+        </defs>
+
+        {/* Tinted band + guide per round, colored to match the node accents */}
         {(['r32', 'r16', 'qf', 'sf'] as const).map((r) => (
-          <circle
-            key={r}
-            cx={500}
-            cy={500}
-            r={ROUND_RADII[r]}
+          <g key={r}>
+            <circle cx={500} cy={500} r={ROUND_RADII[r]} fill="none" stroke={ROUND_COLORS[r]} strokeOpacity={0.05} strokeWidth={64} />
+            <circle cx={500} cy={500} r={ROUND_RADII[r]} fill="none" stroke={ROUND_COLORS[r]} strokeOpacity={0.22} strokeDasharray="2 8" />
+          </g>
+        ))}
+
+        <circle cx={500} cy={500} r={95} fill="url(#wcgold)" />
+
+        {connectors.map((c) => (
+          <path
+            key={c.key}
+            d={connectorPath(c.x1, c.y1, c.x2, c.y2)}
             fill="none"
-            stroke="var(--border-subtle)"
-            strokeDasharray="3 7"
+            stroke={c.advanced ? 'var(--accent-secondary)' : 'var(--border)'}
+            strokeWidth={c.advanced ? 2.2 : 1.2}
+            strokeOpacity={c.advanced ? 0.85 : 1}
           />
         ))}
-        {connectors.map((c) => (
-          <line key={c.key} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} stroke="var(--border)" strokeWidth={1.2} />
+
+        {RING_LABELS.map((l) => (
+          <text key={l.round} fontSize={13} fontWeight={800} letterSpacing={4} fill={ROUND_COLORS[l.round]} fillOpacity={0.5}>
+            <textPath href={`#wc-ring-${l.round}`} startOffset="50%" textAnchor="middle">
+              {l.text}
+            </textPath>
+          </text>
         ))}
+
         {nodes.map((n, i) => (
           <BracketMatchNode
             key={n.match?.id ?? `empty-${i}`}
@@ -195,7 +270,11 @@ function CircularBracket({
             onSelect={onSelect}
           />
         ))}
-        <text x={500} y={556} textAnchor="middle" fontSize={12} fontWeight={700} fill="var(--text-muted)" letterSpacing={2}>
+
+        <text x={500} y={432} textAnchor="middle" fontSize={26}>
+          🏆
+        </text>
+        <text x={500} y={565} textAnchor="middle" fontSize={13} fontWeight={800} fill="#b8860b" fillOpacity={0.75} letterSpacing={4}>
           FINAL
         </text>
       </svg>
@@ -225,6 +304,32 @@ function TeamLine({ team, score, winner, live }: { team: Match['home']; score: n
   );
 }
 
+function CountryCard({ team }: { team: Match['home'] }) {
+  const facts = lookupCountryFacts(team.name);
+  if (!facts) return null;
+  return (
+    <div className="wc-country-card">
+      <div className="wc-country-header">
+        <Flag src={team.logo} abbrev={team.abbrev} size={24} />
+        <span style={{ fontWeight: 800 }}>{team.name}</span>
+      </div>
+      <div className="wc-country-row">
+        <span>Population</span>
+        <span>{facts.population}</span>
+      </div>
+      <div className="wc-country-row">
+        <span>A nation since</span>
+        <span>{facts.nationSince}</span>
+      </div>
+      <div className="wc-country-row">
+        <span>GDP</span>
+        <span>{facts.gdp}</span>
+      </div>
+      <p className="wc-country-fact">{facts.fact}</p>
+    </div>
+  );
+}
+
 function MatchDetail({ match }: { match: Match }) {
   const winner = matchWinnerId(match);
   const statusLabel =
@@ -236,6 +341,8 @@ function MatchDetail({ match }: { match: Match }) {
 
   const goalsFor = (teamId: string) =>
     match.goals.filter((g) => (g.ownGoal ? g.teamId !== teamId : g.teamId === teamId));
+
+  const factTeams = [match.home, match.away].filter((t) => t.decided);
 
   return (
     <div className="card wc-detail">
@@ -291,6 +398,14 @@ function MatchDetail({ match }: { match: Match }) {
           )}
         </div>
       )}
+
+      {factTeams.length > 0 && (
+        <div className="wc-country-grid">
+          {factTeams.map((t) => (
+            <CountryCard key={t.id} team={t} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -301,6 +416,7 @@ export default function WorldCupPage() {
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [aliveOnly, setAliveOnly] = useState(true);
+  const [dayTab, setDayTab] = useState<string | null>(null);
   const didAutoSelect = useRef(false);
 
   const load = useCallback(async () => {
@@ -331,22 +447,41 @@ export default function WorldCupPage() {
 
   const now = new Date();
   const todayET = etDateString(now);
+  const tomorrowET = etDateString(new Date(now.getTime() + 86_400_000));
 
   const liveMatches = useMemo(() => (matches ?? []).filter((m) => m.state === 'in'), [matches]);
-  const todayMatches = useMemo(
-    () => (matches ?? []).filter((m) => etDateString(m.date) === todayET),
-    [matches, todayET]
-  );
   const nextMatch = useMemo(
     () => (matches ?? []).find((m) => m.state === 'pre' && m.date.getTime() > now.getTime()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [matches, updatedAt]
   );
-  const upNextGroup = useMemo(() => {
-    if (todayMatches.length > 0 || !nextMatch) return null;
-    const day = etDateString(nextMatch.date);
-    return (matches ?? []).filter((m) => etDateString(m.date) === day);
-  }, [matches, todayMatches, nextMatch]);
+
+  // Day tabs: today (if it has matches) plus the next match day — or the next
+  // two match days when nothing is on today.
+  const dayOptions = useMemo(() => {
+    const days: string[] = [];
+    for (const m of matches ?? []) {
+      const d = etDateString(m.date);
+      if (d >= todayET && !days.includes(d)) days.push(d);
+      if (days.length === 2) break;
+    }
+    return days;
+  }, [matches, todayET]);
+
+  const activeDay = dayTab && dayOptions.includes(dayTab) ? dayTab : dayOptions[0] ?? null;
+  const stripMatches = useMemo(
+    () => (activeDay ? (matches ?? []).filter((m) => etDateString(m.date) === activeDay) : []),
+    [matches, activeDay]
+  );
+
+  const dayLabel = (day: string): string => {
+    if (day === todayET) return 'Today';
+    if (day === tomorrowET) return 'Tomorrow';
+    const m = (matches ?? []).find((x) => etDateString(x.date) === day);
+    return m
+      ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).format(m.date)
+      : day;
+  };
 
   const scorers = useMemo(() => (matches ? topScorers(matches, 12) : []), [matches]);
   const visibleScorers = aliveOnly ? scorers.filter((s) => s.alive) : scorers;
@@ -378,13 +513,6 @@ export default function WorldCupPage() {
   }, [matches, liveMatches, nextMatch, finalMatch]);
 
   const selectedMatch = (matches ?? []).find((m) => m.id === selectedId) ?? null;
-  const stripMatches = todayMatches.length > 0 ? todayMatches : upNextGroup ?? [];
-  const stripTitle =
-    todayMatches.length > 0
-      ? 'Today in the Cup'
-      : nextMatch
-        ? `Up Next · ${formatKickoffET(nextMatch.date, { withDate: true }).split(' · ')[0]}`
-        : 'Matches';
 
   return (
     <main>
@@ -473,9 +601,52 @@ export default function WorldCupPage() {
 
         {matches && (
           <>
-            {stripMatches.length > 0 && (
+            <section style={{ marginBottom: '1.8rem' }}>
+              <h2 className="wc-section-heading">Knockout Bracket</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.8rem' }}>
+                Round of 32 on the outer ring, spiraling in to the final at the center. Tap any match for
+                kickoff time, venue, odds, scorers, and a bit about each country.
+              </p>
+              <CircularBracket matches={matches} selectedId={selectedId} onSelect={setSelectedId} />
+
+              {selectedMatch && <MatchDetail match={selectedMatch} />}
+
+              {bronzeMatch && (
+                <button
+                  className={`wc-today-card${bronzeMatch.id === selectedId ? ' wc-today-selected' : ''}`}
+                  style={{ marginTop: '1rem' }}
+                  onClick={() => setSelectedId(bronzeMatch.id)}
+                >
+                  <div className="wc-today-teams">
+                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1 }}>3RD PLACE</span>
+                    <Flag src={bronzeMatch.home.decided ? bronzeMatch.home.logo : ''} abbrev={bronzeMatch.home.abbrev} size={22} />
+                    <span>{bronzeMatch.home.abbrev}</span>
+                    <span className="wc-today-score">
+                      {bronzeMatch.state === 'pre' ? formatKickoffET(bronzeMatch.date) : matchScoreLabel(bronzeMatch)}
+                    </span>
+                    <span>{bronzeMatch.away.abbrev}</span>
+                    <Flag src={bronzeMatch.away.decided ? bronzeMatch.away.logo : ''} abbrev={bronzeMatch.away.abbrev} size={22} />
+                  </div>
+                </button>
+              )}
+            </section>
+
+            {dayOptions.length > 0 && (
               <section style={{ marginBottom: '1.8rem' }}>
-                <h2 className="wc-section-heading">{stripTitle}</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
+                  <h2 className="wc-section-heading" style={{ marginBottom: 0 }}>Matches</h2>
+                  <div className="wc-day-tabs">
+                    {dayOptions.map((day) => (
+                      <button
+                        key={day}
+                        className={`wc-day-tab${day === activeDay ? ' wc-day-tab-active' : ''}`}
+                        onClick={() => setDayTab(day)}
+                      >
+                        {dayLabel(day)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="wc-today-row">
                   {stripMatches.map((m) => (
                     <button
@@ -509,36 +680,6 @@ export default function WorldCupPage() {
                 </div>
               </section>
             )}
-
-            <section style={{ marginBottom: '1.8rem' }}>
-              <h2 className="wc-section-heading">Knockout Bracket</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.8rem' }}>
-                Round of 32 on the outer ring, spiraling in to the final at the center. Tap any match for
-                kickoff time, venue, odds, and scorers.
-              </p>
-              <CircularBracket matches={matches} selectedId={selectedId} onSelect={setSelectedId} />
-
-              {selectedMatch && <MatchDetail match={selectedMatch} />}
-
-              {bronzeMatch && (
-                <button
-                  className={`wc-today-card${bronzeMatch.id === selectedId ? ' wc-today-selected' : ''}`}
-                  style={{ marginTop: '1rem' }}
-                  onClick={() => setSelectedId(bronzeMatch.id)}
-                >
-                  <div className="wc-today-teams">
-                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: 1 }}>3RD PLACE</span>
-                    <Flag src={bronzeMatch.home.decided ? bronzeMatch.home.logo : ''} abbrev={bronzeMatch.home.abbrev} size={22} />
-                    <span>{bronzeMatch.home.abbrev}</span>
-                    <span className="wc-today-score">
-                      {bronzeMatch.state === 'pre' ? formatKickoffET(bronzeMatch.date) : matchScoreLabel(bronzeMatch)}
-                    </span>
-                    <span>{bronzeMatch.away.abbrev}</span>
-                    <Flag src={bronzeMatch.away.decided ? bronzeMatch.away.logo : ''} abbrev={bronzeMatch.away.abbrev} size={22} />
-                  </div>
-                </button>
-              )}
-            </section>
 
             {scorers.length > 0 && (
               <section style={{ marginBottom: '1.8rem' }}>
