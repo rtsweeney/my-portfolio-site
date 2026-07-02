@@ -42,6 +42,30 @@ export default async function ProjectsPage() {
         </div>
 
         <div className="projects-grid">
+          {/* World Cup 2026 Tracker — built-in live dashboard */}
+          <Link href="/projects/world-cup" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-gold" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#9917;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                World Cup 2026 Tracker
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>A live, one-glance dashboard for the Cup. Circular knockout bracket with flags, live scores, kickoff times in ET, venues, betting odds, and the Golden Boot race among players still in contention. Auto-refreshes every minute.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Live Data</span>
+                <span className="project-tech-tag">SVG</span>
+                <span className="project-tech-tag">ESPN API</span>
+                <span className="project-tech-tag">Next.js</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* Machine Vision Pleat Counting — built-in project */}
           <Link href="/projects/pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-teal" style={{ height: '100%', cursor: 'pointer' }}>
