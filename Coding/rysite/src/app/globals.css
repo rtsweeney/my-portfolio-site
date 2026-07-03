@@ -2182,6 +2182,7 @@ a {
 
 .wc-today-score {
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   padding: 0 0.2rem;
   white-space: nowrap;
@@ -2213,54 +2214,9 @@ a {
   -webkit-user-select: none;
 }
 
-.wc-zoom-controls {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  z-index: 2;
-}
-
-.wc-zoom-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--text-secondary);
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(26, 26, 46, 0.12);
-  transition: all var(--transition-fast);
-}
-
-.wc-zoom-btn:hover {
-  border-color: var(--accent-primary);
-  color: var(--text-primary);
-}
-
-.wc-bracket-hint {
-  margin: 0.4rem 0 0.1rem;
-  text-align: center;
-  font-size: 0.74rem;
-  color: var(--text-muted);
-}
-
 @media (max-width: 640px) {
   .wc-bracket-wrap {
     padding: 0.25rem;
-  }
-
-  .wc-zoom-btn {
-    width: 34px;
-    height: 34px;
   }
 }
 
