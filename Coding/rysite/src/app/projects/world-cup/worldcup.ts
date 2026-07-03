@@ -319,10 +319,14 @@ const KNOCKOUT_ROUNDS: RoundKey[] = ['r32', 'r16', 'qf', 'sf', 'final'];
 const ROUND_SIZES: Record<string, number> = { r32: 16, r16: 8, qf: 4, sf: 2, final: 1 };
 export const ROUND_RADII: Record<string, number> = { r32: 432, r16: 328, qf: 228, sf: 128, final: 0 };
 
-// Builds the knockout tree from the final backwards. Feeder matches are
-// linked by team identity (an R16 team came from exactly one R32 match);
-// slots that aren't linkable yet (TBD teams) are filled with the remaining
-// matches of that round in kickoff order, so the wheel is always full.
+// Builds the knockout tree from the final backwards, one round at a time.
+// Within each level, EVERY slot whose team is already decided is linked to
+// its true feeder match by team identity first (a team in this round came
+// from exactly one match of the previous round); only the slots that are
+// genuinely unknowable yet (TBD teams) are then filled with the remaining
+// matches in kickoff order so the wheel stays full. Doing all identity links
+// before any filling is what keeps completed matches wired to the correct
+// next-round matchups.
 export function buildBracket(matches: Match[]): BracketNode {
   const byRound = new Map<RoundKey, Match[]>();
   for (const r of KNOCKOUT_ROUNDS) byRound.set(r, []);
@@ -330,66 +334,73 @@ export function buildBracket(matches: Match[]): BracketNode {
     if (byRound.has(m.round)) byRound.get(m.round)!.push(m);
   }
 
-  const claimed = new Set<string>();
-
-  const findFeeder = (round: RoundKey, teamId: string): Match | null => {
-    if (!teamId) return null;
-    for (const m of byRound.get(round) ?? []) {
-      if (claimed.has(m.id)) continue;
-      if (m.home.id === teamId || m.away.id === teamId) return m;
-    }
-    return null;
-  };
-
-  const build = (round: RoundKey, match: Match | null): BracketNode => {
-    const node: BracketNode = { match, round, children: [], angle: 0, x: 0, y: 0 };
-    const idx = KNOCKOUT_ROUNDS.indexOf(round);
-    if (idx <= 0) return node;
-    const prev = KNOCKOUT_ROUNDS[idx - 1];
-
-    const teams = [match?.home, match?.away];
-    const feeders: (Match | null)[] = [null, null];
-    for (let i = 0; i < 2; i++) {
-      const t = teams[i];
-      if (t?.decided) {
-        const f = findFeeder(prev, t.id);
-        if (f) {
-          feeders[i] = f;
-          claimed.add(f.id);
-        }
-      }
-    }
-    node.children = feeders.map(() => null);
-    // Recurse after both claims so a feeder isn't double-assigned.
-    node.children = feeders.map((f) => build(prev, f));
-    return node;
-  };
+  const mkNode = (round: RoundKey, match: Match | null): BracketNode => ({
+    match,
+    round,
+    children: [],
+    angle: 0,
+    x: 0,
+    y: 0,
+  });
 
   const finalMatch = (byRound.get('final') ?? [])[0] ?? null;
-  const root = build('final', finalMatch);
+  const root = mkNode('final', finalMatch);
 
-  // Fill unlinked slots level by level with unclaimed matches in kickoff order.
   let level: BracketNode[] = [root];
   for (let idx = KNOCKOUT_ROUNDS.length - 1; idx > 0; idx--) {
     const prev = KNOCKOUT_ROUNDS[idx - 1];
-    const pool = (byRound.get(prev) ?? []).filter((m) => !claimed.has(m.id));
+    const pool = byRound.get(prev) ?? []; // already in kickoff order
+    const claimed = new Set<string>();
+
+    // Pass 1: resolve every identity-linkable slot across the whole level.
+    const slots: (Match | null)[][] = level.map((node) => {
+      const out: (Match | null)[] = [null, null];
+      const teams = [node.match?.home, node.match?.away];
+      for (let i = 0; i < 2; i++) {
+        const t = teams[i];
+        if (!t?.decided) continue;
+        const feeder = pool.find(
+          (m) => !claimed.has(m.id) && (m.home.id === t.id || m.away.id === t.id)
+        );
+        if (feeder) {
+          out[i] = feeder;
+          claimed.add(feeder.id);
+        }
+      }
+      return out;
+    });
+
+    // Pass 2: fill the still-unknown slots with unclaimed matches in order.
     let poolIdx = 0;
+    const nextUnclaimed = (): Match | null => {
+      while (poolIdx < pool.length && claimed.has(pool[poolIdx].id)) poolIdx++;
+      return poolIdx < pool.length ? pool[poolIdx++] : null;
+    };
+
     const nextLevel: BracketNode[] = [];
-    for (const node of level) {
-      while (node.children.length < 2) node.children.push(null);
-      node.children = node.children.map((child) => {
-        if (child && child.match) return child;
-        const m = poolIdx < pool.length ? pool[poolIdx++] : null;
-        if (m) claimed.add(m.id);
-        return { match: m, round: prev, children: [], angle: 0, x: 0, y: 0 } as BracketNode;
+    level.forEach((node, li) => {
+      node.children = slots[li].map((linkedMatch) => {
+        const match = linkedMatch ?? nextUnclaimed();
+        if (match) claimed.add(match.id);
+        return mkNode(prev, match);
       });
-      nextLevel.push(...(node.children.filter(Boolean) as BracketNode[]));
-    }
+      nextLevel.push(...(node.children as BracketNode[]));
+    });
     level = nextLevel;
   }
 
   layoutBracket(root);
   return root;
+}
+
+// True once the routing of child → parent is confirmed by team identity:
+// one of the parent's decided teams actually came out of the child match.
+export function edgeConfirmed(parent: BracketNode, child: BracketNode): boolean {
+  if (!parent.match || !child.match) return false;
+  const c = child.match;
+  return [parent.match.home, parent.match.away].some(
+    (t) => t.decided && (c.home.id === t.id || c.away.id === t.id)
+  );
 }
 
 function layoutBracket(root: BracketNode) {

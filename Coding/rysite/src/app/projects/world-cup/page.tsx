@@ -12,6 +12,7 @@ import {
   type BracketNode,
   parseScoreboard,
   buildBracket,
+  edgeConfirmed,
   flattenBracket,
   topScorers,
   aliveTeamIds,
@@ -81,10 +82,10 @@ function BracketMatchNode({
 }) {
   const m = node.match;
   const isFinal = node.round === 'final';
-  const w = isFinal ? 128 : 94;
-  const h = isFinal ? 78 : 58;
-  const flagW = isFinal ? 26 : 22;
-  const flagH = isFinal ? 18 : 15;
+  const w = isFinal ? 132 : 100;
+  const h = isFinal ? 80 : 60;
+  const flagW = isFinal ? 26 : 24;
+  const flagH = isFinal ? 18 : 16;
   const live = m?.state === 'in';
   const winner = m ? matchWinnerId(m) : null;
   const undecided = !m || (!m.home.decided && !m.away.decided);
@@ -105,8 +106,8 @@ function BracketMatchNode({
         )}
         <text
           x={-w / 2 + 10 + flagW + 7}
-          y={4.5}
-          fontSize={isFinal ? 14.5 : 12.5}
+          y={5}
+          fontSize={isFinal ? 15 : 13.5}
           fontWeight={isWinner ? 800 : 600}
           fill={decided ? 'var(--text-primary)' : 'var(--text-muted)'}
         >
@@ -114,8 +115,8 @@ function BracketMatchNode({
         </text>
         <text
           x={w / 2 - 9}
-          y={4.5}
-          fontSize={isFinal ? 14.5 : 12.5}
+          y={5}
+          fontSize={isFinal ? 15 : 13.5}
           fontWeight={isWinner ? 800 : 700}
           fill={live ? 'var(--accent-warm)' : 'var(--text-secondary)'}
           textAnchor="end"
@@ -133,6 +134,8 @@ function BracketMatchNode({
       style={{ cursor: m ? 'pointer' : 'default' }}
       className="wc-node"
     >
+      {/* Oversized invisible hit area so nodes stay tappable on phones */}
+      <rect x={-w / 2 - 9} y={-h / 2 - 9} width={w + 18} height={h + 18} fill="transparent" stroke="none" />
       <rect
         x={-w / 2}
         y={-h / 2}
@@ -174,6 +177,9 @@ const RING_LABELS: { round: RoundKey; r: number; text: string }[] = [
   { round: 'sf', r: 146, text: 'SEMIFINALS' },
 ];
 
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
 function CircularBracket({
   matches,
   selectedId,
@@ -186,16 +192,129 @@ function CircularBracket({
   const root = useMemo(() => buildBracket(matches), [matches]);
   const nodes = useMemo(() => flattenBracket(root), [root]);
 
+  // Pan/zoom so the wheel can render fit-to-width on phones and still be
+  // readable: pinch or double-tap to zoom, drag to pan, buttons as fallback.
+  // All coordinates are in viewBox units (0–1000).
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [view, setView] = useState({ s: 1, tx: 0, ty: 0 });
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchDistRef = useRef(0);
+  const movedRef = useRef(0);
+  const lastTapRef = useRef<{ t: number; x: number; y: number } | null>(null);
+
+  const clampView = (s: number, tx: number, ty: number) => {
+    s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
+    if (s <= 1.02) return { s: 1, tx: 0, ty: 0 };
+    const min = 1000 - 1000 * s;
+    return { s, tx: Math.min(0, Math.max(min, tx)), ty: Math.min(0, Math.max(min, ty)) };
+  };
+
+  const toSvg = (clientX: number, clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width) return { x: 500, y: 500 };
+    return { x: ((clientX - rect.left) / rect.width) * 1000, y: ((clientY - rect.top) / rect.height) * 1000 };
+  };
+
+  // Zoom keeping the world point under (px, py) fixed on screen.
+  const zoomAt = useCallback((px: number, py: number, factor: number) => {
+    setView((v) => {
+      const s2 = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.s * factor));
+      const wx = (px - v.tx) / v.s;
+      const wy = (py - v.ty) / v.s;
+      const s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s2));
+      if (s <= 1.02) return { s: 1, tx: 0, ty: 0 };
+      const min = 1000 - 1000 * s;
+      return {
+        s,
+        tx: Math.min(0, Math.max(min, px - wx * s)),
+        ty: Math.min(0, Math.max(min, py - wy * s)),
+      };
+    });
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 1) movedRef.current = 0;
+    if (pointersRef.current.size === 2) {
+      const [a, b] = Array.from(pointersRef.current.values());
+      pinchDistRef.current = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const prev = pointersRef.current.get(e.pointerId);
+    if (!prev) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    movedRef.current += Math.hypot(e.clientX - prev.x, e.clientY - prev.y);
+
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width) return;
+    const unitsPerPx = 1000 / rect.width;
+
+    if (pointersRef.current.size === 2) {
+      const [a, b] = Array.from(pointersRef.current.values());
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDistRef.current > 0 && dist > 0) {
+        const mid = toSvg((a.x + b.x) / 2, (a.y + b.y) / 2);
+        zoomAt(mid.x, mid.y, dist / pinchDistRef.current);
+      }
+      pinchDistRef.current = dist;
+    } else if (pointersRef.current.size === 1 && view.s > 1) {
+      const dx = (e.clientX - prev.x) * unitsPerPx;
+      const dy = (e.clientY - prev.y) * unitsPerPx;
+      setView((v) => clampView(v.s, v.tx + dx, v.ty + dy));
+    }
+  };
+
+  const onPointerEnd = (e: React.PointerEvent<SVGSVGElement>) => {
+    // Double-tap to zoom in / reset (touch; mouse gets onDoubleClick).
+    if (e.pointerType === 'touch' && pointersRef.current.size === 1 && movedRef.current < 12) {
+      const now = Date.now();
+      const last = lastTapRef.current;
+      if (last && now - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 40) {
+        const p = toSvg(e.clientX, e.clientY);
+        if (view.s > 1) setView({ s: 1, tx: 0, ty: 0 });
+        else zoomAt(p.x, p.y, 2.4);
+        lastTapRef.current = null;
+      } else {
+        lastTapRef.current = { t: now, x: e.clientX, y: e.clientY };
+      }
+    }
+    pointersRef.current.delete(e.pointerId);
+    pinchDistRef.current = 0;
+  };
+
+  const onDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const p = toSvg(e.clientX, e.clientY);
+    if (view.s > 1) setView({ s: 1, tx: 0, ty: 0 });
+    else zoomAt(p.x, p.y, 2.4);
+  };
+
+  // A pan or pinch shouldn't count as a match tap.
+  const guardedSelect = (id: string) => {
+    if (movedRef.current < 12) onSelect(id);
+  };
+
   // A connector lights up teal once the outer match is decided and its winner
-  // has taken their place in the inner match.
-  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number; advanced: boolean }[] = [];
+  // has taken their place in the inner match. Routing that isn't confirmed by
+  // team identity yet (TBD slots placed by schedule order) stays faint and
+  // dashed so the wheel never asserts a matchup it doesn't know.
+  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number; advanced: boolean; confirmed: boolean }[] = [];
   for (const n of nodes) {
     for (const c of n.children) {
       if (!c) continue;
       const winnerId = c.match ? matchWinnerId(c.match) : null;
       const advanced =
         winnerId !== null && n.match !== null && (n.match.home.id === winnerId || n.match.away.id === winnerId);
-      connectors.push({ key: `${n.round}-${c.match?.id ?? c.angle}`, x1: c.x, y1: c.y, x2: n.x, y2: n.y, advanced });
+      connectors.push({
+        key: `${n.round}-${c.match?.id ?? c.angle}`,
+        x1: c.x,
+        y1: c.y,
+        x2: n.x,
+        y2: n.y,
+        advanced,
+        confirmed: edgeConfirmed(n, c),
+      });
     }
   }
 
@@ -212,13 +331,33 @@ function CircularBracket({
 
   return (
     <div className="wc-bracket-wrap">
-      <svg viewBox="0 0 1000 1000" className="wc-bracket-svg" role="img" aria-label="World Cup knockout bracket">
+      <div className="wc-zoom-controls">
+        <button type="button" className="wc-zoom-btn" aria-label="Zoom in" onClick={() => zoomAt(500, 500, 1.5)}>+</button>
+        <button type="button" className="wc-zoom-btn" aria-label="Zoom out" onClick={() => zoomAt(500, 500, 1 / 1.5)}>−</button>
+        {view.s > 1 && (
+          <button type="button" className="wc-zoom-btn" aria-label="Reset zoom" onClick={() => setView({ s: 1, tx: 0, ty: 0 })}>⟲</button>
+        )}
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox="0 0 1000 1000"
+        className="wc-bracket-svg"
+        role="img"
+        aria-label="World Cup knockout bracket"
+        style={{ touchAction: view.s > 1 ? 'none' : 'pan-y', cursor: view.s > 1 ? 'grab' : 'default' }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onPointerLeave={onPointerEnd}
+        onDoubleClick={onDoubleClick}
+      >
         <defs>
           <filter id="wcshadow" x="-30%" y="-30%" width="160%" height="160%">
             <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#1a1a2e" floodOpacity="0.14" />
           </filter>
           <clipPath id="wcflag">
-            <rect width={22} height={15} rx={3} />
+            <rect width={24} height={16} rx={3} />
           </clipPath>
           <clipPath id="wcflagL">
             <rect width={26} height={18} rx={3.5} />
@@ -233,6 +372,7 @@ function CircularBracket({
           ))}
         </defs>
 
+        <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
         {/* Tinted band + guide per round, colored to match the node accents */}
         {(['r32', 'r16', 'qf', 'sf'] as const).map((r) => (
           <g key={r}>
@@ -250,7 +390,8 @@ function CircularBracket({
             fill="none"
             stroke={c.advanced ? 'var(--accent-secondary)' : 'var(--border)'}
             strokeWidth={c.advanced ? 2.2 : 1.2}
-            strokeOpacity={c.advanced ? 0.85 : 1}
+            strokeOpacity={c.advanced ? 0.85 : c.confirmed ? 1 : 0.45}
+            strokeDasharray={c.confirmed ? undefined : '3 5'}
           />
         ))}
 
@@ -267,7 +408,7 @@ function CircularBracket({
             key={n.match?.id ?? `empty-${i}`}
             node={n}
             selected={n.match?.id === selectedId}
-            onSelect={onSelect}
+            onSelect={guardedSelect}
           />
         ))}
 
@@ -277,7 +418,9 @@ function CircularBracket({
         <text x={500} y={565} textAnchor="middle" fontSize={13} fontWeight={800} fill="#b8860b" fillOpacity={0.75} letterSpacing={4}>
           FINAL
         </text>
+        </g>
       </svg>
+      <p className="wc-bracket-hint">Pinch, double-tap, or use the buttons to zoom · drag to pan</p>
     </div>
   );
 }
