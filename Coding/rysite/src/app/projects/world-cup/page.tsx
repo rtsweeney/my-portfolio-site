@@ -12,6 +12,7 @@ import {
   type BracketNode,
   parseScoreboard,
   buildBracket,
+  edgeConfirmed,
   flattenBracket,
   topScorers,
   aliveTeamIds,
@@ -81,47 +82,43 @@ function BracketMatchNode({
 }) {
   const m = node.match;
   const isFinal = node.round === 'final';
-  const w = isFinal ? 128 : 94;
-  const h = isFinal ? 78 : 58;
-  const flagW = isFinal ? 26 : 22;
-  const flagH = isFinal ? 18 : 15;
+  const w = isFinal ? 104 : 88;
+  const h = isFinal ? 76 : 62;
+  const flagW = isFinal ? 38 : 32;
+  const flagH = isFinal ? 25 : 21;
+  const flagY = -h / 2 + (isFinal ? 11 : 10);
+  const scoreY = flagY + flagH + (isFinal ? 22 : 20);
   const live = m?.state === 'in';
   const winner = m ? matchWinnerId(m) : null;
   const undecided = !m || (!m.home.decided && !m.away.decided);
   const accent = ROUND_COLORS[node.round] ?? 'var(--border)';
+  const score =
+    m && m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} – ${m.awayScore}` : '';
 
-  const row = (team: Match['home'] | undefined, score: number | null, dy: number) => {
+  // Flag-first: no labels on the wheel, just two flags and the score.
+  const flag = (team: Match['home'] | undefined, x: number) => {
     const decided = team?.decided;
     const isWinner = decided && winner !== null && winner === team!.id;
     const dimmed = winner !== null && decided && winner !== team!.id;
     return (
-      <g transform={`translate(0 ${dy})`} opacity={dimmed ? 0.45 : 1}>
+      <g opacity={dimmed ? 0.45 : 1}>
         {team?.logo && decided ? (
-          <g transform={`translate(${-w / 2 + 10} ${-flagH / 2})`} clipPath={isFinal ? 'url(#wcflagL)' : 'url(#wcflag)'}>
+          <g transform={`translate(${x} ${flagY})`} clipPath={isFinal ? 'url(#wcflagL)' : 'url(#wcflag)'}>
             <image href={team.logo} width={flagW} height={flagH} preserveAspectRatio="xMidYMid slice" />
           </g>
         ) : (
-          <rect x={-w / 2 + 10} y={-flagH / 2} width={flagW} height={flagH} rx={3} fill="var(--surface-hover)" />
+          <rect x={x} y={flagY} width={flagW} height={flagH} rx={3} fill="var(--surface-hover)" />
         )}
-        <text
-          x={-w / 2 + 10 + flagW + 7}
-          y={4.5}
-          fontSize={isFinal ? 14.5 : 12.5}
-          fontWeight={isWinner ? 800 : 600}
-          fill={decided ? 'var(--text-primary)' : 'var(--text-muted)'}
-        >
-          {decided ? team!.abbrev : 'TBD'}
-        </text>
-        <text
-          x={w / 2 - 9}
-          y={4.5}
-          fontSize={isFinal ? 14.5 : 12.5}
-          fontWeight={isWinner ? 800 : 700}
-          fill={live ? 'var(--accent-warm)' : 'var(--text-secondary)'}
-          textAnchor="end"
-        >
-          {score === null ? '' : score}
-        </text>
+        <rect
+          x={x}
+          y={flagY}
+          width={flagW}
+          height={flagH}
+          rx={3}
+          fill="none"
+          stroke={isWinner ? 'var(--accent-secondary)' : 'var(--border-subtle)'}
+          strokeWidth={isWinner ? 2.2 : 1}
+        />
       </g>
     );
   };
@@ -133,6 +130,9 @@ function BracketMatchNode({
       style={{ cursor: m ? 'pointer' : 'default' }}
       className="wc-node"
     >
+      <title>{m ? `${m.home.name} vs ${m.away.name}` : 'To be determined'}</title>
+      {/* Oversized invisible hit area so nodes stay tappable on phones */}
+      <rect x={-w / 2 - 9} y={-h / 2 - 9} width={w + 18} height={h + 18} fill="transparent" stroke="none" />
       <rect
         x={-w / 2}
         y={-h / 2}
@@ -147,9 +147,19 @@ function BracketMatchNode({
         filter="url(#wcshadow)"
       />
       <rect x={-w / 2} y={-h / 2 + 9} width={4} height={h - 18} rx={2} fill={accent} opacity={undecided ? 0.35 : 0.9} />
-      {row(m?.home, m?.homeScore ?? null, -h / 4)}
-      <line x1={-w / 2 + 9} y1={0} x2={w / 2 - 9} y2={0} stroke="var(--border-subtle)" strokeWidth={1} />
-      {row(m?.away, m?.awayScore ?? null, h / 4)}
+      {flag(m?.home, -flagW - 4)}
+      {flag(m?.away, 4)}
+      <text
+        x={0}
+        y={scoreY}
+        textAnchor="middle"
+        fontSize={isFinal ? 19 : 18}
+        fontWeight={800}
+        fill="var(--text-primary)"
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
+        {score}
+      </text>
       {live && <circle cx={w / 2 - 6} cy={-h / 2 + 6} r={4.5} fill="var(--accent-warm)" className="wc-pulse" />}
     </g>
   );
@@ -187,15 +197,25 @@ function CircularBracket({
   const nodes = useMemo(() => flattenBracket(root), [root]);
 
   // A connector lights up teal once the outer match is decided and its winner
-  // has taken their place in the inner match.
-  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number; advanced: boolean }[] = [];
+  // has taken their place in the inner match. Routing that isn't confirmed by
+  // team identity yet (TBD slots placed by schedule order) stays faint and
+  // dashed so the wheel never asserts a matchup it doesn't know.
+  const connectors: { key: string; x1: number; y1: number; x2: number; y2: number; advanced: boolean; confirmed: boolean }[] = [];
   for (const n of nodes) {
     for (const c of n.children) {
       if (!c) continue;
       const winnerId = c.match ? matchWinnerId(c.match) : null;
       const advanced =
         winnerId !== null && n.match !== null && (n.match.home.id === winnerId || n.match.away.id === winnerId);
-      connectors.push({ key: `${n.round}-${c.match?.id ?? c.angle}`, x1: c.x, y1: c.y, x2: n.x, y2: n.y, advanced });
+      connectors.push({
+        key: `${n.round}-${c.match?.id ?? c.angle}`,
+        x1: c.x,
+        y1: c.y,
+        x2: n.x,
+        y2: n.y,
+        advanced,
+        confirmed: edgeConfirmed(n, c),
+      });
     }
   }
 
@@ -218,10 +238,10 @@ function CircularBracket({
             <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#1a1a2e" floodOpacity="0.14" />
           </filter>
           <clipPath id="wcflag">
-            <rect width={22} height={15} rx={3} />
+            <rect width={32} height={21} rx={3} />
           </clipPath>
           <clipPath id="wcflagL">
-            <rect width={26} height={18} rx={3.5} />
+            <rect width={38} height={25} rx={4} />
           </clipPath>
           <radialGradient id="wcgold">
             <stop offset="0%" stopColor="#fdcb6e" stopOpacity="0.35" />
@@ -250,7 +270,8 @@ function CircularBracket({
             fill="none"
             stroke={c.advanced ? 'var(--accent-secondary)' : 'var(--border)'}
             strokeWidth={c.advanced ? 2.2 : 1.2}
-            strokeOpacity={c.advanced ? 0.85 : 1}
+            strokeOpacity={c.advanced ? 0.85 : c.confirmed ? 1 : 0.45}
+            strokeDasharray={c.confirmed ? undefined : '3 5'}
           />
         ))}
 
@@ -271,10 +292,10 @@ function CircularBracket({
           />
         ))}
 
-        <text x={500} y={432} textAnchor="middle" fontSize={26}>
+        <text x={500} y={430} textAnchor="middle" fontSize={26}>
           🏆
         </text>
-        <text x={500} y={565} textAnchor="middle" fontSize={13} fontWeight={800} fill="#b8860b" fillOpacity={0.75} letterSpacing={4}>
+        <text x={500} y={568} textAnchor="middle" fontSize={13} fontWeight={800} fill="#b8860b" fillOpacity={0.75} letterSpacing={4}>
           FINAL
         </text>
       </svg>
