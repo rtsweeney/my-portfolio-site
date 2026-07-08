@@ -23,12 +23,14 @@
     "styled-components": "^6.1.19"
   },
   "devDependencies": {
+    "@cloudflare/next-on-pages": "1.13.16",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^15.1.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "4.100.0"
   }
 }

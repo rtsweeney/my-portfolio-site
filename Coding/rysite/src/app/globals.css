@@ -1685,6 +1685,89 @@ a {
   margin-bottom: 0.2rem;
 }
 
+.planetarium-events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.planetarium-event-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 12px;
+  padding: 1rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+.planetarium-event-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.planetarium-event-card--clickable:hover {
+  border-color: rgba(108, 92, 231, 0.3);
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.08);
+}
+
+.planetarium-event-visibility {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-top: 0.4rem;
+}
+
+.planetarium-event-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.planetarium-event-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.planetarium-event-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.planetarium-event-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.planetarium-event-countdown {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  white-space: nowrap;
+}
+
+.planetarium-event-date {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+}
+
+.planetarium-event-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  opacity: 0.8;
+  margin-top: 0.35rem;
+}
+
 .planetarium-facts-list {
   list-style: none;
   padding: 0;
