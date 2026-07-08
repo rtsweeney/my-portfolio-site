@@ -3,9 +3,14 @@
 // catalogs draw from). Equinox/solstice dates are computed from Meeus'
 // low-precision polynomial approximation, accurate to within a day.
 
+import { getSunMoonPosition } from './constellations';
+
+const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
+
 export interface SolarEclipseEvent {
-  date: string; // ISO date, YYYY-MM-DD
-  type: 'Total' | 'Annular' | 'Partial';
+  date: string; // ISO date, YYYY-MM-DD — the UTC calendar date of greatest eclipse
+  type: 'Total' | 'Annular' | 'Partial' | 'Hybrid';
   visibility: string;
 }
 
@@ -39,6 +44,17 @@ export const SOLAR_ECLIPSES: SolarEclipseEvent[] = [
   { date: '2029-12-05', type: 'Partial', visibility: 'Southern South America, Antarctica' },
   { date: '2030-06-01', type: 'Annular', visibility: 'North Africa, Europe, Asia' },
   { date: '2030-11-25', type: 'Total', visibility: 'Southern Africa, Indian Ocean, Australia' },
+  { date: '2031-05-21', type: 'Annular', visibility: 'Angola, Zambia, Tanzania, southern India, Sri Lanka, Southeast Asia' },
+  { date: '2031-11-14', type: 'Hybrid', visibility: 'Central Pacific, Panama' },
+  { date: '2032-05-09', type: 'Annular', visibility: 'South Atlantic and Southern Ocean, southern Africa, South America' },
+  { date: '2032-11-03', type: 'Partial', visibility: 'Eastern Europe, Russia, Asia, Pacific' },
+  { date: '2033-03-30', type: 'Total', visibility: 'Alaska, Russian Far East, Hawaii, Greenland, Iceland' },
+  { date: '2033-09-23', type: 'Partial', visibility: 'Southern South America, Antarctica, South Pacific, South Atlantic' },
+  { date: '2034-03-20', type: 'Total', visibility: 'Nigeria, Chad, Sudan, Egypt, Saudi Arabia, Iran, Pakistan, India, China' },
+  { date: '2035-09-02', type: 'Total', visibility: 'China, North Korea, South Korea, Japan' },
+  { date: '2036-02-27', type: 'Partial', visibility: 'Southeastern Australia, New Zealand, Antarctica' },
+  { date: '2036-07-23', type: 'Partial', visibility: 'East Antarctica, Southern Ocean' },
+  { date: '2036-08-21', type: 'Partial', visibility: 'Alaska, Canada, Greenland, Western Europe, Northwest Africa' },
 ];
 
 export const LUNAR_ECLIPSES: LunarEclipseEvent[] = [
@@ -54,6 +70,14 @@ export const LUNAR_ECLIPSES: LunarEclipseEvent[] = [
   { date: '2029-12-20', type: 'Total', visibility: 'Americas, Europe, Africa, Asia' },
   { date: '2030-06-15', type: 'Partial', visibility: 'Africa, Europe, Asia, Australia' },
   { date: '2030-12-09', type: 'Total', visibility: 'Americas, Europe, Africa, Asia' },
+  { date: '2032-04-25', type: 'Total', visibility: 'Asia, Australia, Africa, Europe, Americas' },
+  { date: '2032-10-18', type: 'Total', visibility: 'Asia, Africa, Antarctica, Europe, Oceania' },
+  { date: '2033-04-14', type: 'Total', visibility: 'Antarctica, Asia, Africa, Europe, Oceania' },
+  { date: '2033-10-08', type: 'Total', visibility: 'Asia, Australia, Americas, Pacific' },
+  { date: '2034-09-27', type: 'Partial', visibility: 'Americas, Western Africa, Western Europe' },
+  { date: '2035-08-18', type: 'Partial', visibility: 'South America, Africa, Europe, North America' },
+  { date: '2036-02-11', type: 'Total', visibility: 'Africa, Europe, Asia, Americas' },
+  { date: '2036-08-06', type: 'Total', visibility: 'South America, Africa, North America' },
 ];
 
 export const METEOR_SHOWERS: MeteorShower[] = [
@@ -153,4 +177,80 @@ export function getNextMeteorShower(from: Date): UpcomingMeteorShower {
   }
   candidates.sort((a, b) => a.date.getTime() - b.date.getTime());
   return candidates.find(c => c.date.getTime() >= from.getTime()) ?? candidates[candidates.length - 1];
+}
+
+function angularSeparationDeg(ra1Hours: number, dec1: number, ra2Hours: number, dec2: number): number {
+  const ra1 = ra1Hours * 15 * DEG2RAD;
+  const ra2 = ra2Hours * 15 * DEG2RAD;
+  const d1 = dec1 * DEG2RAD;
+  const d2 = dec2 * DEG2RAD;
+  const cosSep = Math.sin(d1) * Math.sin(d2) + Math.cos(d1) * Math.cos(d2) * Math.cos(ra1 - ra2);
+  return Math.acos(Math.max(-1, Math.min(1, cosSep))) * RAD2DEG;
+}
+
+/** Distance (degrees) of a phase angle from exact opposition (180° = full moon / lunar-eclipse season). */
+function distanceFromOpposition(phaseAngle: number): number {
+  return Math.abs(((phaseAngle - 180 + 540) % 360) - 180);
+}
+
+/**
+ * Coarse-then-fine grid search for the time (within +/-windowHours of centerMs)
+ * that minimizes `objective`. The Sun/Moon motion here is smooth with a single
+ * minimum near the known eclipse date, so a grid search is simpler and just as
+ * reliable as a gradient method at this precision.
+ */
+function minimizeNear(centerMs: number, windowHours: number, objective: (ms: number) => number): Date {
+  let bestMs = centerMs;
+  let bestVal = Infinity;
+  let spanMs = windowHours * 2 * 3600000;
+  let originMs = centerMs - windowHours * 3600000;
+
+  for (let pass = 0; pass < 5; pass++) {
+    const steps = pass === 0 ? 288 : 60; // coarse pass: ~10-minute resolution across the full window
+    for (let i = 0; i <= steps; i++) {
+      const ms = originMs + (spanMs * i) / steps;
+      const val = objective(ms);
+      if (val < bestVal) {
+        bestVal = val;
+        bestMs = ms;
+      }
+    }
+    spanMs = (spanMs / steps) * 4; // zoom in around the best point found so far
+    originMs = bestMs - spanMs / 2;
+  }
+
+  return new Date(bestMs);
+}
+
+/**
+ * Finds the moment (within +/-2 days of the known eclipse date) where the Sun and
+ * Moon are closest together in the sky, using the same geocentric Sun/Moon math
+ * that drives the rest of the planetarium. This is accurate to roughly the
+ * ~1° precision of that underlying model — enough to show the Moon visually
+ * overlapping the Sun, but it does not account for lunar parallax, so it can't
+ * determine whether any specific location falls inside the eclipse's actual
+ * shadow path.
+ */
+export function findSolarEclipseMoment(isoDate: string): Date {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const centerMs = Date.UTC(y, m - 1, d, 12, 0, 0);
+  return minimizeNear(centerMs, 48, (ms) => {
+    const { sun, moon } = getSunMoonPosition(new Date(ms));
+    return angularSeparationDeg(sun.ra, sun.dec, moon.ra, moon.dec);
+  });
+}
+
+/**
+ * Finds the moment (within +/-2 days of the known eclipse date) of exact
+ * Sun-Earth-Moon opposition — the peak of a lunar eclipse. Unlike a solar
+ * eclipse this is a purely geocentric alignment, so it needs no
+ * location-dependent correction to be accurate.
+ */
+export function findLunarEclipseMoment(isoDate: string): Date {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const centerMs = Date.UTC(y, m - 1, d, 12, 0, 0);
+  return minimizeNear(centerMs, 48, (ms) => {
+    const { phaseAngle } = getSunMoonPosition(new Date(ms));
+    return distanceFromOpposition(phaseAngle);
+  });
 }

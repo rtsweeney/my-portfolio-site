@@ -19,6 +19,8 @@ import {
   getNextLunarEclipse,
   getNextSeasonalMarker,
   getNextMeteorShower,
+  findSolarEclipseMoment,
+  findLunarEclipseMoment,
 } from './skyEvents';
 
 // Pixels of drag per minute of time — controls scrub sensitivity
@@ -749,6 +751,30 @@ export default function PlanetariumPage() {
   const nextSeasonalMarker = getNextSeasonalMarker(observeDateForEvents);
   const nextMeteorShower = getNextMeteorShower(observeDateForEvents);
 
+  // Exact Sun/Moon conjunction (solar) or opposition (lunar) moment, found by searching
+  // the same orbital-mechanics positions that drive the sky map — see skyEvents.ts.
+  const solarEclipsePeak = nextSolarEclipse ? findSolarEclipseMoment(nextSolarEclipse.date) : null;
+  const lunarEclipsePeak = nextLunarEclipse ? findLunarEclipseMoment(nextLunarEclipse.date) : null;
+
+  // Necessary (not sufficient) local-visibility check: is the Sun/Moon even above your
+  // horizon at that moment? This can't tell you if you're inside the eclipse's shadow path.
+  const solarEclipseSunAlt = solarEclipsePeak
+    ? getCelestialBodies(solarEclipsePeak, location.lat, location.lon).find(b => b.isSun)?.altitude ?? null
+    : null;
+  const lunarEclipseMoonAlt = lunarEclipsePeak
+    ? getCelestialBodies(lunarEclipsePeak, location.lat, location.lon).find(b => b.isMoon)?.altitude ?? null
+    : null;
+
+  const jumpToEventMoment = (peak: Date, bodyKind: 'sun' | 'moon') => {
+    applyMs(peak.getTime());
+    const bodies = getCelestialBodies(peak, location.lat, location.lon);
+    const body = bodies.find(b => (bodyKind === 'sun' ? b.isSun : b.isMoon));
+    if (body) setSelectedBody(body);
+    setSelectedConstellation(null);
+    setExpandedStar(null);
+    canvasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const parseEventDate = (iso: string) => {
     const [y, m, d] = iso.split('-').map(Number);
     return new Date(y, m - 1, d);
@@ -1152,8 +1178,11 @@ export default function PlanetariumPage() {
             Next eclipses and other notable events, counted from the date shown above
           </p>
           <div className="planetarium-events-grid">
-            {nextSolarEclipse && (
-              <div className="planetarium-event-card">
+            {nextSolarEclipse && solarEclipsePeak && (
+              <button
+                className="planetarium-event-card planetarium-event-card--clickable"
+                onClick={() => jumpToEventMoment(solarEclipsePeak, 'sun')}
+              >
                 <div className="planetarium-event-icon">&#9728;&#65039;</div>
                 <div className="planetarium-event-body">
                   <div className="planetarium-event-header">
@@ -1162,12 +1191,20 @@ export default function PlanetariumPage() {
                   </div>
                   <div className="planetarium-event-date">{formatEventDate(parseEventDate(nextSolarEclipse.date))}</div>
                   <div className="planetarium-event-desc">Visible from: {nextSolarEclipse.visibility}</div>
+                  <div className="planetarium-event-visibility">
+                    {solarEclipseSunAlt !== null && solarEclipseSunAlt > 0
+                      ? `Sun is up at your location at eclipse peak — click to view`
+                      : `Sun is below your horizon at eclipse peak — click to view anyway`}
+                  </div>
                 </div>
-              </div>
+              </button>
             )}
 
-            {nextLunarEclipse && (
-              <div className="planetarium-event-card">
+            {nextLunarEclipse && lunarEclipsePeak && (
+              <button
+                className="planetarium-event-card planetarium-event-card--clickable"
+                onClick={() => jumpToEventMoment(lunarEclipsePeak, 'moon')}
+              >
                 <div className="planetarium-event-icon">&#127765;&#65039;</div>
                 <div className="planetarium-event-body">
                   <div className="planetarium-event-header">
@@ -1176,8 +1213,13 @@ export default function PlanetariumPage() {
                   </div>
                   <div className="planetarium-event-date">{formatEventDate(parseEventDate(nextLunarEclipse.date))}</div>
                   <div className="planetarium-event-desc">Visible from: {nextLunarEclipse.visibility}</div>
+                  <div className="planetarium-event-visibility">
+                    {lunarEclipseMoonAlt !== null && lunarEclipseMoonAlt > 0
+                      ? `Moon is up at your location at eclipse peak — click to view`
+                      : `Moon is below your horizon at eclipse peak — click to view anyway`}
+                  </div>
                 </div>
-              </div>
+              </button>
             )}
 
             <div className="planetarium-event-card">

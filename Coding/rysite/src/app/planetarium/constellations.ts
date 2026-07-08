@@ -1102,6 +1102,42 @@ function eclipticToRaDec(xGeo: number, yGeo: number, zGeo: number, obliquity: nu
   return { ra: ra / 15, dec }; // ra in hours
 }
 
+export interface SunMoonPosition {
+  sun: { ra: number; dec: number };
+  moon: { ra: number; dec: number };
+  /** Moon's ecliptic elongation from the Sun, 0-360°. 0/360 = new moon (solar eclipse season), 180 = full moon (lunar eclipse season). */
+  phaseAngle: number;
+}
+
+/**
+ * Geocentric Sun/Moon equatorial positions for a moment in time — no observer location involved.
+ * Shared by getCelestialBodies() and by the sky-event conjunction search in skyEvents.ts.
+ */
+export function getSunMoonPosition(date: Date): SunMoonPosition {
+  const jd = dateToJulianDay(date);
+  const d = jd - 2451545.0;
+  const T = d / 36525;
+  const obliquity = (23.439291 - 0.0130042 * T) * DEG2RAD;
+
+  const earth = computeHeliocentricEcliptic('Earth', T);
+  const sunRaDec = eclipticToRaDec(-earth.x, -earth.y, -earth.z, obliquity);
+
+  const moonEcl = computeLunarEcliptic(d);
+  const moonLonRad = moonEcl.lon * DEG2RAD;
+  const moonLatRad = moonEcl.lat * DEG2RAD;
+  const moonRaDec = eclipticToRaDec(
+    Math.cos(moonLatRad) * Math.cos(moonLonRad),
+    Math.cos(moonLatRad) * Math.sin(moonLonRad),
+    Math.sin(moonLatRad),
+    obliquity
+  );
+
+  const sunLon = norm360(Math.atan2(-earth.y, -earth.x) * RAD2DEG);
+  const phaseAngle = norm360(moonEcl.lon - sunLon);
+
+  return { sun: sunRaDec, moon: moonRaDec, phaseAngle };
+}
+
 export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): CelestialBody[] {
   const jd = dateToJulianDay(date);
   const d = jd - 2451545.0;            // days since J2000.0
@@ -1109,16 +1145,12 @@ export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): 
   const obliquity = (23.439291 - 0.0130042 * T) * DEG2RAD;
   const lst = localSiderealTime(date, lonDeg);
 
-  // Earth's heliocentric position
+  // Earth's heliocentric position (still needed below for planet geocentric positions)
   const earth = computeHeliocentricEcliptic('Earth', T);
+  const { sun: sunRaDec, moon: moonRaDec, phaseAngle } = getSunMoonPosition(date);
 
   const bodies: CelestialBody[] = [];
 
-  // Sun — opposite of Earth's heliocentric position
-  const sunX = -earth.x;
-  const sunY = -earth.y;
-  const sunZ = -earth.z;
-  const sunRaDec = eclipticToRaDec(sunX, sunY, sunZ, obliquity);
   const sunAltAz = raDecToAltAz(sunRaDec.ra, sunRaDec.dec, latDeg, lst);
   bodies.push({
     name: 'Sun',
@@ -1143,18 +1175,7 @@ export function getCelestialBodies(date: Date, latDeg: number, lonDeg: number): 
   });
 
   // Moon
-  const moonEcl = computeLunarEcliptic(d);
-  const moonLonRad = moonEcl.lon * DEG2RAD;
-  const moonLatRad = moonEcl.lat * DEG2RAD;
-  const moonX = Math.cos(moonLatRad) * Math.cos(moonLonRad);
-  const moonY = Math.cos(moonLatRad) * Math.sin(moonLonRad);
-  const moonZ = Math.sin(moonLatRad);
-  const moonRaDec = eclipticToRaDec(moonX, moonY, moonZ, obliquity);
   const moonAltAz = raDecToAltAz(moonRaDec.ra, moonRaDec.dec, latDeg, lst);
-
-  // Phase angle: angular separation between Moon and Sun in ecliptic longitude
-  const sunLon = norm360(Math.atan2(-earth.y, -earth.x) * RAD2DEG);
-  const phaseAngle = norm360(moonEcl.lon - sunLon);
   const phase = (1 - Math.cos(phaseAngle * DEG2RAD)) / 2;
   const phaseName =
     phaseAngle < 22.5   ? 'New Moon'        :

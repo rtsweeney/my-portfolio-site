@@ -1700,6 +1700,28 @@ a {
   border-left: 3px solid var(--accent-primary);
   border-radius: 12px;
   padding: 1rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+.planetarium-event-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.planetarium-event-card--clickable:hover {
+  border-color: rgba(108, 92, 231, 0.3);
+  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.08);
+}
+
+.planetarium-event-visibility {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-top: 0.4rem;
 }
 
 .planetarium-event-icon {
