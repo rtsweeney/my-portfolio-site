@@ -14,6 +14,12 @@ import {
   type Constellation,
   type CelestialBody,
 } from './constellations';
+import {
+  getNextSolarEclipse,
+  getNextLunarEclipse,
+  getNextSeasonalMarker,
+  getNextMeteorShower,
+} from './skyEvents';
 
 // Pixels of drag per minute of time — controls scrub sensitivity
 const PIXELS_PER_MINUTE = 3;
@@ -732,6 +738,38 @@ export default function PlanetariumPage() {
   const currentMonth = new Date(date).getMonth() + 1;
   const inSeasonConstellations = visibleConstellations.filter(c => c.bestMonths.includes(currentMonth));
 
+  // Upcoming sky events, relative to the currently viewed date
+  const observeDateForEvents = (() => {
+    const [year, month, day] = date.split('-').map(Number);
+    const [hours, minutes] = time.split(':').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+  })();
+  const nextSolarEclipse = getNextSolarEclipse(observeDateForEvents);
+  const nextLunarEclipse = getNextLunarEclipse(observeDateForEvents);
+  const nextSeasonalMarker = getNextSeasonalMarker(observeDateForEvents);
+  const nextMeteorShower = getNextMeteorShower(observeDateForEvents);
+
+  const parseEventDate = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+
+  const formatEventDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const daysUntil = (d: Date) => {
+    const start = new Date(observeDateForEvents.getFullYear(), observeDateForEvents.getMonth(), observeDateForEvents.getDate());
+    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Math.round((end.getTime() - start.getTime()) / 86400000);
+  };
+
+  const formatDaysUntil = (d: Date) => {
+    const days = daysUntil(d);
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Tomorrow';
+    return `In ${days} days`;
+  };
+
   return (
     <main>
       <div className="page-bg" />
@@ -1105,6 +1143,66 @@ export default function PlanetariumPage() {
                 <div className="planetarium-body-desc">{body.description}</div>
               </button>
             ))}
+          </div>
+        </div>
+        {/* Upcoming Sky Events */}
+        <div className="planetarium-list-section">
+          <h2 className="planetarium-panel-title">Upcoming Sky Events</h2>
+          <p className="planetarium-panel-subtitle">
+            Next eclipses and other notable events, counted from the date shown above
+          </p>
+          <div className="planetarium-events-grid">
+            {nextSolarEclipse && (
+              <div className="planetarium-event-card">
+                <div className="planetarium-event-icon">&#9728;&#65039;</div>
+                <div className="planetarium-event-body">
+                  <div className="planetarium-event-header">
+                    <span className="planetarium-event-title">{nextSolarEclipse.type} Solar Eclipse</span>
+                    <span className="planetarium-event-countdown">{formatDaysUntil(parseEventDate(nextSolarEclipse.date))}</span>
+                  </div>
+                  <div className="planetarium-event-date">{formatEventDate(parseEventDate(nextSolarEclipse.date))}</div>
+                  <div className="planetarium-event-desc">Visible from: {nextSolarEclipse.visibility}</div>
+                </div>
+              </div>
+            )}
+
+            {nextLunarEclipse && (
+              <div className="planetarium-event-card">
+                <div className="planetarium-event-icon">&#127765;&#65039;</div>
+                <div className="planetarium-event-body">
+                  <div className="planetarium-event-header">
+                    <span className="planetarium-event-title">{nextLunarEclipse.type} Lunar Eclipse</span>
+                    <span className="planetarium-event-countdown">{formatDaysUntil(parseEventDate(nextLunarEclipse.date))}</span>
+                  </div>
+                  <div className="planetarium-event-date">{formatEventDate(parseEventDate(nextLunarEclipse.date))}</div>
+                  <div className="planetarium-event-desc">Visible from: {nextLunarEclipse.visibility}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="planetarium-event-card">
+              <div className="planetarium-event-icon">&#127774;</div>
+              <div className="planetarium-event-body">
+                <div className="planetarium-event-header">
+                  <span className="planetarium-event-title">{nextSeasonalMarker.name}</span>
+                  <span className="planetarium-event-countdown">{formatDaysUntil(nextSeasonalMarker.date)}</span>
+                </div>
+                <div className="planetarium-event-date">{formatEventDate(nextSeasonalMarker.date)}</div>
+                <div className="planetarium-event-desc">The Sun reaches a key point in its yearly path along the ecliptic.</div>
+              </div>
+            </div>
+
+            <div className="planetarium-event-card">
+              <div className="planetarium-event-icon">&#8853;</div>
+              <div className="planetarium-event-body">
+                <div className="planetarium-event-header">
+                  <span className="planetarium-event-title">{nextMeteorShower.name} Meteor Shower</span>
+                  <span className="planetarium-event-countdown">{formatDaysUntil(nextMeteorShower.date)}</span>
+                </div>
+                <div className="planetarium-event-date">Peaks {formatEventDate(nextMeteorShower.date)}</div>
+                <div className="planetarium-event-desc">{nextMeteorShower.description}</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
