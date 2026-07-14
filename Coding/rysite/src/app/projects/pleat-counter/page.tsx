@@ -647,27 +647,12 @@ export default function PleatCounterPage() {
       quad[S.dragging] = [Math.max(0, Math.min(S.gw - 1, ax)), Math.max(0, Math.min(S.gh - 1, ay))];
       drawOverlay();
     };
-    const onPointerUp = (e: PointerEvent) => {
-      if (S.dragging >= 0) {
-        S.dragging = -1;
-        if (moved) { S.removed.clear(); S.manual = []; runAnalysis(); }
-        drawOverlay();
-        return;
-      }
-      // plain tap: toggle a line
-      const result = S.result, rectData = S.rectData;
-      if (!result || !rectData) return;
-      const [x, y] = pointerPos(e);
-      const [ax, ay] = d2a(x, y);
-      const { H, RW, RH } = rectData;
-      const [rx, ry] = applyH(H, ax, ay);
-      if (rx < 0 || ry < 0 || rx >= RW || ry >= RH) return;
-      const tanS = Math.tan(result.shearDeg * Math.PI / 180);
-      let pos: number;
-      if (!S.transposed) pos = rx - tanS * (ry - RH / 2);
-      else pos = ry - tanS * (rx - RW / 2);
+    // toggle a counted line at a working-orientation position: remove the
+    // nearest existing line if one is within tolerance, otherwise add one
+    function togglePleatAt(pos: number) {
+      const result = S.result;
+      if (!result) return;
       const tol = Math.max(4, result.pitch * 0.4);
-      // nearest existing line?
       let bi = -1, bd = Infinity;
       const lines = currentLines();
       lines.forEach(L => { const d = Math.abs(L - pos); if (d < bd) { bd = d; bi = L; } });
@@ -687,6 +672,38 @@ export default function PleatCounterPage() {
       }
       updateReadouts();
       drawOverlay(); drawTrace();
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (S.dragging >= 0) {
+        S.dragging = -1;
+        if (moved) { S.removed.clear(); S.manual = []; runAnalysis(); }
+        drawOverlay();
+        return;
+      }
+      // plain tap: toggle a line
+      const result = S.result, rectData = S.rectData;
+      if (!result || !rectData) return;
+      const [x, y] = pointerPos(e);
+      const [ax, ay] = d2a(x, y);
+      const { H, RW, RH } = rectData;
+      const [rx, ry] = applyH(H, ax, ay);
+      if (rx < 0 || ry < 0 || rx >= RW || ry >= RH) return;
+      const tanS = Math.tan(result.shearDeg * Math.PI / 180);
+      let pos: number;
+      if (!S.transposed) pos = rx - tanS * (ry - RH / 2);
+      else pos = ry - tanS * (rx - RW / 2);
+      togglePleatAt(pos);
+    };
+
+    // click in the ridge intensity trace: same toggle, mapped along the profile
+    const onTraceClick = (e: MouseEvent) => {
+      const result = S.result;
+      if (!result) return;
+      const r = traceCanvas.getBoundingClientRect();
+      if (r.width <= 0) return;
+      const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      togglePleatAt(frac * (result.det.length - 1));
     };
 
     // ---------- analysis ----------
@@ -841,6 +858,27 @@ export default function PleatCounterPage() {
     }
 
     // ---------- readouts ----------
+    let depthUnit: 'in' | 'mm' = 'in';
+    function depthInches(): number {
+      const v = parseFloat(byId<HTMLInputElement>('pleatDepth').value);
+      if (!isFinite(v)) return NaN;
+      return depthUnit === 'mm' ? v / 25.4 : v;
+    }
+    function setDepthUnit(u: 'in' | 'mm') {
+      if (u === depthUnit) return;
+      const input = byId<HTMLInputElement>('pleatDepth');
+      const v = parseFloat(input.value);
+      if (isFinite(v)) {
+        input.value = u === 'mm' ? String(+(v * 25.4).toFixed(2)) : String(+(v / 25.4).toFixed(3));
+      }
+      input.step = u === 'mm' ? '0.5' : '0.125';
+      input.min = u === 'mm' ? '1' : '0.125';
+      depthUnit = u;
+      byId('depthIn').classList.toggle('active', u === 'in');
+      byId('depthMm').classList.toggle('active', u === 'mm');
+      updateReadouts();
+    }
+
     function updateReadouts() {
       const result = S.result;
       const n = result ? currentLines().length : 0;
@@ -850,7 +888,7 @@ export default function PleatCounterPage() {
       // quad height if they run horizontally; the media sheet width runs ALONG them
       const faceW = parseFloat(byId<HTMLInputElement>('faceW').value);
       const faceH = parseFloat(byId<HTMLInputElement>('faceH').value);
-      const depth = parseFloat(byId<HTMLInputElement>('pleatDepth').value);
+      const depth = depthInches();
       const across = S.transposed ? faceH : faceW;
       const along = S.transposed ? faceW : faceH;
       const ppfLabel = byId('roPPFLabel'), ppfSub = byId('roPPFSub');
@@ -889,7 +927,26 @@ export default function PleatCounterPage() {
       }
       byId('roOpen').innerHTML =
         (grateOnEl.checked && S.openPct != null) ? `${S.openPct.toFixed(1)}<small> %</small>` : '—';
+      byId<HTMLButtonElement>('simulate').disabled = !result || n === 0;
     }
+
+    // hand the measured values off to the pleated filter performance calculator
+    const onSimulate = () => {
+      const result = S.result;
+      const n = result ? currentLines().length : 0;
+      const qp = new URLSearchParams();
+      const fw = parseFloat(byId<HTMLInputElement>('faceW').value);
+      const fh = parseFloat(byId<HTMLInputElement>('faceH').value);
+      if (isFinite(fw) && fw > 0) qp.set('fw', String(fw));
+      if (isFinite(fh) && fh > 0) qp.set('fh', String(fh));
+      const dIn = depthInches();
+      if (isFinite(dIn) && dIn > 0) qp.set('pd', dIn.toFixed(3));
+      if (n > 0) qp.set('count', String(n));
+      if (grateOnEl.checked && S.openPct != null) {
+        qp.set('grating', Math.min(90, Math.max(0, 100 - S.openPct)).toFixed(1));
+      }
+      window.open('/calculators/pleated-filter-calculator?' + qp.toString(), '_blank', 'noopener');
+    };
 
     // ---------- wiring ----------
     const onDropzoneClick = () => fileInput.click();
@@ -923,9 +980,13 @@ export default function PleatCounterPage() {
     byId('faceW').addEventListener('input', updateReadouts);
     byId('faceH').addEventListener('input', updateReadouts);
     byId('pleatDepth').addEventListener('input', updateReadouts);
+    byId('depthIn').addEventListener('click', () => setDepthUnit('in'));
+    byId('depthMm').addEventListener('click', () => setDepthUnit('mm'));
+    byId('simulate').addEventListener('click', onSimulate);
     ovCanvas.addEventListener('pointerdown', onPointerDown);
     ovCanvas.addEventListener('pointermove', onPointerMove);
     ovCanvas.addEventListener('pointerup', onPointerUp);
+    traceCanvas.addEventListener('click', onTraceClick);
     grateSliderInput('gBright', 'gBrightOut');
     grateSliderInput('gTex', 'gTexOut');
 
@@ -983,6 +1044,7 @@ export default function PleatCounterPage() {
           </div>
 
           <div className="pc-wrap">
+            <div className="pc-main">
             <div className="pc-stagecard">
               <div className="pc-stage" id="stage">
                 <canvas id="imgCanvas" />
@@ -1000,9 +1062,41 @@ export default function PleatCounterPage() {
                 <input type="file" id="fileInput" accept="image/*" hidden />
               </div>
               <div className="pc-tracewrap">
-                <div className="pc-tracehead"><span>Ridge intensity trace · detrended</span><span id="traceInfo">—</span></div>
+                <div className="pc-tracehead"><span>Ridge intensity trace · detrended · click to add or remove a pleat</span><span id="traceInfo">—</span></div>
                 <canvas id="traceCanvas" />
               </div>
+            </div>
+
+            <div className="pc-card pc-results">
+              <div className="pc-step"><span className="pc-n">4</span><h2>Results</h2></div>
+              <div className="pc-resrow">
+                <div className="pc-row" style={{ margin: 0 }}>
+                  <label htmlFor="faceW">Face size (in)</label>
+                  <input type="number" id="faceW" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face width in inches" />
+                  <span style={{ color: 'var(--text-muted)' }}>×</span>
+                  <input type="number" id="faceH" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face height in inches" />
+                </div>
+                <div className="pc-row" style={{ margin: 0 }}>
+                  <label htmlFor="pleatDepth">Pleat depth</label>
+                  <input type="number" id="pleatDepth" min={0.125} step={0.125} defaultValue={1.75} style={{ flex: '0 0 78px' }} aria-label="Pleat depth" />
+                  <span className="pc-unittoggle" role="radiogroup" aria-label="Pleat depth units">
+                    <button type="button" id="depthIn" className="active">in</button>
+                    <button type="button" id="depthMm">mm</button>
+                  </span>
+                </div>
+              </div>
+              <div className="pc-readout">
+                <div className="pc-ro count"><div className="pc-k">Pleats</div><div className="pc-v" id="roCount">—</div></div>
+                <div className="pc-ro media"><div className="pc-k">Media area</div><div className="pc-v" id="roMedia">—</div></div>
+                <div className="pc-ro"><div className="pc-k">Pitch</div><div className="pc-v" id="roPitch">—</div></div>
+                <div className="pc-ro"><div className="pc-k" id="roPPFLabel">Pleats / ft</div><div className="pc-v" id="roPPF">—</div><div className="pc-sub" id="roPPFSub"></div></div>
+                <div className="pc-ro open"><div className="pc-k">Open area</div><div className="pc-v" id="roOpen">—</div></div>
+              </div>
+              <div className="pc-simrow">
+                <button className="primary" id="simulate" disabled>Simulate performance ↗</button>
+                <span className="pc-simnote">Opens the pleated filter performance calculator on a new page with the face size, pleat depth, pleat count, and grating blockage pre-filled.</span>
+              </div>
+            </div>
             </div>
 
             <div className="pc-rail">
@@ -1034,7 +1128,7 @@ export default function PleatCounterPage() {
                   <input type="range" id="spacing" min={15} max={90} defaultValue={60} />
                   <output id="spacingOut">0.60×</output>
                 </div>
-                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Everything recounts when a setting changes. Tap the image to add a missed ridge or remove a false one.</p>
+                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Everything recounts when a setting changes. Tap the image, or click in the trace below it, to add a missed ridge or remove a false one.</p>
                 <div className="pc-status" id="status">Waiting for image.</div>
               </div>
 
@@ -1061,27 +1155,6 @@ export default function PleatCounterPage() {
                   <canvas id="rectCanvas" />
                 </div>
               </div>
-
-              <div className="pc-card">
-                <div className="pc-step"><span className="pc-n">4</span><h2>Results</h2></div>
-                <div className="pc-row" style={{ marginTop: 0 }}>
-                  <label htmlFor="faceW">Face size (in)</label>
-                  <input type="number" id="faceW" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face width in inches" />
-                  <span style={{ color: 'var(--text-muted)' }}>×</span>
-                  <input type="number" id="faceH" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face height in inches" />
-                </div>
-                <div className="pc-row">
-                  <label htmlFor="pleatDepth">Pleat depth (in)</label>
-                  <input type="number" id="pleatDepth" min={0.125} step={0.125} defaultValue={1} style={{ flex: '0 0 78px' }} aria-label="Pleat depth in inches" />
-                </div>
-                <div className="pc-readout">
-                  <div className="pc-ro count"><div className="pc-k">Pleats</div><div className="pc-v" id="roCount">—</div></div>
-                  <div className="pc-ro media"><div className="pc-k">Media area</div><div className="pc-v" id="roMedia">—</div></div>
-                  <div className="pc-ro"><div className="pc-k">Pitch</div><div className="pc-v" id="roPitch">—</div></div>
-                  <div className="pc-ro"><div className="pc-k" id="roPPFLabel">Pleats / ft</div><div className="pc-v" id="roPPF">—</div><div className="pc-sub" id="roPPFSub"></div></div>
-                  <div className="pc-ro open"><div className="pc-k">Open area</div><div className="pc-v" id="roOpen">—</div></div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -1103,6 +1176,7 @@ const PC_CSS = `
 
 .pc-wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:1.25rem;align-items:start}
 @media(max-width:860px){.pc-wrap{grid-template-columns:1fr}}
+.pc-main{display:flex;flex-direction:column;gap:1rem;min-width:0}
 
 .pc-stagecard{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.05)}
 .pc-stage{position:relative;width:100%;background:repeating-conic-gradient(#eef1f8 0% 25%,#f6f7fb 0% 50%) 0 0/22px 22px}
@@ -1117,8 +1191,8 @@ const PC_CSS = `
 .pc-dropzone:focus-visible{outline:2px solid var(--accent-primary);outline-offset:-6px}
 
 .pc-tracewrap{border-top:1px solid var(--border-subtle);background:var(--surface);padding:0.6rem 0.9rem 0.7rem}
-.pc-tracehead{display:flex;justify-content:space-between;gap:0.5rem;font-size:0.66rem;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.25rem;font-weight:600}
-.pc-root #traceCanvas{display:block;width:100%;height:84px}
+.pc-tracehead{display:flex;justify-content:space-between;gap:0.5rem;font-size:0.66rem;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.25rem;font-weight:600;flex-wrap:wrap}
+.pc-root #traceCanvas{display:block;width:100%;height:84px;cursor:pointer}
 
 .pc-rail{display:flex;flex-direction:column;gap:1rem}
 .pc-card{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:1.1rem 1.2rem}
@@ -1144,16 +1218,23 @@ const PC_CSS = `
 .pc-toggle{display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;user-select:none;font-size:0.8rem;color:var(--text-secondary);line-height:1.45}
 .pc-toggle input{accent-color:var(--accent-warm);width:15px;height:15px;margin-top:2px;flex-shrink:0}
 
-.pc-readout{display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.3rem}
+.pc-readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem;margin-top:0.3rem}
 .pc-ro{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.6rem 0.7rem}
 .pc-ro .pc-k{font-size:0.62rem;font-weight:600;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase}
 .pc-ro .pc-v{font-size:1.15rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);font-variant-numeric:tabular-nums;line-height:1.15}
 .pc-ro .pc-v small{font-size:0.68rem;font-weight:600;color:var(--text-muted)}
 .pc-ro.count .pc-v{color:var(--accent-secondary);font-size:1.55rem}
 .pc-ro.media .pc-v{color:var(--accent-primary);font-size:1.55rem}
-.pc-ro.open{grid-column:1/-1}
 .pc-ro.open .pc-v{color:var(--accent-warm)}
 .pc-sub{font-size:0.65rem;font-weight:600;color:var(--text-muted);margin-top:0.15rem}
+.pc-resrow{display:flex;flex-wrap:wrap;gap:0.6rem 2rem;margin-bottom:0.9rem}
+.pc-unittoggle{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
+.pc-root .pc-unittoggle button{border:none;border-radius:0;padding:0.35rem 0.65rem;font-size:0.72rem;background:transparent;color:var(--text-secondary)}
+.pc-root .pc-unittoggle button:hover{background:var(--surface-hover)}
+.pc-root .pc-unittoggle button.active{background:var(--accent-secondary);color:#fff}
+.pc-simrow{display:flex;align-items:center;gap:0.9rem;flex-wrap:wrap;margin-top:1rem}
+.pc-simnote{font-size:0.72rem;color:var(--text-muted);line-height:1.45;flex:1;min-width:220px}
+.pc-root button:disabled{opacity:0.45;cursor:not-allowed;transform:none !important;box-shadow:none !important}
 .pc-status{font-size:0.72rem;color:var(--text-muted);margin-top:0.6rem;min-height:15px;line-height:1.45}
 
 .pc-rectpanel{margin-top:0.8rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--surface)}
