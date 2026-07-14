@@ -10,7 +10,7 @@ type Quad = [Pt, Pt, Pt, Pt]; // TL, TR, BR, BL
 interface Peak { x: number; v: number; prom: number }
 interface RectData { rect: Float32Array; RW: number; RH: number; H: number[]; Hinv: number[] }
 interface RectAnalysis { shearDeg: number; profile: Float32Array; det: Float32Array; pitch: number; peaks: Peak[] }
-interface AnalyzeOpts { promFrac?: number; spacingFrac?: number; shearRange?: number; mask?: Uint8Array | null }
+interface AnalyzeOpts { promFrac?: number; spacingFrac?: number; shearRange?: number; shearCenter?: number; mask?: Uint8Array | null }
 interface AppState {
   img: ImageBitmap | HTMLImageElement | null;
   gray: Float32Array | null; gw: number; gh: number;
@@ -158,9 +158,9 @@ function findPeaks(det: Float32Array, minDist: number, promFrac: number): Peak[]
 }
 function analyzeRect(rect: Float32Array, RW: number, RH: number, opts: AnalyzeOpts = {}): RectAnalysis {
   const promFrac = opts.promFrac ?? 0.35, spacingFrac = opts.spacingFrac ?? 0.6,
-    shearRange = opts.shearRange ?? 12, mask = opts.mask || null;
-  let best = { deg: 0, energy: -Infinity };
-  for (let deg = -shearRange; deg <= shearRange; deg += 1.5) {
+    shearRange = opts.shearRange ?? 12, shearCenter = opts.shearCenter ?? 0, mask = opts.mask || null;
+  let best = { deg: shearCenter, energy: -Infinity };
+  for (let deg = shearCenter - shearRange; deg <= shearCenter + shearRange; deg += 1.5) {
     const prof = columnProfile(rect, RW, RH, deg * Math.PI / 180, mask, true);
     const sm = smoothArr(prof, Math.max(1, Math.round(RW / 400)));
     const rough = detrend(sm, Math.round(RW / 6));
@@ -338,9 +338,9 @@ function quadArea(a: Pt, b: Pt, c: Pt, d: Pt): number {
     c[0] * d[1] - d[0] * c[1] + d[0] * a[1] - a[0] * d[1]
   ) / 2;
 }
-function profileEnergy(rect: Float32Array, RW: number, RH: number, mask: Uint8Array | null): number {
+function profileEnergy(rect: Float32Array, RW: number, RH: number, mask: Uint8Array | null, center = 0): number {
   let best = 0;
-  for (let deg = -12; deg <= 12; deg += 3) {
+  for (let deg = center - 12; deg <= center + 12; deg += 3) {
     const prof = smoothArr(columnProfile(rect, RW, RH, deg * Math.PI / 180, mask, true), Math.max(1, Math.round(RW / 400)));
     const det = detrend(prof, Math.round(RW / 6));
     let e = 0; for (let i = 0; i < det.length; i++) e += det[i] * det[i];
@@ -388,6 +388,8 @@ export default function PleatCounterPage() {
     const grateSliders = byId<HTMLDivElement>('grateSliders');
     const sensEl = byId<HTMLInputElement>('sens');
     const spacingEl = byId<HTMLInputElement>('spacing');
+    const tiltEl = byId<HTMLInputElement>('tilt');
+    let orientMode: 'auto' | 'v' | 'h' = 'auto';
     const traceInfo = byId('traceInfo');
     const rectCanvas = byId<HTMLCanvasElement>('rectCanvas');
     const rectInfo = byId('rectInfo');
@@ -728,22 +730,37 @@ export default function PleatCounterPage() {
       computeGrateMask();
       const maskForProfile = (grateOnEl.checked && S.grateMask) ? S.grateMask : null;
 
-      // orientation: compare best periodic energy over the shear sweep for both axes
-      const eCol = profileEnergy(rect, RW, RH, maskForProfile);
-      const rectT = transposeRect(rect, RW, RH);
-      const maskT = maskForProfile ? transposeMask(maskForProfile, RW, RH) : null;
-      const eRow = profileEnergy(rectT, RH, RW, maskT);
-      S.transposed = eRow > eCol * 1.15;
+      // orientation: forced by the user, or auto by comparing best periodic
+      // energy over the shear sweep for both axes
+      let rectT: Float32Array | null = null, maskT: Uint8Array | null = null;
+      if (orientMode === 'auto') {
+        const tiltGuide = +tiltEl.value;
+        const eCol = profileEnergy(rect, RW, RH, maskForProfile, tiltGuide);
+        rectT = transposeRect(rect, RW, RH);
+        maskT = maskForProfile ? transposeMask(maskForProfile, RW, RH) : null;
+        const eRow = profileEnergy(rectT, RH, RW, maskT, tiltGuide);
+        S.transposed = eRow > eCol * 1.15;
+      } else {
+        S.transposed = orientMode === 'h';
+        if (S.transposed) {
+          rectT = transposeRect(rect, RW, RH);
+          maskT = maskForProfile ? transposeMask(maskForProfile, RW, RH) : null;
+        }
+      }
 
       const promFrac = +sensEl.value / 100;
       const spacingFrac = +spacingEl.value / 100;
-      const opts: AnalyzeOpts = { promFrac, spacingFrac, mask: S.transposed ? maskT : maskForProfile };
+      const opts: AnalyzeOpts = {
+        promFrac, spacingFrac,
+        shearCenter: +tiltEl.value,
+        mask: S.transposed ? maskT : maskForProfile,
+      };
       S.result = S.transposed
-        ? analyzeRect(rectT, RH, RW, opts)
+        ? analyzeRect(rectT!, RH, RW, opts)
         : analyzeRect(rect, RW, RH, opts);
 
       const ms = Math.round(performance.now() - t0);
-      setStatus(`Done in ${ms} ms · pleats ${S.transposed ? 'horizontal' : 'vertical'} in frame · shear ${S.result.shearDeg.toFixed(1)}°`);
+      setStatus(`Done in ${ms} ms · pleats ${S.transposed ? 'horizontal' : 'vertical'} in frame${orientMode !== 'auto' ? ' (forced)' : ''} · shear ${S.result.shearDeg.toFixed(1)}°`);
       updateReadouts();
       drawOverlay(); drawTrace(); drawRectPreview();
     }
@@ -959,24 +976,53 @@ export default function PleatCounterPage() {
       if (q) { S.quad = q; S.removed.clear(); S.manual = []; runAnalysis(); }
       else setStatus('Could not find the filter automatically — drag the corners by hand.');
     };
-    const onResetCorners = () => { if (!S.img) return; resetQuad(); S.removed.clear(); S.manual = []; runAnalysis(); };
     const onGrateToggle = () => { grateSliders.style.display = grateOnEl.checked ? '' : 'none'; runAnalysis(); };
     const onSensInput = () => { byId('sensOut').textContent = sensEl.value; };
     const onSensChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
     const onSpacingInput = () => { byId('spacingOut').textContent = (+spacingEl.value / 100).toFixed(2) + '×'; };
     const onSpacingChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
+    const onTiltInput = () => { byId('tiltOut').textContent = tiltEl.value + '°'; };
+    const onTiltChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
+    const applyOrientClasses = () => {
+      byId('orientAuto').classList.toggle('active', orientMode === 'auto');
+      byId('orientV').classList.toggle('active', orientMode === 'v');
+      byId('orientH').classList.toggle('active', orientMode === 'h');
+    };
+    const onOrient = (m: 'auto' | 'v' | 'h') => () => {
+      if (orientMode === m) return;
+      orientMode = m;
+      applyOrientClasses();
+      S.removed.clear(); S.manual = [];
+      runAnalysis();
+    };
+    const onResetParams = () => {
+      sensEl.value = '35'; byId('sensOut').textContent = '35';
+      spacingEl.value = '60'; byId('spacingOut').textContent = '0.60×';
+      tiltEl.value = '0'; byId('tiltOut').textContent = '0°';
+      orientMode = 'auto'; applyOrientClasses();
+      grateOnEl.checked = true; grateSliders.style.display = '';
+      byId<HTMLInputElement>('gBright').value = '205'; byId('gBrightOut').textContent = '205';
+      byId<HTMLInputElement>('gTex').value = '12'; byId('gTexOut').textContent = '12';
+      S.removed.clear(); S.manual = [];
+      runAnalysis();
+    };
 
     dropzone.addEventListener('click', onDropzoneClick);
     dropzone.addEventListener('keydown', onDropzoneKey);
     fileInput.addEventListener('change', onFileChange);
     byId('newImage').addEventListener('click', onNewImage);
     byId('autoCorners').addEventListener('click', onAutoCorners);
-    byId('resetCorners').addEventListener('click', onResetCorners);
     grateOnEl.addEventListener('change', onGrateToggle);
     sensEl.addEventListener('input', onSensInput);
     sensEl.addEventListener('change', onSensChange);
     spacingEl.addEventListener('input', onSpacingInput);
     spacingEl.addEventListener('change', onSpacingChange);
+    tiltEl.addEventListener('input', onTiltInput);
+    tiltEl.addEventListener('change', onTiltChange);
+    byId('orientAuto').addEventListener('click', onOrient('auto'));
+    byId('orientV').addEventListener('click', onOrient('v'));
+    byId('orientH').addEventListener('click', onOrient('h'));
+    byId('resetParams').addEventListener('click', onResetParams);
     byId('faceW').addEventListener('input', updateReadouts);
     byId('faceH').addEventListener('input', updateReadouts);
     byId('pleatDepth').addEventListener('input', updateReadouts);
@@ -1105,7 +1151,6 @@ export default function PleatCounterPage() {
                 <p className="pc-hint">Corners snap to the pleated area automatically — the smooth, bright frame is excluded. Drag the purple dots to fine-tune; the rectified view in step 3 shows exactly what falls inside the frame.</p>
                 <div className="pc-btnrow">
                   <button className="primary" id="autoCorners">Auto corners</button>
-                  <button id="resetCorners">Reset corners</button>
                   <button id="newImage">New image</button>
                 </div>
                 <div className="pc-legend">
@@ -1117,7 +1162,7 @@ export default function PleatCounterPage() {
               </div>
 
               <div className="pc-card">
-                <div className="pc-step"><span className="pc-n">2</span><h2>Count pleats</h2></div>
+                <div className="pc-step"><span className="pc-n">2</span><h2>Count pleats</h2><button type="button" className="pc-reset" id="resetParams">Reset defaults</button></div>
                 <div className="pc-row">
                   <label htmlFor="sens">Sensitivity</label>
                   <input type="range" id="sens" min={10} max={70} defaultValue={35} />
@@ -1128,7 +1173,20 @@ export default function PleatCounterPage() {
                   <input type="range" id="spacing" min={15} max={90} defaultValue={60} />
                   <output id="spacingOut">0.60×</output>
                 </div>
-                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Everything recounts when a setting changes. Tap the image, or click in the trace below it, to add a missed ridge or remove a false one.</p>
+                <div className="pc-row">
+                  <label>Orientation</label>
+                  <span className="pc-unittoggle" role="radiogroup" aria-label="Pleat orientation">
+                    <button type="button" id="orientAuto" className="active">Auto</button>
+                    <button type="button" id="orientV">Vert</button>
+                    <button type="button" id="orientH">Horiz</button>
+                  </span>
+                </div>
+                <div className="pc-row">
+                  <label htmlFor="tilt">Tilt guide</label>
+                  <input type="range" id="tilt" min={-30} max={30} defaultValue={0} />
+                  <output id="tiltOut">0°</output>
+                </div>
+                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Orientation forces the ridge direction if auto picks wrong; the tilt guide recenters the ±12° lean search for strongly tilted pleats. Everything recounts when a setting changes. Tap the image, or click in the trace below it, to add a missed ridge or remove a false one.</p>
                 <div className="pc-status" id="status">Waiting for image.</div>
               </div>
 
@@ -1197,6 +1255,7 @@ const PC_CSS = `
 .pc-rail{display:flex;flex-direction:column;gap:1rem}
 .pc-card{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:1.1rem 1.2rem}
 .pc-step{display:flex;align-items:center;gap:0.6rem;margin-bottom:0.7rem}
+.pc-root .pc-step .pc-reset{margin-left:auto;font-size:0.66rem;font-weight:600;padding:0.28rem 0.55rem;color:var(--text-secondary)}
 .pc-step .pc-n{font-size:0.72rem;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--accent-primary),#8b5cf6);border-radius:6px;padding:0.1rem 0.5rem;line-height:1.5}
 .pc-step h2{font-size:0.82rem;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;color:var(--text-primary)}
 .pc-hint{color:var(--text-secondary);font-size:0.8rem;line-height:1.55;margin-bottom:0.7rem}
