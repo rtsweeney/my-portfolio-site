@@ -1823,6 +1823,25 @@ export default function PleatedFilterCalculatorPage() {
     attachInputListeners();
     (document.getElementById('timestamp') as HTMLElement).textContent =
       new Date().toISOString().split('T')[0];
+
+    // Prefill from the pleat counter's "Simulate performance" handoff
+    // (?fh=&fw=&pd=&count=&grating= — all imperial units)
+    const qp = new URLSearchParams(window.location.search);
+    const prefill = (id: string, key: string, lo: number, hi: number) => {
+      const v = parseFloat(qp.get(key) ?? '');
+      if (isFinite(v) && v >= lo && v <= hi) {
+        (document.getElementById(id) as HTMLInputElement).value = String(v);
+      }
+    };
+    prefill('F_H', 'fh', 0.1, 1000);
+    prefill('F_W', 'fw', 0.1, 1000);
+    prefill('P_D', 'pd', 0.01, 100);
+    prefill('GRATING', 'grating', 0, 90);
+    if (qp.has('count')) {
+      prefill('PLEAT_COUNT', 'count', 1, 10000);
+      setPleatMode('count');
+    }
+
     render();
 
     return () => {

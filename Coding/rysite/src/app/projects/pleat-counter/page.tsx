@@ -1,1474 +1,1065 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, type CSSProperties, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 
-type AreaUnit = 'ft²' | 'm²' | 'in²';
-interface Rect { x: number; y: number; w: number; h: number }
-type Pt = [number, number]; // [x, y]
-type Quad = [Pt, Pt, Pt, Pt]; // TL, TR, BR, BL — clockwise
-
-interface PleatResult {
-  count: number;
-  positions: number[];
-  direction: 'h' | 'v';
-  ridgeLines: number[][];
-  ridgeOffsets: number[][];
-  gratingBars: number[];
-  period: number;
-  gratingDetected: boolean;
-  confidence: number;
+// ── Types ─────────────────────────────────────────────────────────────────────
+type Pt = [number, number];
+type Quad = [Pt, Pt, Pt, Pt]; // TL, TR, BR, BL
+interface Peak { x: number; v: number; prom: number }
+interface RectData { rect: Float32Array; RW: number; RH: number; H: number[]; Hinv: number[] }
+interface RectAnalysis { shearDeg: number; profile: Float32Array; det: Float32Array; pitch: number; peaks: Peak[] }
+interface AnalyzeOpts { promFrac?: number; spacingFrac?: number; shearRange?: number; shearCenter?: number; mask?: Uint8Array | null }
+interface AppState {
+  img: ImageBitmap | HTMLImageElement | null;
+  gray: Float32Array | null; gw: number; gh: number;
+  aScale: number;
+  quad: Quad | null;
+  rectData: RectData | null;
+  transposed: boolean;
+  result: RectAnalysis | null;
+  removed: Set<number>;
+  manual: number[];
+  grateMask: Uint8Array | null; openPct: number | null;
+  dragging: number;
+  dispScale: number; dispOx: number; dispOy: number;
 }
 
-const MAX_DIM = 1000;
-
-// ── Image Processing Utilities ────────────────────────────────────────────────
-
-function toGrayscale(data: Uint8ClampedArray): Float32Array {
-  const n = data.length >> 2;
-  const g = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const j = i << 2;
-    g[i] = 0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2];
-  }
-  return g;
-}
-
-// ── Quad Helpers ──────────────────────────────────────────────────────────────
-
-function quadBounds(q: Quad): Rect {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const [x, y] of q) {
-    minX = Math.min(minX, x); minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-  }
-  const x = Math.floor(minX), y = Math.floor(minY);
-  return { x, y, w: Math.ceil(maxX) - x, h: Math.ceil(maxY) - y };
-}
-
-/** Scanline-fill mask: 1 = inside quad, 0 = outside. */
-function createQuadMask(q: Quad, w: number, h: number): Uint8Array {
-  const mask = new Uint8Array(w * h);
-  const edges: [Pt, Pt][] = [[q[0], q[1]], [q[1], q[2]], [q[2], q[3]], [q[3], q[0]]];
-  let minY = h, maxY = 0;
-  for (const [, y] of q) { minY = Math.min(minY, Math.floor(y)); maxY = Math.max(maxY, Math.ceil(y)); }
-  minY = Math.max(0, minY); maxY = Math.min(h - 1, maxY);
-
-  for (let row = minY; row <= maxY; row++) {
-    const xs: number[] = [];
-    for (const [p1, p2] of edges) {
-      if ((p1[1] <= row && p2[1] > row) || (p2[1] <= row && p1[1] > row)) {
-        const t = (row - p1[1]) / (p2[1] - p1[1]);
-        xs.push(p1[0] + t * (p2[0] - p1[0]));
-      }
-    }
-    if (xs.length < 2) continue;
-    xs.sort((a, b) => a - b);
-    const left = Math.max(0, Math.floor(xs[0]));
-    const right = Math.min(w - 1, Math.ceil(xs[xs.length - 1]));
-    for (let x = left; x <= right; x++) mask[row * w + x] = 1;
-  }
-  return mask;
-}
-
-/** Shrink a quad toward its centroid by a fraction (0-1). */
-function insetQuad(q: Quad, frac: number): Quad {
-  const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4;
-  const cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
-  return q.map(([x, y]) => [x + (cx - x) * frac, y + (cy - y) * frac] as Pt) as Quad;
-}
-
-// ── Center-Out Filter Boundary Detection ─────────────────────────────────────
-// Assumes the center of the image contains pleats. Detects the pleat period &
-// orientation from a central patch, then walks outward in each direction with
-// a sliding window, re-estimating the period in a narrow range around the
-// previous step's value so the search tracks foreshortening.  The boundary is
-// the last position where any nearby period is still strongly autocorrelated;
-// once strength stays below threshold for several consecutive windows, we stop.
-
-function detectFilterQuad(gray: Float32Array, w: number, h: number): Quad {
-  const fallbackMargin = Math.round(Math.min(w, h) * 0.05);
-  const fallbackQuad = (): Quad => {
-    const m = fallbackMargin;
-    return [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
-  };
-
-  // 1. Build full-width / full-height profiles using a central perpendicular band.
-  //    xProfile[x] = mean gray over central y-band → varies along x → reveals
-  //    a period when pleat ridges run vertically (pleats repeat horizontally).
-  //    yProfile[y] = mean gray over central x-band → reveals horizontal ridges.
-  const cFrac = 0.30;
-  const cyLo = Math.floor(h * (0.5 - cFrac / 2));
-  const cyHi = Math.floor(h * (0.5 + cFrac / 2));
-  const cxLo = Math.floor(w * (0.5 - cFrac / 2));
-  const cxHi = Math.floor(w * (0.5 + cFrac / 2));
-  if (cyHi <= cyLo + 2 || cxHi <= cxLo + 2) return fallbackQuad();
-
-  const xProfile = new Float32Array(w);
-  for (let x = 0; x < w; x++) {
-    let s = 0;
-    for (let y = cyLo; y < cyHi; y++) s += gray[y * w + x];
-    xProfile[x] = s / (cyHi - cyLo);
-  }
-  const yProfile = new Float32Array(h);
-  for (let y = 0; y < h; y++) {
-    let s = 0;
-    for (let x = cxLo; x < cxHi; x++) s += gray[y * w + x];
-    yProfile[y] = s / (cxHi - cxLo);
-  }
-
-  // 2. Detect orientation & period from the central slice of each profile.
-  const smR = 1;
-  const xCenter = xProfile.slice(cxLo, cxHi);
-  const yCenter = yProfile.slice(cyLo, cyHi);
-  const xCenterDet = detrend(smoothProfile(xCenter, smR));
-  const yCenterDet = detrend(smoothProfile(yCenter, smR));
-
-  const minPer = 4;
-  const xRes = estimatePeriodAutocorr(xCenterDet, minPer, Math.floor(xCenter.length * 0.4));
-  const yRes = estimatePeriodAutocorr(yCenterDet, minPer, Math.floor(yCenter.length * 0.4));
-
-  // horiz=true → period along x → ridges are vertical (count peaks across columns).
-  const horiz = xRes.strength >= yRes.strength;
-  const period = horiz ? xRes.period : yRes.period;
-  const baseStrength = horiz ? xRes.strength : yRes.strength;
-
-  if (period < minPer || baseStrength < 0.05) return fallbackQuad();
-
-  // 3. Walk outward along the period axis using the precomputed full profile.
-  //    The local period is allowed to drift between windows (perspective
-  //    foreshortening makes pleats compress as you approach the far edge), so
-  //    each step seeds the next from its own period estimate within ±35%.
-  const pProfile = horiz ? xProfile : yProfile;
-  const pTotal = pProfile.length;
-  const winLen = Math.max(8, Math.round(period * 4));
-  const pStride = Math.max(1, Math.round(period * 0.5));
-  const strengthThresh = Math.max(0.05, baseStrength * 0.35);
-  const failsRequired = 3;
-  const periodTol = 0.35;
-
-  // Search for a strong period in [seed*(1-tol), seed*(1+tol)] within a slice.
-  const localPeriod = (
-    prof: Float32Array, start: number, len: number, seed: number,
-  ): { period: number; strength: number } => {
-    if (start < 0 || start + len > prof.length || len < seed * 2) {
-      return { period: seed, strength: 0 };
-    }
-    const slice = prof.slice(start, start + len);
-    const det = detrend(smoothProfile(slice, smR));
-    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
-    const hi = Math.min(Math.floor(slice.length / 2), Math.ceil(seed * (1 + periodTol)));
-    if (hi <= lo) return { period: seed, strength: 0 };
-    return estimatePeriodAutocorr(det, lo, hi);
-  };
-
-  const findEdgeAlongProfile = (prof: Float32Array, totalLen: number, dir: -1 | 1): number => {
-    const center = Math.floor(totalLen / 2);
-    let winStart = center - Math.floor(winLen / 2);
-    let lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
-    let seed = period;
-    let fails = 0;
-    while (true) {
-      winStart += dir * pStride;
-      if (winStart < 0 || winStart + winLen > totalLen) break;
-      const { period: lp, strength } = localPeriod(prof, winStart, winLen, seed);
-      if (strength >= strengthThresh && lp >= minPer) {
-        lastGoodEdge = dir === 1 ? winStart + winLen : winStart;
-        seed = lp;
-        fails = 0;
-      } else if (++fails >= failsRequired) {
-        break;
-      }
-    }
-    return Math.max(0, Math.min(totalLen, lastGoodEdge));
-  };
-
-  const pLo = findEdgeAlongProfile(pProfile, pTotal, -1);
-  const pHi = findEdgeAlongProfile(pProfile, pTotal, +1);
-  if (pHi - pLo < period * 3) return fallbackQuad();
-
-  // 4. Walk outward along the ridge axis. At each ridge band, build a
-  //    period-axis profile from the detected pLo..pHi range and look for a
-  //    period in a window around the previous step's estimate.
-  const rTotal = horiz ? h : w;
-  const ridgeWinH = Math.max(3, Math.round(period));
-  const rStride = Math.max(1, Math.round(period * 0.5));
-  const pBandLo = Math.max(0, Math.round(pLo));
-  const pBandHi = Math.min(pTotal, Math.round(pHi));
-  const pBandLen = pBandHi - pBandLo;
-
-  const ridgePeriodAt = (
-    rStart: number, len: number, seed: number,
-  ): { period: number; strength: number } => {
-    if (rStart < 0 || rStart + len > rTotal || pBandLen < seed * 2) {
-      return { period: seed, strength: 0 };
-    }
-    const prof = new Float32Array(pBandLen);
-    if (horiz) {
-      for (let x = pBandLo; x < pBandHi; x++) {
-        let s = 0;
-        for (let y = rStart; y < rStart + len; y++) s += gray[y * w + x];
-        prof[x - pBandLo] = s / len;
-      }
-    } else {
-      for (let y = pBandLo; y < pBandHi; y++) {
-        let s = 0;
-        for (let x = rStart; x < rStart + len; x++) s += gray[y * w + x];
-        prof[y - pBandLo] = s / len;
-      }
-    }
-    const det = detrend(smoothProfile(prof, smR));
-    const lo = Math.max(2, Math.floor(seed * (1 - periodTol)));
-    const hi = Math.min(Math.floor(pBandLen / 2), Math.ceil(seed * (1 + periodTol)));
-    if (hi <= lo) return { period: seed, strength: 0 };
-    return estimatePeriodAutocorr(det, lo, hi);
-  };
-
-  const findRidgeEdge = (dir: -1 | 1): number => {
-    const center = Math.floor(rTotal / 2);
-    let winStart = center - Math.floor(ridgeWinH / 2);
-    let lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
-    let seed = period;
-    let fails = 0;
-    while (true) {
-      winStart += dir * rStride;
-      if (winStart < 0 || winStart + ridgeWinH > rTotal) break;
-      const { period: lp, strength } = ridgePeriodAt(winStart, ridgeWinH, seed);
-      if (strength >= strengthThresh && lp >= minPer) {
-        lastGoodEdge = dir === 1 ? winStart + ridgeWinH : winStart;
-        seed = lp;
-        fails = 0;
-      } else if (++fails >= failsRequired) {
-        break;
-      }
-    }
-    return Math.max(0, Math.min(rTotal, lastGoodEdge));
-  };
-
-  const rLo = findRidgeEdge(-1);
-  const rHi = findRidgeEdge(+1);
-
-  // 5. Assemble axis-aligned quad and validate.
-  const xL = Math.max(0, Math.round(horiz ? pLo : rLo));
-  const xR = Math.min(w - 1, Math.round(horiz ? pHi : rHi));
-  const yT = Math.max(0, Math.round(horiz ? rLo : pLo));
-  const yB = Math.min(h - 1, Math.round(horiz ? rHi : pHi));
-
-  if (xR - xL < w * 0.15 || yB - yT < h * 0.15) return fallbackQuad();
-
-  return insetQuad([[xL, yT], [xR, yT], [xR, yB], [xL, yB]], 0.005);
-}
-
-// ── Profile Utilities ─────────────────────────────────────────────────────────
-
-function smoothProfile(p: Float32Array, r: number): Float32Array {
-  const n = p.length;
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
-    let s = 0;
-    for (let j = lo; j <= hi; j++) s += p[j];
-    out[i] = s / (hi - lo + 1);
-  }
-  return out;
-}
-
-function detrend(p: Float32Array): Float32Array {
-  const trend = smoothProfile(p, Math.max(1, Math.round(p.length / 8)));
-  const out = new Float32Array(p.length);
-  for (let i = 0; i < p.length; i++) out[i] = p[i] - trend[i];
-  return out;
-}
-
-function stdDev(arr: Float32Array): number {
-  const n = arr.length;
-  if (!n) return 0;
-  let s = 0, s2 = 0;
-  for (let i = 0; i < n; i++) { s += arr[i]; s2 += arr[i] * arr[i]; }
-  const m = s / n;
-  return Math.sqrt(Math.max(0, s2 / n - m * m));
-}
-
-function findPeaks(profile: Float32Array, minProm: number): number[] {
-  const n = profile.length;
-  const peaks: number[] = [];
-  for (let i = 1; i < n - 1; i++) {
-    if (profile[i] > profile[i - 1] && profile[i] >= profile[i + 1]) {
-      let lMin = profile[i], rMin = profile[i];
-      for (let j = i - 1; j >= 0; j--) {
-        lMin = Math.min(lMin, profile[j]);
-        if (profile[j] > profile[i]) break;
-      }
-      for (let j = i + 1; j < n; j++) {
-        rMin = Math.min(rMin, profile[j]);
-        if (profile[j] > profile[i]) break;
-      }
-      if (profile[i] - Math.max(lMin, rMin) >= minProm) peaks.push(i);
-    }
-  }
-  return peaks;
-}
-
-// ── Autocorrelation Period Estimation ─────────────────────────────────────────
-
-function estimatePeriodAutocorr(profile: Float32Array, minPeriod: number, maxPeriod: number): { period: number; strength: number } {
-  const n = profile.length;
-  let mean = 0;
-  for (let i = 0; i < n; i++) mean += profile[i];
-  mean /= n;
-  const centered = new Float32Array(n);
-  let energy = 0;
-  for (let i = 0; i < n; i++) {
-    centered[i] = profile[i] - mean;
-    energy += centered[i] * centered[i];
-  }
-  if (energy < 1e-10) return { period: 0, strength: 0 };
-
-  const minLag = Math.max(2, Math.floor(minPeriod));
-  const maxLag = Math.min(Math.floor(n / 2), Math.ceil(maxPeriod));
-  const acf = new Float32Array(maxLag + 1);
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let sum = 0;
-    for (let i = 0; i < n - lag; i++) sum += centered[i] * centered[i + lag];
-    acf[lag] = sum / energy;
-  }
-
-  let bestLag = 0, bestVal = -Infinity;
-  for (let lag = minLag + 1; lag < maxLag; lag++) {
-    if (acf[lag] > acf[lag - 1] && acf[lag] >= acf[lag + 1] && acf[lag] > bestVal) {
-      bestVal = acf[lag];
-      bestLag = lag;
-      break;
-    }
-  }
-
-  if (bestLag === 0) {
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      if (acf[lag] > bestVal) { bestVal = acf[lag]; bestLag = lag; }
-    }
-  }
-
-  if (bestLag > minLag && bestLag < maxLag) {
-    const a = acf[bestLag - 1], b = acf[bestLag], c = acf[bestLag + 1];
-    const denom = 2 * (2 * b - a - c);
-    if (Math.abs(denom) > 1e-10) {
-      const delta = (a - c) / denom;
-      return { period: bestLag + delta, strength: Math.max(0, bestVal) };
-    }
-  }
-
-  return { period: bestLag, strength: Math.max(0, bestVal) };
-}
-
-// ── Grating Detection (mask-aware) ───────────────────────────────────────────
-
-function detectGrating(
-  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, pleatDir: 'h' | 'v'
-): { bars: number[]; gaps: Array<[number, number]>; detected: boolean } {
-  const perpLen = pleatDir === 'h' ? bounds.h : bounds.w;
-  const paraLen = pleatDir === 'h' ? bounds.w : bounds.h;
-
-  const profile = new Float32Array(perpLen);
-  const margin = 0.1;
-  const paraStart = Math.floor(paraLen * margin);
-  const paraEnd = Math.floor(paraLen * (1 - margin));
-  if (paraEnd <= paraStart) return { bars: [], gaps: [], detected: false };
-
-  for (let perp = 0; perp < perpLen; perp++) {
-    let sum = 0, cnt = 0;
-    for (let para = paraStart; para < paraEnd; para++) {
-      const x = pleatDir === 'h' ? bounds.x + para : bounds.x + perp;
-      const y = pleatDir === 'h' ? bounds.y + perp : bounds.y + para;
-      if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
-        sum += gray[y * imgW + x];
-        cnt++;
-      }
-    }
-    profile[perp] = cnt > 0 ? sum / cnt : 0;
-  }
-
-  const smoothR = Math.max(1, Math.round(perpLen * 0.005));
-  const smoothed = smoothProfile(profile, smoothR);
-  const det = detrend(smoothed);
-
-  const minGratingPeriod = Math.max(5, perpLen * 0.03);
-  const maxGratingPeriod = perpLen * 0.25;
-  const { period: gratingPeriod, strength } = estimatePeriodAutocorr(det, minGratingPeriod, maxGratingPeriod);
-
-  if (strength < 0.15 || gratingPeriod < minGratingPeriod) {
-    return { bars: [], gaps: [], detected: false };
-  }
-
-  const sd = stdDev(det);
-  const barThreshold = -sd * 0.3;
-  const bars: number[] = [];
-
-  for (let i = 1; i < perpLen - 1; i++) {
-    if (det[i] < det[i - 1] && det[i] <= det[i + 1] && det[i] < barThreshold) {
-      if (bars.length === 0 || Math.abs((i - bars[bars.length - 1]) - gratingPeriod) < gratingPeriod * 0.5) {
-        bars.push(i);
-      }
-    }
-  }
-
-  const barHalfWidth = Math.max(2, Math.round(gratingPeriod * 0.12));
-  const gaps: Array<[number, number]> = [];
-  if (bars.length > 0) {
-    if (bars[0] > barHalfWidth * 2) gaps.push([0, bars[0] - barHalfWidth]);
-    for (let i = 0; i < bars.length - 1; i++) {
-      const gS = bars[i] + barHalfWidth, gE = bars[i + 1] - barHalfWidth;
-      if (gE > gS + 2) gaps.push([gS, gE]);
-    }
-    if (bars[bars.length - 1] + barHalfWidth * 2 < perpLen) {
-      gaps.push([bars[bars.length - 1] + barHalfWidth, perpLen - 1]);
-    }
-  }
-
-  return { bars, gaps, detected: bars.length >= 2 };
-}
-
-// ── Multi-Strip Profile Extraction (mask-aware) ──────────────────────────────
-
-function extractStripProfiles(
-  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
-  gaps: Array<[number, number]> | null, numStrips: number
-): Float32Array[] {
-  const paraLen = dir === 'h' ? bounds.w : bounds.h;
-  const perpLen = dir === 'h' ? bounds.h : bounds.w;
-  const profiles: Float32Array[] = [];
-
-  let stripRanges: Array<[number, number]>;
-  if (gaps && gaps.length > 0) {
-    stripRanges = [];
-    for (const [gStart, gEnd] of gaps) {
-      const gapSize = gEnd - gStart;
-      if (gapSize < 3) continue;
-      const margin = Math.max(1, Math.floor(gapSize * 0.15));
-      stripRanges.push([gStart + margin, gEnd - margin]);
-    }
-  } else {
-    const stripH = Math.max(3, Math.floor(perpLen / numStrips));
-    stripRanges = [];
-    for (let s = 0; s < numStrips; s++) {
-      const start = Math.floor(s * perpLen / numStrips);
-      const end = Math.min(perpLen - 1, start + stripH);
-      if (end > start + 1) stripRanges.push([start, end]);
-    }
-  }
-
-  for (const [stripStart, stripEnd] of stripRanges) {
-    const prof = new Float32Array(paraLen);
-    const counts = new Float32Array(paraLen);
-    for (let perp = stripStart; perp < stripEnd; perp++) {
-      for (let para = 0; para < paraLen; para++) {
-        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
-        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
-        if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
-          prof[para] += gray[y * imgW + x];
-          counts[para]++;
-        }
-      }
-    }
-    let anyData = false;
-    for (let i = 0; i < paraLen; i++) {
-      if (counts[i] > 0) { prof[i] /= counts[i]; anyData = true; }
-    }
-    if (anyData) profiles.push(prof);
-  }
-
-  return profiles;
-}
-
-// ── Consensus Peak Voting ────────────────────────────────────────────────────
-
-function consensusPeaks(
-  allPeaks: number[][], profileLen: number, expectedPeriod: number
-): number[] {
-  if (allPeaks.length === 0) return [];
-
-  const tolerance = Math.max(2, Math.round(expectedPeriod * 0.15));
-  const votes = new Float32Array(profileLen);
-
-  for (const peaks of allPeaks) {
-    for (const p of peaks) {
-      for (let d = -tolerance; d <= tolerance; d++) {
-        const idx = p + d;
-        if (idx >= 0 && idx < profileLen) {
-          votes[idx] += Math.exp(-(d * d) / (2 * (tolerance / 2) ** 2));
-        }
-      }
-    }
-  }
-
-  const smoothedVotes = smoothProfile(votes, Math.max(1, Math.round(tolerance * 0.3)));
-  const minVotes = Math.max(1, allPeaks.length * 0.15);
-  const consensusPositions: number[] = [];
-  for (let i = 1; i < profileLen - 1; i++) {
-    if (smoothedVotes[i] > smoothedVotes[i - 1] && smoothedVotes[i] >= smoothedVotes[i + 1]
-        && smoothedVotes[i] >= minVotes) {
-      if (consensusPositions.length > 0 && i - consensusPositions[consensusPositions.length - 1] < expectedPeriod * 0.4) {
-        const prev = consensusPositions[consensusPositions.length - 1];
-        if (smoothedVotes[i] > smoothedVotes[prev]) {
-          consensusPositions[consensusPositions.length - 1] = i;
-        }
-      } else {
-        consensusPositions.push(i);
-      }
-    }
-  }
-
-  return consensusPositions;
-}
-
-// ── Ridge Tracking (consensus-based uniform lean) ────────────────────────────
-// All pleat ridges follow the same global lean trajectory. Individual ridges
-// are NOT allowed to wander independently (which lets grating hijack them).
-// Instead: sample each pleat at its original position, compute median offset
-// across all pleats at each perpendicular step, smooth, and apply uniformly.
-
-function trackRidges(
-  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array, dir: 'h' | 'v',
-  pleatPositions: number[], period: number, findBright = true
-): { ridgeLines: number[][]; ridgeOffsets: number[][] } {
-  const perpLen = dir === 'h' ? bounds.h : bounds.w;
-  const paraLen = dir === 'h' ? bounds.w : bounds.h;
-  const searchRadius = Math.max(2, Math.round(period * 0.15));
-  const step = Math.max(1, Math.round(perpLen / 80));
-  const numSteps = Math.ceil(perpLen / step);
-
-  if (pleatPositions.length === 0 || numSteps === 0) {
-    return { ridgeLines: [], ridgeOffsets: [] };
-  }
-
-  // Phase 1: For each pleat, sample offset at each perp step WITHOUT drift.
-  // Each pleat searches near its ORIGINAL position only — no accumulation.
-  const rawOffsets: Float32Array[] = [];
-  for (const pleatPos of pleatPositions) {
-    const offsets = new Float32Array(numSteps);
-    for (let si = 0; si < numSteps; si++) {
-      const perp = Math.min(si * step, perpLen - 1);
-      let bestOff = 0;
-      let bestVal = -Infinity;
-
-      for (let d = -searchRadius; d <= searchRadius; d++) {
-        const para = pleatPos + d;
-        if (para < 0 || para >= paraLen) continue;
-        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
-        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
-        if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
-          const val = gray[y * imgW + x];
-          // findBright=true → track brightest pixel (pleat tip facing camera)
-          // findBright=false → track darkest pixel (pleat valley)
-          if (findBright ? val > bestVal : val < bestVal) { bestVal = val; bestOff = d; }
-        }
-      }
-      offsets[si] = bestOff;
-    }
-    rawOffsets.push(offsets);
-  }
-
-  // Phase 2: Compute median offset at each step across ALL pleats.
-  // This gives the consensus "lean" — the direction all ridges tilt together.
-  const medianLean = new Float32Array(numSteps);
-  const sortBuf: number[] = new Array(pleatPositions.length);
-  for (let si = 0; si < numSteps; si++) {
-    for (let p = 0; p < pleatPositions.length; p++) sortBuf[p] = rawOffsets[p][si];
-    sortBuf.sort((a, b) => a - b);
-    medianLean[si] = sortBuf[Math.floor(pleatPositions.length / 2)];
-  }
-
-  // Phase 3: Smooth the lean to remove noise — the lean should be gentle.
-  const smoothR = Math.max(2, Math.round(numSteps * 0.12));
-  const smoothedLean = smoothProfile(medianLean, smoothR);
-
-  // Phase 4: Apply the same smoothed lean to every pleat.
-  const ridgeLines: number[][] = [];
-  const ridgeOffsets: number[][] = [];
-  for (let p = 0; p < pleatPositions.length; p++) {
-    const line: number[] = [];
-    const offsets: number[] = [];
-    for (let si = 0; si < numSteps; si++) {
-      const perp = Math.min(si * step, perpLen - 1);
-      line.push(perp);
-      offsets.push(smoothedLean[si]);
-    }
-    ridgeLines.push(line);
-    ridgeOffsets.push(offsets);
-  }
-
-  return { ridgeLines, ridgeOffsets };
-}
-
-// ── Grid Extrapolation ───────────────────────────────────────────────────────
-
-function extrapolateGrid(
-  detectedPositions: number[], period: number, regionLen: number
-): { gridPositions: number[]; count: number } {
-  if (period <= 0 || detectedPositions.length === 0) {
-    return { gridPositions: detectedPositions, count: detectedPositions.length };
-  }
-
-  // Constrain grid to the range where pleats were actually detected, with a
-  // small margin (half a period) to allow filling small gaps at the edges —
-  // but never extrapolate far beyond observed evidence.
-  const sorted = [...detectedPositions].sort((a, b) => a - b);
-  const rangeMin = Math.max(0, sorted[0] - period * 0.5);
-  const rangeMax = Math.min(regionLen, sorted[sorted.length - 1] + period * 0.5);
-
-  const phaseBins = Math.max(10, Math.round(period));
-  const phaseVotes = new Float32Array(phaseBins);
-  for (const pos of detectedPositions) {
-    const phase = ((pos % period) + period) % period;
-    const bin = Math.round((phase / period) * phaseBins) % phaseBins;
-    phaseVotes[bin]++;
-  }
-
-  let bestPhase = 0, bestVotes = 0;
-  for (let i = 0; i < phaseBins; i++) {
-    if (phaseVotes[i] > bestVotes) { bestVotes = phaseVotes[i]; bestPhase = i; }
-  }
-  const phaseOffset = (bestPhase / phaseBins) * period;
-
-  // Build grid only within the detected pleat range
-  const gridPositions: number[] = [];
-  let pos = phaseOffset;
-  while (pos - period >= rangeMin) pos -= period;
-  while (pos < rangeMax) {
-    if (pos >= rangeMin) gridPositions.push(Math.round(pos));
-    pos += period;
-  }
-
-  let matches = 0;
-  const matchTolerance = period * 0.3;
-  for (const gp of gridPositions) {
-    for (const dp of detectedPositions) {
-      if (Math.abs(gp - dp) < matchTolerance) { matches++; break; }
-    }
-  }
-
-  const matchRatio = detectedPositions.length > 0 ? matches / detectedPositions.length : 0;
-  if (matchRatio >= 0.5 && gridPositions.length > 0) {
-    return { gridPositions, count: gridPositions.length };
-  }
-
-  return { gridPositions: detectedPositions, count: detectedPositions.length };
-}
-
-// ── Edge-Zone Multi-Line Max Counting ─────────────────────────────────────────
-// Pleats near the filter frame edges are often partially hidden by the border.
-// Instead of averaging, scan multiple individual lines in the top and bottom
-// thirds and take the UNION of all detected peaks (if ANY line sees a pleat at
-// position X, it counts). This maximises recall at the edges where some pleats
-// are only visible on certain scan lines.
-
-function edgeZoneMaxPeaks(
-  gray: Float32Array, imgW: number, bounds: Rect, mask: Uint8Array,
-  dir: 'h' | 'v', smoothR: number, pFactor: number, detectBright: boolean,
-  expectedPeriod: number
-): number[] {
-  const paraLen = dir === 'h' ? bounds.w : bounds.h;
-  const perpLen = dir === 'h' ? bounds.h : bounds.w;
-  const thirdSize = Math.floor(perpLen / 3);
-  const numLines = Math.max(3, Math.min(8, Math.floor(thirdSize / 2)));
-
-  // Define zones: top third and bottom third of the perpendicular axis
-  const zones: Array<[number, number]> = [
-    [0, thirdSize],                          // top third
-    [perpLen - thirdSize, perpLen],           // bottom third
-  ];
-
-  const tolerance = Math.max(2, Math.round(expectedPeriod * 0.25));
-  // Collect all peak positions from all scan lines in both edge zones
-  const seenPositions = new Uint8Array(paraLen);
-
-  for (const [zStart, zEnd] of zones) {
-    const zoneSpan = zEnd - zStart;
-    const step = Math.max(1, Math.floor(zoneSpan / numLines));
-
-    for (let lineIdx = 0; lineIdx < numLines; lineIdx++) {
-      const perp = zStart + Math.min(Math.floor(lineIdx * step + step / 2), zoneSpan - 1);
-      // Extract a single scan line (with a narrow 3-pixel band for noise reduction)
-      const bandHalf = 1;
-      const prof = new Float32Array(paraLen);
-      const counts = new Float32Array(paraLen);
-      for (let dp = -bandHalf; dp <= bandHalf; dp++) {
-        const p = perp + dp;
-        if (p < 0 || p >= perpLen) continue;
-        for (let para = 0; para < paraLen; para++) {
-          const x = dir === 'h' ? bounds.x + para : bounds.x + p;
-          const y = dir === 'h' ? bounds.y + p : bounds.y + para;
-          if (x >= 0 && y >= 0 && x < imgW && mask[y * imgW + x]) {
-            prof[para] += gray[y * imgW + x];
-            counts[para]++;
-          }
-        }
-      }
-      let anyData = false;
-      for (let i = 0; i < paraLen; i++) {
-        if (counts[i] > 0) { prof[i] /= counts[i]; anyData = true; }
-      }
-      if (!anyData) continue;
-
-      const smooth = smoothProfile(prof, smoothR);
-      const det = detrend(smooth);
-      const oriented = detectBright ? det : det.map(v => -v) as Float32Array;
-      const sd = stdDev(oriented);
-      const peaks = findPeaks(oriented, sd * pFactor);
-      for (const pk of peaks) {
-        // Mark the position and a small tolerance window
-        for (let d = -tolerance; d <= tolerance; d++) {
-          const idx = pk + d;
-          if (idx >= 0 && idx < paraLen) seenPositions[idx] = 1;
-        }
-      }
-    }
-  }
-
-  // Convert the seen-positions bitmap back to peak positions: find cluster centers
-  const edgePeaks: number[] = [];
-  let i = 0;
-  while (i < paraLen) {
-    if (seenPositions[i]) {
-      let sum = 0, count = 0;
-      while (i < paraLen && seenPositions[i]) { sum += i; count++; i++; }
-      edgePeaks.push(Math.round(sum / count));
-    } else {
-      i++;
-    }
-  }
-  return edgePeaks;
-}
-
-// Merge edge-zone peaks into existing positions: add only peaks that are
-// consistent with the detected period (near a grid line) but were missed
-// by the main consensus pipeline.
-function mergeEdgePeaks(
-  mainPositions: number[], edgePeaks: number[], period: number, regionLen: number
-): number[] {
-  if (period <= 0 || edgePeaks.length === 0) return mainPositions;
-
-  const merged = [...mainPositions];
-  const minSep = period * 0.4;  // must be at least this far from existing peaks
-
-  for (const ep of edgePeaks) {
-    // Check it doesn't duplicate an existing position
-    let tooClose = false;
-    for (const mp of merged) {
-      if (Math.abs(ep - mp) < minSep) { tooClose = true; break; }
-    }
-    if (tooClose) continue;
-
-    // Check it aligns with the grid: distance to nearest grid multiple should
-    // be within 30% of the period
-    if (mainPositions.length >= 2) {
-      let bestDist = Infinity;
-      for (const mp of mainPositions) {
-        const dist = Math.abs(ep - mp);
-        const gridDist = dist % period;
-        bestDist = Math.min(bestDist, Math.min(gridDist, period - gridDist));
-      }
-      if (bestDist > period * 0.3) continue;
-    }
-
-    if (ep >= 0 && ep < regionLen) merged.push(ep);
-  }
-
-  merged.sort((a, b) => a - b);
-  return merged;
-}
-
-// ── Main Analysis Pipeline ───────────────────────────────────────────────────
-
-function analyzePleats(
-  gray: Float32Array, imgW: number, imgH: number, bounds: Rect, mask: Uint8Array,
-  sensitivity: number, detectBright = true
-): PleatResult {
-  // pFactor controls peak prominence threshold: lower = more sensitive.
-  // Range: ~0.57 at 5% sensitivity down to ~0.02 at 95% sensitivity.
-  const pFactor = 0.60 - (sensitivity / 100) * 0.58;
-  // Adaptive smoothing: use smaller radius so high-density pleats aren't blurred
-  const smoothR = Math.max(1, Math.round(Math.max(bounds.w, bounds.h) * 0.002));
-  const numStrips = 12;
-
-  function analyzeDirection(dir: 'h' | 'v'): PleatResult {
-    const paraLen = dir === 'h' ? bounds.w : bounds.h;
-
-    const grating = detectGrating(gray, imgW, bounds, mask, dir);
-
-    const profiles = extractStripProfiles(
-      gray, imgW, bounds, mask, dir,
-      grating.detected ? grating.gaps : null,
-      numStrips
-    );
-
-    if (profiles.length === 0) {
-      return { count: 0, positions: [], direction: dir, ridgeLines: [], ridgeOffsets: [],
-               gratingBars: [], period: 0, gratingDetected: false, confidence: 0 };
-    }
-
-    const allPeaks: number[][] = [];
-    let bestPeriodSum = 0, periodCount = 0;
-
-    for (const rawProfile of profiles) {
-      const smooth = smoothProfile(rawProfile, smoothR);
-      // Optionally invert so findPeaks (which finds maxima) targets dark valleys
-      const det = detrend(smooth);
-      const oriented = detectBright ? det : det.map(v => -v) as Float32Array;
-      const sd = stdDev(oriented);
-      const peaks = findPeaks(oriented, sd * pFactor);
-      if (peaks.length >= 2) allPeaks.push(peaks);
-
-      // Wider period range: lower min for high-density (~8ppi), higher max for low-density
-      const minPeriod = Math.max(2, paraLen * 0.005);
-      const maxPeriod = paraLen * 0.25;
-      const { period, strength } = estimatePeriodAutocorr(oriented, minPeriod, maxPeriod);
-      if (strength > 0.1 && period > 0) {
-        bestPeriodSum += period;
-        periodCount++;
-      }
-    }
-
-    const combinedProfile = new Float32Array(paraLen);
-    for (const p of profiles) for (let i = 0; i < paraLen; i++) combinedProfile[i] += p[i];
-    for (let i = 0; i < paraLen; i++) combinedProfile[i] /= profiles.length;
-    const combinedSmooth = smoothProfile(combinedProfile, smoothR);
-    const combinedDet = detrend(combinedSmooth);
-    const combinedOriented = detectBright ? combinedDet : combinedDet.map(v => -v) as Float32Array;
-
-    const minPeriod = Math.max(2, paraLen * 0.005);
-    const maxPeriod = paraLen * 0.25;
-    const globalPeriod = estimatePeriodAutocorr(combinedOriented, minPeriod, maxPeriod);
-
-    const estPeriod = periodCount > 0 ? bestPeriodSum / periodCount : globalPeriod.period;
-
-    let positions: number[];
-    if (allPeaks.length >= 2 && estPeriod > 0) {
-      positions = consensusPeaks(allPeaks, paraLen, estPeriod);
-    } else {
-      const sd = stdDev(combinedOriented);
-      positions = findPeaks(combinedOriented, sd * pFactor);
-    }
-
-    const { gridPositions } = extrapolateGrid(positions, estPeriod, paraLen);
-
-    // Edge-zone multi-line max counting: scan top & bottom thirds to catch
-    // pleats that are hidden by the filter frame on some scan lines.
-    const edgePeaks = estPeriod > 0 ? edgeZoneMaxPeaks(
-      gray, imgW, bounds, mask, dir, smoothR, pFactor, detectBright, estPeriod
-    ) : [];
-    const finalPositions = mergeEdgePeaks(gridPositions, edgePeaks, estPeriod, paraLen);
-    const count = finalPositions.length;
-
-    const { ridgeLines, ridgeOffsets } = trackRidges(
-      gray, imgW, bounds, mask, dir, finalPositions, estPeriod, detectBright
-    );
-
-    const periodConfidence = globalPeriod.strength;
-    const stripAgreement = allPeaks.length / Math.max(1, profiles.length);
-    const confidence = Math.min(1, periodConfidence * 0.5 + stripAgreement * 0.5);
-
-    return {
-      count, positions: finalPositions, direction: dir,
-      ridgeLines, ridgeOffsets, gratingBars: grating.bars,
-      period: estPeriod, gratingDetected: grating.detected, confidence,
-    };
-  }
-
-  const hResult = analyzeDirection('h');
-  const vResult = analyzeDirection('v');
-
-  const hScore = hResult.confidence * hResult.count * (hResult.gratingDetected ? 1.2 : 1);
-  const vScore = vResult.confidence * vResult.count * (vResult.gratingDetected ? 1.2 : 1);
-
-  if (hScore >= vScore && hResult.count > 0) return hResult;
-  if (vResult.count > 0) return vResult;
-  if (hResult.count > 0) return hResult;
-  return vResult.count > 0 ? vResult : { ...hResult, count: 0, positions: [], direction: 'h' };
-}
-
-// ── Canvas Overlay ────────────────────────────────────────────────────────────
-
-function drawOverlay(
-  canvas: HTMLCanvasElement,
-  img: HTMLImageElement,
-  quad: Quad,
-  bounds: Rect,
-  result: PleatResult,
-  showOverlay = true
-) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const { width: cw, height: ch } = canvas;
-  const { positions, direction: dir, ridgeLines, ridgeOffsets, gratingBars, gratingDetected } = result;
-
-  ctx.drawImage(img, 0, 0, cw, ch);
-
-  // When overlay is hidden, still show corner handles so the quad is draggable
-  if (!showOverlay) {
-    drawCornerHandles(ctx, quad, cw);
-    return;
-  }
-
-  // Darken area outside the quad using evenodd fill
-  ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.beginPath();
-  ctx.rect(0, 0, cw, ch);
-  // Inner path counter-clockwise to punch hole via evenodd
-  ctx.moveTo(quad[3][0], quad[3][1]);
-  ctx.lineTo(quad[2][0], quad[2][1]);
-  ctx.lineTo(quad[1][0], quad[1][1]);
-  ctx.lineTo(quad[0][0], quad[0][1]);
-  ctx.closePath();
-  ctx.fill('evenodd');
-
-  // Quad outline
-  ctx.strokeStyle = '#00e676';
-  ctx.lineWidth = Math.max(1.5, cw / 400);
-  ctx.setLineDash([8, 5]);
-  ctx.beginPath();
-  ctx.moveTo(quad[0][0], quad[0][1]);
-  ctx.lineTo(quad[1][0], quad[1][1]);
-  ctx.lineTo(quad[2][0], quad[2][1]);
-  ctx.lineTo(quad[3][0], quad[3][1]);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Corner accents at each quad vertex
-  const cl = 18;
-  ctx.strokeStyle = '#00e676';
-  ctx.lineWidth = Math.max(2, cw / 300);
+// ================= core pipeline (validated) =================
+function computeHomography(src: Pt[], dst: Pt[]): number[] {
+  const M: number[][] = [], b: number[] = [];
   for (let i = 0; i < 4; i++) {
-    const curr = quad[i];
-    const prev = quad[(i + 3) % 4];
-    const next = quad[(i + 1) % 4];
-
-    // Direction vectors toward adjacent corners
-    let dpx = prev[0] - curr[0], dpy = prev[1] - curr[1];
-    let dnx = next[0] - curr[0], dny = next[1] - curr[1];
-    const dpLen = Math.sqrt(dpx * dpx + dpy * dpy) || 1;
-    const dnLen = Math.sqrt(dnx * dnx + dny * dny) || 1;
-    dpx = dpx / dpLen * cl; dpy = dpy / dpLen * cl;
-    dnx = dnx / dnLen * cl; dny = dny / dnLen * cl;
-
-    ctx.beginPath();
-    ctx.moveTo(curr[0] + dpx, curr[1] + dpy);
-    ctx.lineTo(curr[0], curr[1]);
-    ctx.lineTo(curr[0] + dnx, curr[1] + dny);
-    ctx.stroke();
+    const [x, y] = src[i]; const [u, v] = dst[i];
+    M.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    M.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
   }
-
-  if (positions.length === 0) return;
-
-  // Grating bar indicators
-  if (gratingDetected && gratingBars.length > 0) {
-    ctx.strokeStyle = 'rgba(255, 165, 0, 0.3)';
-    ctx.lineWidth = Math.max(1, cw / 500);
-    ctx.setLineDash([4, 4]);
-    for (const barPos of gratingBars) {
-      ctx.beginPath();
-      if (dir === 'h') {
-        const y = bounds.y + barPos;
-        ctx.moveTo(bounds.x, y);
-        ctx.lineTo(bounds.x + bounds.w, y);
-      } else {
-        const x = bounds.x + barPos;
-        ctx.moveTo(x, bounds.y);
-        ctx.lineTo(x, bounds.y + bounds.h);
-      }
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-  }
-
-  // Ridge lines
-  if (ridgeLines.length > 0 && ridgeOffsets.length > 0) {
-    ctx.lineWidth = Math.max(1, cw / 600);
-    for (let p = 0; p < positions.length; p++) {
-      if (p >= ridgeLines.length || p >= ridgeOffsets.length) break;
-      const rLine = ridgeLines[p];
-      const rOff = ridgeOffsets[p];
-      if (rLine.length < 2) continue;
-
-      ctx.strokeStyle = 'rgba(0, 191, 255, 0.45)';
-      ctx.beginPath();
-      for (let k = 0; k < rLine.length; k++) {
-        const para = positions[p] + rOff[k];
-        const perp = rLine[k];
-        const x = dir === 'h' ? bounds.x + para : bounds.x + perp;
-        const y = dir === 'h' ? bounds.y + perp : bounds.y + para;
-        if (k === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
+  const h = solve8(M, b);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+function solve8(M: number[][], b: number[]): number[] {
+  const n = 8, a = M.map((row, i) => row.concat([b[i]]));
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[piv][col])) piv = r;
+    [a[col], a[piv]] = [a[piv], a[col]];
+    const d = a[col][col] || 1e-12;
+    for (let c = col; c <= n; c++) a[col][c] /= d;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = a[r][col];
+      for (let c = col; c <= n; c++) a[r][c] -= f * a[col][c];
     }
   }
-
-  // Counting line — follows perspective by connecting midpoints of opposite quad sides
-  ctx.strokeStyle = 'rgba(255, 214, 10, 0.85)';
-  ctx.lineWidth = Math.max(2, cw / 350);
-  ctx.setLineDash([]);
-  let lineStart: Pt, lineEnd: Pt;
-  if (dir === 'h') {
-    // Connect midpoints of left side (TL-BL) and right side (TR-BR)
-    lineStart = [(quad[0][0] + quad[3][0]) / 2, (quad[0][1] + quad[3][1]) / 2];
-    lineEnd = [(quad[1][0] + quad[2][0]) / 2, (quad[1][1] + quad[2][1]) / 2];
-  } else {
-    // Connect midpoints of top side (TL-TR) and bottom side (BL-BR)
-    lineStart = [(quad[0][0] + quad[1][0]) / 2, (quad[0][1] + quad[1][1]) / 2];
-    lineEnd = [(quad[3][0] + quad[2][0]) / 2, (quad[3][1] + quad[2][1]) / 2];
+  return a.map(row => row[n]);
+}
+function invertH(H: number[]): number[] {
+  const [a, b, c, d, e, f, g, h, i] = H;
+  const A = (e * i - f * h), B = -(d * i - f * g), C = (d * h - e * g), D = -(b * i - c * h), E = (a * i - c * g), F = -(a * h - b * g),
+    G = (b * f - c * e), Hh = -(a * f - c * d), I = (a * e - b * d);
+  const det = a * A + b * B + c * C;
+  return [A / det, D / det, G / det, B / det, E / det, Hh / det, C / det, F / det, I / det];
+}
+function applyH(H: number[], x: number, y: number): Pt {
+  const w = H[6] * x + H[7] * y + H[8];
+  return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
+}
+function bilinear(g: Float32Array, w: number, h: number, x: number, y: number): number {
+  if (x < 0 || y < 0 || x > w - 1 || y > h - 1) return 0;
+  const x0 = Math.floor(x), y0 = Math.floor(y), x1 = Math.min(x0 + 1, w - 1), y1 = Math.min(y0 + 1, h - 1), fx = x - x0, fy = y - y0;
+  return g[y0 * w + x0] * (1 - fx) * (1 - fy) + g[y0 * w + x1] * fx * (1 - fy) + g[y1 * w + x0] * (1 - fx) * fy + g[y1 * w + x1] * fx * fy;
+}
+function rectify(gray: Float32Array, w: number, h: number, quad: Quad, targetW: number): RectData {
+  const [tl, tr, br, bl] = quad;
+  const topLen = Math.hypot(tr[0] - tl[0], tr[1] - tl[1]), botLen = Math.hypot(br[0] - bl[0], br[1] - bl[1]);
+  const leftLen = Math.hypot(bl[0] - tl[0], bl[1] - tl[1]), rightLen = Math.hypot(br[0] - tr[0], br[1] - tr[1]);
+  const RW = Math.round(targetW);
+  const RH = Math.max(32, Math.round(RW * ((leftLen + rightLen) / (topLen + botLen))));
+  const dst: Pt[] = [[0, 0], [RW - 1, 0], [RW - 1, RH - 1], [0, RH - 1]];
+  const H = computeHomography(quad, dst), Hinv = invertH(H);
+  const rect = new Float32Array(RW * RH);
+  for (let ry = 0; ry < RH; ry++) for (let rx = 0; rx < RW; rx++) {
+    const [sx, sy] = applyH(Hinv, rx, ry);
+    rect[ry * RW + rx] = bilinear(gray, w, h, sx, sy);
   }
-  ctx.beginPath();
-  ctx.moveTo(lineStart[0], lineStart[1]);
-  ctx.lineTo(lineEnd[0], lineEnd[1]);
-  ctx.stroke();
-
-  // Tick marks at pleat positions along the counting line
-  ctx.strokeStyle = 'rgba(255, 82, 82, 0.7)';
-  ctx.lineWidth = Math.max(1, cw / 600);
-  const tickLen = Math.max(8, Math.min(bounds.w, bounds.h) * 0.04);
-  const paraLen = dir === 'h' ? bounds.w : bounds.h;
-
-  // Direction perpendicular to the counting line (for tick orientation)
-  const ldx = lineEnd[0] - lineStart[0], ldy = lineEnd[1] - lineStart[1];
-  const lineLen = Math.sqrt(ldx * ldx + ldy * ldy) || 1;
-  const perpX = -ldy / lineLen, perpY = ldx / lineLen;
-
-  for (const pos of positions) {
-    const t = paraLen > 0 ? pos / paraLen : 0;
-    const px = lineStart[0] + t * ldx;
-    const py = lineStart[1] + t * ldy;
-
-    ctx.beginPath();
-    ctx.moveTo(px - perpX * tickLen, py - perpY * tickLen);
-    ctx.lineTo(px + perpX * tickLen, py + perpY * tickLen);
-    ctx.stroke();
+  return { rect, RW, RH, H, Hinv };
+}
+function columnProfile(rect: Float32Array, RW: number, RH: number, shear: number, mask: Uint8Array | null, fast: boolean): Float32Array {
+  const prof = new Float32Array(RW), tanS = Math.tan(shear), samples: number[] = [];
+  for (let x = 0; x < RW; x++) {
+    samples.length = 0;
+    for (let y = 0; y < RH; y++) {
+      const sx = x + tanS * (y - RH / 2);
+      if (sx < 0 || sx > RW - 1) continue;
+      const idx = y * RW + Math.round(sx);
+      if (mask && mask[idx]) continue;
+      samples.push(rect[idx]);
+    }
+    if (samples.length < 8) { prof[x] = NaN; continue; }
+    if (fast) { let s = 0; for (let i = 0; i < samples.length; i++) s += samples[i]; prof[x] = s / samples.length; continue; }
+    samples.sort((a, b) => a - b);
+    const lo = Math.floor(samples.length * .25), hi = Math.ceil(samples.length * .75);
+    let s = 0, n = 0; for (let i = lo; i < hi; i++) { s += samples[i]; n++; }
+    prof[x] = s / n;
   }
-
-  // Pleat number labels
-  const labelEvery = positions.length > 30 ? 5 : positions.length > 15 ? 3 : 2;
-  ctx.font = `${Math.max(9, Math.round(cw / 80))}px system-ui, sans-serif`;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.textAlign = 'center';
-  for (let i = 0; i < positions.length; i++) {
-    if (i % labelEvery !== 0 && i !== positions.length - 1) continue;
-    const t = paraLen > 0 ? positions[i] / paraLen : 0;
-    const px = lineStart[0] + t * ldx;
-    const py = lineStart[1] + t * ldy;
-    ctx.fillText(String(i + 1), px - perpX * (tickLen + 8), py - perpY * (tickLen + 8));
+  for (let x = 0; x < RW; x++) if (isNaN(prof[x])) prof[x] = prof[x > 0 ? x - 1 : x + 1] || 0;
+  return prof;
+}
+function detrend(prof: Float32Array, win: number): Float32Array {
+  const n = prof.length, out = new Float32Array(n), half = Math.max(2, Math.floor(win / 2));
+  const ps = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) ps[i + 1] = ps[i] + prof[i];
+  for (let i = 0; i < n; i++) { const a = Math.max(0, i - half), b = Math.min(n, i + half + 1); out[i] = prof[i] - (ps[b] - ps[a]) / (b - a); }
+  return out;
+}
+function smoothArr(prof: Float32Array, r: number): Float32Array {
+  if (r < 1) return prof.slice();
+  const n = prof.length, out = new Float32Array(n), ps = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) ps[i + 1] = ps[i] + prof[i];
+  for (let i = 0; i < n; i++) { const a = Math.max(0, i - r), b = Math.min(n, i + r + 1); out[i] = (ps[b] - ps[a]) / (b - a); }
+  return out;
+}
+function estimatePitch(det: Float32Array, minLag: number, maxLag: number): number {
+  const n = det.length; maxLag = Math.min(maxLag, Math.floor(n / 2));
+  let bestLag = 0, bestVal = -Infinity, e0 = 0;
+  for (let i = 0; i < n; i++) e0 += det[i] * det[i];
+  if (e0 <= 0) return 0;
+  const scores: number[] = [];
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let s = 0; for (let i = 0; i + lag < n; i++) s += det[i] * det[i + lag];
+    const v = s / e0; scores.push(v);
+    if (v > bestVal) { bestVal = v; bestLag = lag; }
   }
-
-  // Draggable corner handles — drawn last so they sit on top
-  drawCornerHandles(ctx, quad, cw);
+  for (let lag = minLag + 1; lag < bestLag; lag++) {
+    const i = lag - minLag;
+    if (scores[i] > scores[i - 1] && scores[i] > scores[i + 1] && scores[i] > 0.55 * bestVal) return lag;
+  }
+  return bestLag;
+}
+function findPeaks(det: Float32Array, minDist: number, promFrac: number): Peak[] {
+  const n = det.length;
+  const mags = Array.from(det, Math.abs).sort((a, b) => a - b);
+  const scale = mags[Math.floor(mags.length * .9)] || 1;
+  const minProm = promFrac * scale, cands: number[] = [];
+  for (let i = 1; i < n - 1; i++) if (det[i] >= det[i - 1] && det[i] > det[i + 1]) cands.push(i);
+  const peaks: Peak[] = [];
+  for (const p of cands) {
+    let lm = det[p], rm = det[p];
+    for (let i = p; i >= Math.max(0, p - minDist * 2); i--) lm = Math.min(lm, det[i]);
+    for (let i = p; i <= Math.min(n - 1, p + minDist * 2); i++) rm = Math.min(rm, det[i]);
+    const prom = det[p] - Math.max(lm, rm);
+    if (prom >= minProm) peaks.push({ x: p, v: det[p], prom });
+  }
+  peaks.sort((a, b) => b.prom - a.prom);
+  const kept: Peak[] = [];
+  for (const pk of peaks) if (kept.every(k => Math.abs(k.x - pk.x) >= minDist)) kept.push(pk);
+  kept.sort((a, b) => a.x - b.x);
+  return kept;
+}
+function analyzeRect(rect: Float32Array, RW: number, RH: number, opts: AnalyzeOpts = {}): RectAnalysis {
+  const promFrac = opts.promFrac ?? 0.35, spacingFrac = opts.spacingFrac ?? 0.6,
+    shearRange = opts.shearRange ?? 12, shearCenter = opts.shearCenter ?? 0, mask = opts.mask || null;
+  let best = { deg: shearCenter, energy: -Infinity };
+  for (let deg = shearCenter - shearRange; deg <= shearCenter + shearRange; deg += 1.5) {
+    const prof = columnProfile(rect, RW, RH, deg * Math.PI / 180, mask, true);
+    const sm = smoothArr(prof, Math.max(1, Math.round(RW / 400)));
+    const rough = detrend(sm, Math.round(RW / 6));
+    let energy = 0; for (let i = 0; i < rough.length; i++) energy += rough[i] * rough[i];
+    if (energy > best.energy) best = { deg, energy };
+  }
+  const prof = smoothArr(columnProfile(rect, RW, RH, best.deg * Math.PI / 180, mask, false),
+    Math.max(1, Math.round(RW / 400)));
+  const minLag = Math.max(4, Math.round(RW / 200));
+  let det = detrend(prof, Math.round(RW / 6));
+  let pitch = estimatePitch(det, minLag, Math.round(RW / 3));
+  if (pitch > 0) {
+    det = detrend(prof, Math.round(pitch * 2.5));
+    const p2 = estimatePitch(det, minLag, Math.round(RW / 3));
+    if (p2 > 0) pitch = p2;
+  } else pitch = Math.round(RW / 20);
+  const minDist = Math.max(3, Math.round(pitch * spacingFrac));
+  const allPeaks = findPeaks(det, minDist, promFrac);
+  // The frame runs parallel to the face edges, so the texture jump at either
+  // extreme of the profile produces false ridges — skip peaks hugging the ends.
+  const edgeMargin = Math.max(3, Math.round(pitch * 0.5));
+  const peaks = allPeaks.filter(p => p.x >= edgeMargin && p.x <= det.length - 1 - edgeMargin);
+  return { shearDeg: best.deg, profile: prof, det, pitch, peaks };
+}
+function transposeRect(rect: Float32Array, RW: number, RH: number): Float32Array {
+  const out = new Float32Array(RW * RH);
+  for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) out[x * RH + y] = rect[y * RW + x];
+  return out;
 }
 
-/** Draws filled circles at each quad corner as drag handles. */
-function drawCornerHandles(ctx: CanvasRenderingContext2D, quad: Quad, cw: number) {
-  const handleR = Math.max(6, Math.round(cw / 100));
-  for (const [x, y] of quad) {
-    ctx.beginPath();
-    ctx.arc(x, y, handleR, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 230, 118, 0.85)';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'white';
-    ctx.stroke();
+/* ---------- auto corner detection ----------
+   The pleated area is bright AND textured; the frame border and most
+   backgrounds are smooth. Segment on local texture, take the largest
+   blob, and fit the maximum-area quadrilateral to its convex hull. */
+function otsu(arr: Float32Array, bins: number, lo: number, hi: number): number {
+  const hist = new Float64Array(bins);
+  const scale = (bins - 1) / (hi - lo);
+  for (let i = 0; i < arr.length; i++) {
+    let b = Math.round((arr[i] - lo) * scale);
+    if (b < 0) b = 0; if (b > bins - 1) b = bins - 1;
+    hist[b]++;
   }
+  const total = arr.length;
+  let sum = 0; for (let i = 0; i < bins; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, best = 0, thr = 0;
+  for (let i = 0; i < bins; i++) {
+    wB += hist[i]; if (!wB) continue;
+    const wF = total - wB; if (!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) { best = between; thr = i; }
+  }
+  return lo + thr / scale;
 }
-
-/** Lightweight redraw for live corner dragging — shows image + quad outline + handles only. */
-function drawQuadPreview(canvas: HTMLCanvasElement, img: HTMLImageElement, quad: Quad) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const { width: cw, height: ch } = canvas;
-
-  ctx.drawImage(img, 0, 0, cw, ch);
-
-  // Darken outside
-  ctx.fillStyle = 'rgba(0,0,0,0.38)';
-  ctx.beginPath();
-  ctx.rect(0, 0, cw, ch);
-  ctx.moveTo(quad[3][0], quad[3][1]);
-  ctx.lineTo(quad[2][0], quad[2][1]);
-  ctx.lineTo(quad[1][0], quad[1][1]);
-  ctx.lineTo(quad[0][0], quad[0][1]);
-  ctx.closePath();
-  ctx.fill('evenodd');
-
-  // Quad outline
-  ctx.strokeStyle = '#00e676';
-  ctx.lineWidth = Math.max(1.5, cw / 400);
-  ctx.setLineDash([8, 5]);
-  ctx.beginPath();
-  ctx.moveTo(quad[0][0], quad[0][1]);
-  ctx.lineTo(quad[1][0], quad[1][1]);
-  ctx.lineTo(quad[2][0], quad[2][1]);
-  ctx.lineTo(quad[3][0], quad[3][1]);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  drawCornerHandles(ctx, quad, cw);
+function autoDetectQuad(gray: Float32Array, gw: number, gh: number): Quad | null {
+  const dw = Math.min(300, gw), sc = dw / gw, dh = Math.max(8, Math.round(gh * sc));
+  const g = new Float32Array(dw * dh);
+  for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) g[y * dw + x] = bilinear(gray, gw, gh, x / sc, y / sc);
+  // local std via integral images, r=2
+  const r = 2, W1 = dw + 1;
+  const ps = new Float64Array(W1 * (dh + 1)), ps2 = new Float64Array(W1 * (dh + 1));
+  for (let y = 0; y < dh; y++) {
+    let rs = 0, rs2 = 0;
+    for (let x = 0; x < dw; x++) {
+      const v = g[y * dw + x]; rs += v; rs2 += v * v;
+      ps[(y + 1) * W1 + x + 1] = ps[y * W1 + x + 1] + rs;
+      ps2[(y + 1) * W1 + x + 1] = ps2[y * W1 + x + 1] + rs2;
+    }
+  }
+  const std = new Float32Array(dw * dh);
+  for (let y = 0; y < dh; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(dh - 1, y + r);
+    for (let x = 0; x < dw; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(dw - 1, x + r);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const s = ps[(y1 + 1) * W1 + x1 + 1] - ps[y0 * W1 + x1 + 1] - ps[(y1 + 1) * W1 + x0] + ps[y0 * W1 + x0];
+      const s2 = ps2[(y1 + 1) * W1 + x1 + 1] - ps2[y0 * W1 + x1 + 1] - ps2[(y1 + 1) * W1 + x0] + ps2[y0 * W1 + x0];
+      const mean = s / area;
+      std[y * dw + x] = Math.sqrt(Math.max(0, s2 / area - mean * mean));
+    }
+  }
+  const bThr = otsu(g, 256, 0, 255);
+  let sThr = otsu(std, 256, 0, 64);
+  sThr = Math.max(3, Math.min(sThr, 18));
+  const bin = new Uint8Array(dw * dh);
+  for (let i = 0; i < bin.length; i++) bin[i] = (std[i] > sThr && g[i] > bThr * 0.8) ? 1 : 0;
+  // morphological close (dilate r=2, erode r=2) to bridge glue lines / hot melt
+  const dil = morph(bin, dw, dh, 2, true);
+  const clo = morph(dil, dw, dh, 2, false);
+  // largest connected component
+  const comp = largestComponent(clo, dw, dh);
+  if (!comp || comp.pts.length < dw * dh * 0.03) return null;
+  // convex hull of component pixels (subsampled)
+  const hull = convexHull(comp.pts);
+  if (hull.length < 4) return null;
+  // subsample hull, brute-force max-area quad
+  const H2 = hull.length > 40 ? hull.filter((_, i) => i % Math.ceil(hull.length / 40) === 0) : hull;
+  if (H2.length < 4) return null;
+  let best: Pt[] | null = null, bestA = 0;
+  const n = H2.length;
+  for (let i = 0; i < n - 3; i++) for (let j = i + 1; j < n - 2; j++) for (let k = j + 1; k < n - 1; k++) for (let l = k + 1; l < n; l++) {
+    const a = quadArea(H2[i], H2[j], H2[k], H2[l]);
+    if (a > bestA) { bestA = a; best = [H2[i], H2[j], H2[k], H2[l]]; }
+  }
+  if (!best || bestA < dw * dh * 0.05) return null;
+  // order TL,TR,BR,BL (clockwise on screen), start at min(x+y)
+  const cx = best.reduce((s, p) => s + p[0], 0) / 4, cy = best.reduce((s, p) => s + p[1], 0) / 4;
+  best.sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  let start = 0, mv = Infinity;
+  best.forEach((p, i) => { const v = p[0] + p[1]; if (v < mv) { mv = v; start = i; } });
+  const ordered = [0, 1, 2, 3].map(i => best![(start + i) % 4]);
+  return ordered.map(([x, y]): Pt => [Math.max(0, Math.min(gw - 1, x / sc)), Math.max(0, Math.min(gh - 1, y / sc))]) as Quad;
+}
+function morph(bin: Uint8Array, w: number, h: number, r: number, dilate: boolean): Uint8Array {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let hit = dilate ? 0 : 1;
+    for (let dy = -r; dy <= r && (dilate ? !hit : hit); dy++) {
+      const yy = y + dy; if (yy < 0 || yy >= h) { if (!dilate) hit = 0; continue; }
+      for (let dx = -r; dx <= r; dx++) {
+        const xx = x + dx; if (xx < 0 || xx >= w) { if (!dilate) { hit = 0; break; } continue; }
+        const v = bin[yy * w + xx];
+        if (dilate && v) { hit = 1; break; }
+        if (!dilate && !v) { hit = 0; break; }
+      }
+    }
+    out[y * w + x] = hit;
+  }
+  return out;
+}
+function largestComponent(bin: Uint8Array, w: number, h: number): { pts: Pt[] } | null {
+  const label = new Int32Array(w * h).fill(-1);
+  let bestPts: Pt[] | null = null, bestN = 0, cur = 0;
+  const stack: number[] = [];
+  for (let s = 0; s < w * h; s++) {
+    if (!bin[s] || label[s] >= 0) continue;
+    stack.length = 0; stack.push(s); label[s] = cur;
+    const pts: Pt[] = [];
+    while (stack.length) {
+      const p = stack.pop()!;
+      const px = p % w, py = (p - px) / w;
+      pts.push([px, py]);
+      const nb = [p - 1, p + 1, p - w, p + w];
+      if (px === 0) nb[0] = -1; if (px === w - 1) nb[1] = -1;
+      for (const q of nb) {
+        if (q < 0 || q >= w * h) continue;
+        if (bin[q] && label[q] < 0) { label[q] = cur; stack.push(q); }
+      }
+    }
+    if (pts.length > bestN) { bestN = pts.length; bestPts = pts; }
+    cur++;
+  }
+  return bestPts ? { pts: bestPts } : null;
+}
+function convexHull(pts: Pt[]): Pt[] {
+  const P = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo: Pt[] = [], hi: Pt[] = [];
+  for (const p of P) {
+    while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop();
+    lo.push(p);
+  }
+  for (let i = P.length - 1; i >= 0; i--) {
+    const p = P[i];
+    while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop();
+    hi.push(p);
+  }
+  lo.pop(); hi.pop();
+  return lo.concat(hi);
+}
+function quadArea(a: Pt, b: Pt, c: Pt, d: Pt): number {
+  return Math.abs(
+    a[0] * b[1] - b[0] * a[1] + b[0] * c[1] - c[0] * b[1] +
+    c[0] * d[1] - d[0] * c[1] + d[0] * a[1] - a[0] * d[1]
+  ) / 2;
+}
+function profileEnergy(rect: Float32Array, RW: number, RH: number, mask: Uint8Array | null, center = 0): number {
+  let best = 0;
+  for (let deg = center - 12; deg <= center + 12; deg += 3) {
+    const prof = smoothArr(columnProfile(rect, RW, RH, deg * Math.PI / 180, mask, true), Math.max(1, Math.round(RW / 400)));
+    const det = detrend(prof, Math.round(RW / 6));
+    let e = 0; for (let i = 0; i < det.length; i++) e += det[i] * det[i];
+    best = Math.max(best, e / det.length);
+  }
+  return best;
+}
+function transposeMask(mask: Uint8Array, RW: number, RH: number): Uint8Array {
+  const out = new Uint8Array(RW * RH);
+  for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) out[x * RH + y] = mask[y * RW + x];
+  return out;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-
 export default function PleatCounterPage() {
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
-  const [pleatCountStr, setPleatCountStr] = useState('');
-  const [pleatDetected, setPleatDetected] = useState(false);
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [sensitivity, setSensitivity] = useState(50);
-  const [width, setWidth] = useState('');
-  const [length, setLength] = useState('');
-  const [pleatHeight, setPleatHeight] = useState('');
-  const [panels, setPanels] = useState('1');
-  const [areaUnit, setAreaUnit] = useState<AreaUnit>('ft²');
-  const [analysisInfo, setAnalysisInfo] = useState<{ gratingDetected: boolean; confidence: number; period: number } | null>(null);
-  const [showOverlay, setShowOverlay] = useState(true);
-  const [detectBright, setDetectBright] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileInputUploadRef = useRef<HTMLInputElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const grayRef = useRef<{ gray: Float32Array; w: number; h: number } | null>(null);
-  const quadRef = useRef<Quad | null>(null);
-  const boundsRef = useRef<Rect | null>(null);
-  const maskRef = useRef<Uint8Array | null>(null);
-  const dragIdxRef = useRef(-1); // which corner is being dragged (-1 = none)
-  const lastResultRef = useRef<PleatResult | null>(null);
-  const sensitivityRef = useRef(50);
-  const showOverlayRef = useRef(true);
-  const detectBrightRef = useRef(true);
-
-  // Derived values
-  const pleatCount = Math.max(0, parseInt(pleatCountStr) || 0);
-  const widthMm = parseFloat(width);
-  const lengthMm = parseFloat(length);
-  const phMm = parseFloat(pleatHeight);
-  const panelCount = Math.max(1, parseInt(panels) || 1);
-
-  const ppi = (pleatCount > 0 && !isNaN(lengthMm) && lengthMm > 0)
-    ? (pleatCount * 25.4) / lengthMm : null;
-  const pitchMm = (pleatCount > 0 && !isNaN(lengthMm) && lengthMm > 0)
-    ? lengthMm / pleatCount : null;
-  const areaMm2 = (pleatCount > 0 && !isNaN(widthMm) && !isNaN(phMm) && widthMm > 0 && phMm > 0)
-    ? pleatCount * 2 * phMm * widthMm * panelCount : null;
-
-  function convertArea(mm2: number): number {
-    if (areaUnit === 'ft²') return mm2 / 92903.04;
-    if (areaUnit === 'm²') return mm2 / 1e6;
-    return mm2 / 645.16;
-  }
-
-  const areaDisplay = areaMm2 !== null ? convertArea(areaMm2) : null;
-  const showResults = ppi !== null || areaDisplay !== null;
-  const fmt = (n: number, d: number) => n.toFixed(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
-
-  const processImage = useCallback((img: HTMLImageElement, sens: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let cw = img.naturalWidth, ch = img.naturalHeight;
-    if (Math.max(cw, ch) > MAX_DIM) {
-      const scale = MAX_DIM / Math.max(cw, ch);
-      cw = Math.round(cw * scale);
-      ch = Math.round(ch * scale);
-    }
-    canvas.width = cw;
-    canvas.height = ch;
-    ctx.drawImage(img, 0, 0, cw, ch);
-
-    setLoadingStatus('Detecting filter boundary\u2026');
-
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        const imageData = ctx.getImageData(0, 0, cw, ch);
-        const gray = toGrayscale(imageData.data);
-        grayRef.current = { gray, w: cw, h: ch };
-        imgRef.current = img;
-
-        setLoadingStatus('Detecting grating & analyzing pleats\u2026');
-
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            const quad = detectFilterQuad(gray, cw, ch);
-            const bounds = quadBounds(quad);
-            const mask = createQuadMask(quad, cw, ch);
-            quadRef.current = quad;
-            boundsRef.current = bounds;
-            maskRef.current = mask;
-
-            const result = analyzePleats(gray, cw, ch, bounds, mask, sens, detectBrightRef.current);
-            lastResultRef.current = result;
-            setPleatCountStr(String(result.count));
-            setPleatDetected(result.count > 0);
-            setAnalysisInfo({
-              gratingDetected: result.gratingDetected,
-              confidence: result.confidence,
-              period: result.period,
-            });
-            setAnalyzing(false);
-            setLoadingStatus(null);
-            drawOverlay(canvas, img, quad, bounds, result, showOverlayRef.current);
-          }, 0);
-        });
-      }, 0);
-    });
-  }, []);
-
-  const reanalyze = useCallback((sens: number) => {
-    const gd = grayRef.current, img = imgRef.current,
-          quad = quadRef.current, bounds = boundsRef.current,
-          mask = maskRef.current, canvas = canvasRef.current;
-    if (!gd || !img || !quad || !bounds || !mask || !canvas) return;
-    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sens, detectBrightRef.current);
-    lastResultRef.current = result;
-    setPleatCountStr(String(result.count));
-    setPleatDetected(result.count > 0);
-    setAnalysisInfo({
-      gratingDetected: result.gratingDetected,
-      confidence: result.confidence,
-      period: result.period,
-    });
-    drawOverlay(canvas, img, quad, bounds, result, showOverlayRef.current);
-  }, []);
-
-  // Reanalyze after quad corners are moved by the user
-  const reanalyzeWithQuad = useCallback((newQuad: Quad) => {
-    const gd = grayRef.current, img = imgRef.current, canvas = canvasRef.current;
-    if (!gd || !img || !canvas) return;
-
-    const bounds = quadBounds(newQuad);
-    const mask = createQuadMask(newQuad, gd.w, gd.h);
-    quadRef.current = newQuad;
-    boundsRef.current = bounds;
-    maskRef.current = mask;
-
-    const result = analyzePleats(gd.gray, gd.w, gd.h, bounds, mask, sensitivityRef.current, detectBrightRef.current);
-    lastResultRef.current = result;
-    setPleatCountStr(String(result.count));
-    setPleatDetected(result.count > 0);
-    setAnalysisInfo({
-      gratingDetected: result.gratingDetected,
-      confidence: result.confidence,
-      period: result.period,
-    });
-    drawOverlay(canvas, img, newQuad, bounds, result, showOverlayRef.current);
-  }, []);
-
-  const loadFile = useCallback((file: File) => {
-    const isImage = file.type.startsWith('image/')
-      || /\.(heic|heif|jpg|jpeg|png|webp|avif|bmp|tiff?)$/i.test(file.name);
-    if (!isImage) return;
-
-    setAnalyzing(true);
-    setLoadingStatus('Loading image\u2026');
-    setImageSrc(null);
-    setAnalysisInfo(null);
-
-    const url = URL.createObjectURL(file);
-
-    requestAnimationFrame(() => {
-      setImageSrc(url);
-      const img = new Image();
-      img.onload = () => processImage(img, sensitivityRef.current);
-      img.onerror = () => {
-        setAnalyzing(false);
-        setLoadingStatus(null);
-        setImageSrc(null);
-      };
-      img.src = url;
-    });
-  }, [processImage]);
-
-  const handleCapture = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) loadFile(file);
-    e.target.value = '';
-  };
-
-  const handleDragOver = (e: DragEvent) => { e.preventDefault(); setIsDragActive(true); };
-  const handleDragLeave = (e: DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragActive(false);
-  };
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(false);
-    const file = e.dataTransfer.files[0];
-    if (file) loadFile(file);
-  };
-
-  const handleSensitivityChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    setSensitivity(val);
-    sensitivityRef.current = val;
-    reanalyze(val);
-  };
-
-  const handleToggleOverlay = () => {
-    const next = !showOverlayRef.current;
-    showOverlayRef.current = next;
-    setShowOverlay(next);
-    // Redraw without re-analyzing
-    const canvas = canvasRef.current, img = imgRef.current,
-          quad = quadRef.current, bounds = boundsRef.current,
-          result = lastResultRef.current;
-    if (canvas && img && quad && bounds && result) {
-      drawOverlay(canvas, img, quad, bounds, result, next);
-    }
-  };
-
-  const handleToggleDetectBright = (bright: boolean) => {
-    detectBrightRef.current = bright;
-    setDetectBright(bright);
-    reanalyze(sensitivityRef.current);
-  };
-
-  const handleReset = () => {
-    setImageSrc(null);
-    setAnalyzing(false);
-    setLoadingStatus(null);
-    setPleatCountStr('');
-    setPleatDetected(false);
-    setAnalysisInfo(null);
-    imgRef.current = null;
-    grayRef.current = null;
-    quadRef.current = null;
-    boundsRef.current = null;
-    maskRef.current = null;
-    lastResultRef.current = null;
-    dragIdxRef.current = -1;
-  };
-
-  // ── Canvas corner drag handlers ──────────────────────────────────────────
-  const canvasToPixel = useCallback((clientX: number, clientY: number): Pt | null => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return [(clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY];
-  }, []);
-
-  const findNearestCorner = useCallback((px: number, py: number): number => {
-    const quad = quadRef.current;
-    if (!quad) return -1;
-    const canvas = canvasRef.current;
-    const hitR = Math.max(18, (canvas?.width || 500) / 30);
-    let bestIdx = -1, bestDist = hitR * hitR;
-    for (let i = 0; i < 4; i++) {
-      const dx = quad[i][0] - px, dy = quad[i][1] - py;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestDist) { bestDist = d2; bestIdx = i; }
-    }
-    return bestIdx;
-  }, []);
-
-  const handlePointerDown = useCallback((px: number, py: number) => {
-    const idx = findNearestCorner(px, py);
-    if (idx >= 0) dragIdxRef.current = idx;
-  }, [findNearestCorner]);
-
-  const handlePointerMove = useCallback((px: number, py: number) => {
-    const idx = dragIdxRef.current;
-    const quad = quadRef.current;
-    const img = imgRef.current;
-    const canvas = canvasRef.current;
-    if (idx < 0 || !quad || !img || !canvas) return;
-
-    // Clamp to canvas bounds
-    const cx = Math.max(0, Math.min(canvas.width - 1, px));
-    const cy = Math.max(0, Math.min(canvas.height - 1, py));
-
-    // Update corner
-    const newQuad: Quad = [...quad] as Quad;
-    newQuad[idx] = [cx, cy];
-    quadRef.current = newQuad;
-
-    // Lightweight preview (no reanalysis during drag)
-    drawQuadPreview(canvas, img, newQuad);
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    if (dragIdxRef.current < 0) return;
-    dragIdxRef.current = -1;
-    const quad = quadRef.current;
-    if (quad) reanalyzeWithQuad(quad);
-  }, [reanalyzeWithQuad]);
-
-  const onCanvasMouseDown = useCallback((e: ReactMouseEvent<HTMLCanvasElement>) => {
-    const pt = canvasToPixel(e.clientX, e.clientY);
-    if (pt) handlePointerDown(pt[0], pt[1]);
-  }, [canvasToPixel, handlePointerDown]);
-
-  const onCanvasMouseMove = useCallback((e: ReactMouseEvent<HTMLCanvasElement>) => {
-    if (dragIdxRef.current < 0) return;
-    e.preventDefault();
-    const pt = canvasToPixel(e.clientX, e.clientY);
-    if (pt) handlePointerMove(pt[0], pt[1]);
-  }, [canvasToPixel, handlePointerMove]);
-
-  const onCanvasMouseUp = useCallback(() => {
-    handlePointerUp();
-  }, [handlePointerUp]);
-
-  const onCanvasTouchStart = useCallback((e: ReactTouchEvent<HTMLCanvasElement>) => {
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    const pt = canvasToPixel(t.clientX, t.clientY);
-    if (pt && findNearestCorner(pt[0], pt[1]) >= 0) {
-      e.preventDefault(); // prevent scroll when starting a corner drag
-      handlePointerDown(pt[0], pt[1]);
-    }
-  }, [canvasToPixel, findNearestCorner, handlePointerDown]);
-
-  const onCanvasTouchMove = useCallback((e: ReactTouchEvent<HTMLCanvasElement>) => {
-    if (dragIdxRef.current < 0 || e.touches.length !== 1) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    const pt = canvasToPixel(t.clientX, t.clientY);
-    if (pt) handlePointerMove(pt[0], pt[1]);
-  }, [canvasToPixel, handlePointerMove]);
-
-  const onCanvasTouchEnd = useCallback(() => {
-    handlePointerUp();
-  }, [handlePointerUp]);
-
-  // Attach global mousemove/mouseup so dragging outside the canvas still works
   useEffect(() => {
-    const onGlobalMouseMove = (e: globalThis.MouseEvent) => {
-      if (dragIdxRef.current < 0) return;
-      e.preventDefault();
-      const pt = canvasToPixel(e.clientX, e.clientY);
-      if (pt) handlePointerMove(pt[0], pt[1]);
+    const root = rootRef.current;
+    if (!root) return;
+    let disposed = false;
+
+    function byId<T extends HTMLElement = HTMLElement>(id: string): T {
+      return root!.querySelector<T>('#' + id)!;
+    }
+
+    // overlay palette mapped to the sweeney.town accent colors
+    const C_PLEAT = '#00b894';
+    const C_PLEAT_SHADOW = 'rgba(0,184,148,0.5)';
+    const C_PLEAT_TXT = 'rgba(0,184,148,0.95)';
+    const C_FRAME = '#6c5ce7';
+    const C_FRAME_FILL = 'rgba(108,92,231,0.18)';
+    const C_ZERO = 'rgba(136,136,164,0.3)';
+    const C_TICK_OFF = 'rgba(136,136,164,0.6)';
+    const GRATE_R = 232, GRATE_G = 67, GRATE_B = 147;
+
+    const stage = byId<HTMLDivElement>('stage');
+    const imgCanvas = byId<HTMLCanvasElement>('imgCanvas');
+    const ovCanvas = byId<HTMLCanvasElement>('overlayCanvas');
+    const traceCanvas = byId<HTMLCanvasElement>('traceCanvas');
+    const dropzone = byId<HTMLDivElement>('dropzone');
+    const fileInput = byId<HTMLInputElement>('fileInput');
+    const statusEl = byId('status');
+    const grateOnEl = byId<HTMLInputElement>('grateOn');
+    const grateSliders = byId<HTMLDivElement>('grateSliders');
+    const sensEl = byId<HTMLInputElement>('sens');
+    const spacingEl = byId<HTMLInputElement>('spacing');
+    const tiltEl = byId<HTMLInputElement>('tilt');
+    let orientMode: 'auto' | 'v' | 'h' = 'auto';
+    const traceInfo = byId('traceInfo');
+    const rectCanvas = byId<HTMLCanvasElement>('rectCanvas');
+    const rectInfo = byId('rectInfo');
+    const ictx = imgCanvas.getContext('2d')!;
+    const octx = ovCanvas.getContext('2d')!;
+
+    const S: AppState = {
+      img: null,
+      gray: null, gw: 0, gh: 0,
+      aScale: 1,
+      quad: null,
+      rectData: null,
+      transposed: false,
+      result: null,
+      removed: new Set<number>(),
+      manual: [],
+      grateMask: null, openPct: null,
+      dragging: -1,
+      dispScale: 1, dispOx: 0, dispOy: 0,
     };
-    const onGlobalMouseUp = () => handlePointerUp();
-    window.addEventListener('mousemove', onGlobalMouseMove);
-    window.addEventListener('mouseup', onGlobalMouseUp);
+
+    // ---------- image loading ----------
+    async function loadFile(file: File) {
+      if (!file || !file.type.startsWith('image/')) { setStatus('That file is not an image.'); return; }
+      let bmp: ImageBitmap | HTMLImageElement;
+      try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+      catch {
+        bmp = await new Promise<HTMLImageElement>((res, rej) => {
+          const im = new Image();
+          im.onload = () => res(im); im.onerror = rej;
+          im.src = URL.createObjectURL(file);
+        });
+      }
+      if (disposed) return;
+      S.img = bmp;
+      // analysis grayscale, max 1400 px on the long side
+      const maxDim = 1400, sc = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      S.gw = Math.round(bmp.width * sc); S.gh = Math.round(bmp.height * sc); S.aScale = sc;
+      const c = document.createElement('canvas'); c.width = S.gw; c.height = S.gh;
+      const cx = c.getContext('2d', { willReadFrequently: true })!;
+      cx.drawImage(bmp, 0, 0, S.gw, S.gh);
+      const d = cx.getImageData(0, 0, S.gw, S.gh).data;
+      const gray = new Float32Array(S.gw * S.gh);
+      for (let i = 0, p = 0; i < gray.length; i++, p += 4)
+        gray[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+      S.gray = gray;
+      S.quad = autoDetectQuad(gray, S.gw, S.gh);
+      if (!S.quad) resetQuad();
+      S.removed.clear(); S.manual = []; S.result = null; S.grateMask = null; S.openPct = null;
+      dropzone.classList.add('hidden');
+      layoutStage();
+      runAnalysis();
+    }
+    function resetQuad() {
+      const w = S.gw, h = S.gh, ix = w * 0.06, iy = h * 0.06;
+      const q: Quad = [[ix, iy], [w - ix, iy], [w - ix, h - iy], [ix, h - iy]];
+      S.quad = q;
+    }
+
+    // ---------- layout / drawing ----------
+    function layoutStage() {
+      const cw = stage.clientWidth;
+      let ch: number;
+      if (S.img) {
+        const ar = S.gh / S.gw;
+        ch = Math.min(Math.max(cw * ar, 260), window.innerHeight * 0.62);
+      } else ch = Math.min(cw * 0.66, 480);
+      stage.style.height = ch + 'px';
+      const dpr = window.devicePixelRatio || 1;
+      [imgCanvas, ovCanvas].forEach(cv => {
+        cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+        cv.getContext('2d')!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      });
+      if (S.img) {
+        const s = Math.min(cw / S.gw, ch / S.gh);
+        S.dispScale = s;
+        S.dispOx = (cw - S.gw * s) / 2; S.dispOy = (ch - S.gh * s) / 2;
+        ictx.clearRect(0, 0, cw, ch);
+        ictx.imageSmoothingQuality = 'high';
+        ictx.drawImage(S.img, S.dispOx, S.dispOy, S.gw * s, S.gh * s);
+      }
+      drawOverlay();
+      drawTrace();
+      drawRectPreview();
+    }
+
+    function a2d(p: Pt): Pt { return [S.dispOx + p[0] * S.dispScale, S.dispOy + p[1] * S.dispScale]; }
+    function d2a(x: number, y: number): Pt { return [(x - S.dispOx) / S.dispScale, (y - S.dispOy) / S.dispScale]; }
+
+    function currentLines(): number[] {
+      const result = S.result;
+      if (!result) return [];
+      const auto = result.peaks.map(p => p.x).filter(x => !S.removed.has(x));
+      return auto.concat(S.manual).sort((a, b) => a - b);
+    }
+    function lineEndpointsAnalysis(pos: number): [Pt, Pt] {
+      const { RW, RH, Hinv } = S.rectData!;
+      const tanS = Math.tan(S.result!.shearDeg * Math.PI / 180);
+      let p0: Pt, p1: Pt;
+      if (!S.transposed) {
+        p0 = [pos + tanS * (0 - RH / 2), 0]; p1 = [pos + tanS * (RH - 1 - RH / 2), RH - 1];
+      } else {
+        p0 = [0, pos + tanS * (0 - RW / 2)]; p1 = [RW - 1, pos + tanS * (RW - 1 - RW / 2)];
+      }
+      return [applyH(Hinv, p0[0], p0[1]), applyH(Hinv, p1[0], p1[1])];
+    }
+
+    function drawOverlay() {
+      const cw = ovCanvas.clientWidth || stage.clientWidth, ch = stage.clientHeight;
+      octx.clearRect(0, 0, cw, ch);
+      if (!S.img) return;
+
+      // grating overlay
+      if (S.grateMask && grateOnEl.checked) drawGrateOverlay(cw, ch);
+
+      // pleat lines
+      const result = S.result, rectData = S.rectData;
+      if (result && rectData) {
+        const autoSet = new Set(result.peaks.map(p => p.x).filter(x => !S.removed.has(x)));
+        const all = currentLines();
+        octx.lineWidth = 2;
+        octx.shadowColor = C_PLEAT_SHADOW;
+        octx.shadowBlur = 4;
+        for (const pos of all) {
+          const [pa, pb] = lineEndpointsAnalysis(pos);
+          const [x0, y0] = a2d(pa), [x1, y1] = a2d(pb);
+          octx.strokeStyle = C_PLEAT;
+          octx.setLineDash(autoSet.has(pos) ? [] : [6, 5]);
+          octx.beginPath(); octx.moveTo(x0, y0); octx.lineTo(x1, y1); octx.stroke();
+        }
+        octx.setLineDash([]); octx.shadowBlur = 0;
+        // numerals every 5th line along top of quad
+        octx.font = '600 11px ui-monospace,Menlo,monospace';
+        octx.fillStyle = C_PLEAT_TXT;
+        all.forEach((pos, i) => {
+          if ((i + 1) % 5 !== 0 && i !== 0 && i !== all.length - 1) return;
+          const [pa] = lineEndpointsAnalysis(pos);
+          const [x, y] = a2d(pa);
+          octx.fillText(String(i + 1), x + 3, Math.max(12, y - 4));
+        });
+      }
+
+      // quad + handles
+      const quad = S.quad;
+      if (quad) {
+        octx.strokeStyle = C_FRAME;
+        octx.setLineDash([7, 6]); octx.lineWidth = 1.5;
+        octx.beginPath();
+        quad.forEach((p, i) => { const [x, y] = a2d(p); if (i) octx.lineTo(x, y); else octx.moveTo(x, y); });
+        octx.closePath(); octx.stroke(); octx.setLineDash([]);
+        quad.forEach((p, i) => {
+          const [x, y] = a2d(p);
+          octx.beginPath(); octx.arc(x, y, i === S.dragging ? 11 : 8, 0, Math.PI * 2);
+          octx.fillStyle = C_FRAME_FILL; octx.fill();
+          octx.lineWidth = 2; octx.strokeStyle = C_FRAME; octx.stroke();
+          octx.beginPath(); octx.arc(x, y, 2.4, 0, Math.PI * 2);
+          octx.fillStyle = C_FRAME; octx.fill();
+        });
+      }
+    }
+
+    function drawGrateOverlay(cw: number, ch: number) {
+      const rectData = S.rectData, quad = S.quad, grateMask = S.grateMask;
+      if (!rectData || !quad || !grateMask) return;
+      const { RW, RH, H } = rectData;
+      // bbox of quad in display px
+      const pts = quad.map(a2d);
+      const minX = Math.max(0, Math.floor(Math.min(...pts.map(p => p[0]))));
+      const maxX = Math.min(cw, Math.ceil(Math.max(...pts.map(p => p[0]))));
+      const minY = Math.max(0, Math.floor(Math.min(...pts.map(p => p[1]))));
+      const maxY = Math.min(ch, Math.ceil(Math.max(...pts.map(p => p[1]))));
+      const w = maxX - minX, h = maxY - minY;
+      if (w <= 0 || h <= 0) return;
+      const off = document.createElement('canvas'); off.width = w; off.height = h;
+      const ox = off.getContext('2d')!;
+      const id = ox.createImageData(w, h), dd = id.data;
+      for (let yy = 0; yy < h; yy++) {
+        for (let xx = 0; xx < w; xx++) {
+          const [ax, ay] = d2a(minX + xx, minY + yy);
+          const [rx, ry] = applyH(H, ax, ay);
+          if (rx < 0 || ry < 0 || rx >= RW || ry >= RH) continue;
+          if (grateMask[Math.round(ry) * RW + Math.round(rx)]) {
+            const p = (yy * w + xx) * 4;
+            dd[p] = GRATE_R; dd[p + 1] = GRATE_G; dd[p + 2] = GRATE_B; dd[p + 3] = 120;
+          }
+        }
+      }
+      ox.putImageData(id, 0, 0);
+      octx.drawImage(off, minX, minY); // respects the DPR transform, unlike putImageData
+    }
+
+    function drawTrace() {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = traceCanvas.clientWidth, ch = 84;
+      traceCanvas.width = cw * dpr; traceCanvas.height = ch * dpr;
+      const t = traceCanvas.getContext('2d')!;
+      t.setTransform(dpr, 0, 0, dpr, 0, 0);
+      t.clearRect(0, 0, cw, ch);
+      const result = S.result;
+      if (!result) { traceInfo.textContent = '—'; return; }
+      const det = result.det, n = det.length;
+      let mn = Infinity, mx = -Infinity;
+      for (let i = 0; i < n; i++) { mn = Math.min(mn, det[i]); mx = Math.max(mx, det[i]); }
+      const rng = (mx - mn) || 1;
+      const X = (i: number) => i / (n - 1) * cw, Y = (v: number) => ch - 6 - ((v - mn) / rng) * (ch - 14);
+      // zero line
+      t.strokeStyle = C_ZERO; t.lineWidth = 1;
+      t.beginPath(); t.moveTo(0, Y(0)); t.lineTo(cw, Y(0)); t.stroke();
+      // trace
+      t.strokeStyle = C_PLEAT; t.lineWidth = 1.4;
+      t.beginPath();
+      for (let i = 0; i < n; i++) { const x = X(i), y = Y(det[i]); if (i) t.lineTo(x, y); else t.moveTo(x, y); }
+      t.stroke();
+      // ticks
+      const autoSet = new Set(result.peaks.map(p => p.x).filter(x => !S.removed.has(x)));
+      for (const p of result.peaks) {
+        const kept = autoSet.has(p.x);
+        t.strokeStyle = kept ? C_PLEAT : C_TICK_OFF;
+        t.lineWidth = kept ? 2 : 1;
+        t.beginPath(); t.moveTo(X(p.x), Y(p.v) - 4); t.lineTo(X(p.x), 6); t.stroke();
+      }
+      t.strokeStyle = C_PLEAT;
+      t.setLineDash([3, 3]);
+      for (const m of S.manual) { t.beginPath(); t.moveTo(X(m), ch - 6); t.lineTo(X(m), 6); t.stroke(); }
+      t.setLineDash([]);
+      traceInfo.textContent =
+        `pitch ${result.pitch}px · shear ${result.shearDeg.toFixed(1)}°${S.transposed ? ' · horizontal pleats' : ''}`;
+    }
+
+    // ---------- corner dragging & click-to-correct ----------
+    function pointerPos(e: PointerEvent): Pt {
+      const r = ovCanvas.getBoundingClientRect();
+      return [e.clientX - r.left, e.clientY - r.top];
+    }
+    let moved = false;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!S.img || !S.quad) return;
+      const quad = S.quad;
+      const [x, y] = pointerPos(e);
+      moved = false;
+      for (let i = 0; i < 4; i++) {
+        const [hx, hy] = a2d(quad[i]);
+        if (Math.hypot(hx - x, hy - y) < 20) {
+          S.dragging = i;
+          ovCanvas.setPointerCapture(e.pointerId);
+          drawOverlay();
+          return;
+        }
+      }
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (S.dragging < 0 || !S.quad) return;
+      const quad = S.quad;
+      moved = true;
+      const [x, y] = pointerPos(e);
+      const [ax, ay] = d2a(x, y);
+      quad[S.dragging] = [Math.max(0, Math.min(S.gw - 1, ax)), Math.max(0, Math.min(S.gh - 1, ay))];
+      drawOverlay();
+    };
+    // toggle a counted line at a working-orientation position: remove the
+    // nearest existing line if one is within tolerance, otherwise add one
+    function togglePleatAt(pos: number) {
+      const result = S.result;
+      if (!result) return;
+      const tol = Math.max(4, result.pitch * 0.4);
+      let bi = -1, bd = Infinity;
+      const lines = currentLines();
+      lines.forEach(L => { const d = Math.abs(L - pos); if (d < bd) { bd = d; bi = L; } });
+      if (bi >= 0 && bd < tol) {
+        const mIdx = S.manual.findIndex(m => Math.abs(m - bi) < 1);
+        if (mIdx >= 0) S.manual.splice(mIdx, 1);
+        else {
+          // it's an auto peak (or was removed→can't be in lines). remove it
+          const pk = result.peaks.find(p => Math.abs(p.x - bi) < 1);
+          if (pk) S.removed.add(pk.x);
+        }
+      } else {
+        // add: if a removed auto peak is nearby, restore it; else manual
+        const nearRemoved = Array.from(S.removed).find(rp => Math.abs(rp - pos) < tol);
+        if (nearRemoved !== undefined) S.removed.delete(nearRemoved);
+        else S.manual.push(Math.round(pos));
+      }
+      updateReadouts();
+      drawOverlay(); drawTrace();
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (S.dragging >= 0) {
+        S.dragging = -1;
+        if (moved) { S.removed.clear(); S.manual = []; runAnalysis(); }
+        drawOverlay();
+        return;
+      }
+      // plain tap: toggle a line
+      const result = S.result, rectData = S.rectData;
+      if (!result || !rectData) return;
+      const [x, y] = pointerPos(e);
+      const [ax, ay] = d2a(x, y);
+      const { H, RW, RH } = rectData;
+      const [rx, ry] = applyH(H, ax, ay);
+      if (rx < 0 || ry < 0 || rx >= RW || ry >= RH) return;
+      const tanS = Math.tan(result.shearDeg * Math.PI / 180);
+      let pos: number;
+      if (!S.transposed) pos = rx - tanS * (ry - RH / 2);
+      else pos = ry - tanS * (rx - RW / 2);
+      togglePleatAt(pos);
+    };
+
+    // click in the ridge intensity trace: same toggle, mapped along the profile
+    const onTraceClick = (e: MouseEvent) => {
+      const result = S.result;
+      if (!result) return;
+      const r = traceCanvas.getBoundingClientRect();
+      if (r.width <= 0) return;
+      const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      togglePleatAt(frac * (result.det.length - 1));
+    };
+
+    // ---------- analysis ----------
+    function setStatus(msg: string) { statusEl.textContent = msg; }
+
+    function runAnalysis() {
+      if (!S.gray || !S.quad) return;
+      setStatus('Analyzing…');
+      requestAnimationFrame(() => { setTimeout(doAnalysis, 10); });
+    }
+    function doAnalysis() {
+      if (disposed) return;
+      const gray = S.gray, quad = S.quad;
+      if (!gray || !quad) return;
+      const t0 = performance.now();
+      const quadW = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
+      const targetW = Math.max(300, Math.min(820, Math.round(quadW)));
+      S.rectData = rectify(gray, S.gw, S.gh, quad, targetW);
+      const { rect, RW, RH } = S.rectData;
+
+      // grating mask first (also feeds the profile if enabled)
+      computeGrateMask();
+      const maskForProfile = (grateOnEl.checked && S.grateMask) ? S.grateMask : null;
+
+      // orientation: forced by the user, or auto by comparing best periodic
+      // energy over the shear sweep for both axes
+      let rectT: Float32Array | null = null, maskT: Uint8Array | null = null;
+      if (orientMode === 'auto') {
+        const tiltGuide = +tiltEl.value;
+        const eCol = profileEnergy(rect, RW, RH, maskForProfile, tiltGuide);
+        rectT = transposeRect(rect, RW, RH);
+        maskT = maskForProfile ? transposeMask(maskForProfile, RW, RH) : null;
+        const eRow = profileEnergy(rectT, RH, RW, maskT, tiltGuide);
+        S.transposed = eRow > eCol * 1.15;
+      } else {
+        S.transposed = orientMode === 'h';
+        if (S.transposed) {
+          rectT = transposeRect(rect, RW, RH);
+          maskT = maskForProfile ? transposeMask(maskForProfile, RW, RH) : null;
+        }
+      }
+
+      const promFrac = +sensEl.value / 100;
+      const spacingFrac = +spacingEl.value / 100;
+      const opts: AnalyzeOpts = {
+        promFrac, spacingFrac,
+        shearCenter: +tiltEl.value,
+        mask: S.transposed ? maskT : maskForProfile,
+      };
+      S.result = S.transposed
+        ? analyzeRect(rectT!, RH, RW, opts)
+        : analyzeRect(rect, RW, RH, opts);
+
+      const ms = Math.round(performance.now() - t0);
+      setStatus(`Done in ${ms} ms · pleats ${S.transposed ? 'horizontal' : 'vertical'} in frame${orientMode !== 'auto' ? ' (forced)' : ''} · shear ${S.result.shearDeg.toFixed(1)}°`);
+      updateReadouts();
+      drawOverlay(); drawTrace(); drawRectPreview();
+    }
+
+    // ---------- rectified preview panel ----------
+    function drawRectPreview() {
+      const canvas = rectCanvas;
+      const panel = canvas.parentElement!;
+      const rectData = S.rectData;
+      if (!rectData) { canvas.width = 0; canvas.height = 0; rectInfo.textContent = '—'; return; }
+      const { rect, RW, RH } = rectData;
+      const availW = panel.clientWidth - 2;
+      const sc = Math.min(availW / RW, 240 / RH);
+      const dw = Math.max(1, Math.round(RW * sc)), dh = Math.max(1, Math.round(RH * sc));
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = dw * dpr; canvas.height = dh * dpr;
+      canvas.style.width = dw + 'px'; canvas.style.height = dh + 'px';
+      // build at native rect resolution offscreen, then scale
+      const off = document.createElement('canvas'); off.width = RW; off.height = RH;
+      const ox = off.getContext('2d')!;
+      const id = ox.createImageData(RW, RH), dd = id.data;
+      const showMask = grateOnEl.checked && S.grateMask;
+      for (let i = 0; i < RW * RH; i++) {
+        const v = rect[i], p = i * 4;
+        if (showMask && S.grateMask![i]) {
+          dd[p] = Math.round(v * 0.35 + GRATE_R * 0.55);
+          dd[p + 1] = Math.round(v * 0.35 + GRATE_G * 0.55);
+          dd[p + 2] = Math.round(v * 0.35 + GRATE_B * 0.55);
+        } else {
+          dd[p] = dd[p + 1] = dd[p + 2] = v;
+        }
+        dd[p + 3] = 255;
+      }
+      ox.putImageData(id, 0, 0);
+      const ctx = canvas.getContext('2d')!;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(off, 0, 0, dw, dh);
+      // pleat lines
+      const result = S.result;
+      if (result) {
+        const tanS = Math.tan(result.shearDeg * Math.PI / 180);
+        const autoSet = new Set(result.peaks.map(p => p.x).filter(x => !S.removed.has(x)));
+        ctx.lineWidth = 1.5;
+        for (const pos of currentLines()) {
+          ctx.strokeStyle = C_PLEAT;
+          ctx.setLineDash(autoSet.has(pos) ? [] : [5, 4]);
+          ctx.beginPath();
+          if (!S.transposed) {
+            ctx.moveTo((pos + tanS * (0 - RH / 2)) * sc, 0);
+            ctx.lineTo((pos + tanS * (RH - 1 - RH / 2)) * sc, dh);
+          } else {
+            ctx.moveTo(0, (pos + tanS * (0 - RW / 2)) * sc);
+            ctx.lineTo(dw, (pos + tanS * (RW - 1 - RW / 2)) * sc);
+          }
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+      rectInfo.textContent = `${RW}×${RH}px` +
+        (grateOnEl.checked && S.openPct != null ? ` · open ${S.openPct.toFixed(1)}%` : '');
+    }
+
+    // ---------- grating / open area ----------
+    function computeGrateMask() {
+      if (!grateOnEl.checked || !S.rectData) { S.grateMask = null; S.openPct = null; return; }
+      const { rect, RW, RH } = S.rectData;
+      const bT = +byId<HTMLInputElement>('gBright').value;
+      const tT = +byId<HTMLInputElement>('gTex').value;
+      // integral images for local std (window r)
+      const r = 3;
+      const ps = new Float64Array((RW + 1) * (RH + 1)), ps2 = new Float64Array((RW + 1) * (RH + 1));
+      for (let y = 0; y < RH; y++) {
+        let rs = 0, rs2 = 0;
+        for (let x = 0; x < RW; x++) {
+          const v = rect[y * RW + x]; rs += v; rs2 += v * v;
+          ps[(y + 1) * (RW + 1) + x + 1] = ps[y * (RW + 1) + x + 1] + rs;
+          ps2[(y + 1) * (RW + 1) + x + 1] = ps2[y * (RW + 1) + x + 1] + rs2;
+        }
+      }
+      const mask = new Uint8Array(RW * RH);
+      let cnt = 0;
+      for (let y = 0; y < RH; y++) {
+        const y0 = Math.max(0, y - r), y1 = Math.min(RH - 1, y + r);
+        for (let x = 0; x < RW; x++) {
+          const v = rect[y * RW + x];
+          if (v < bT) continue;
+          const x0 = Math.max(0, x - r), x1 = Math.min(RW - 1, x + r);
+          const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+          const s = ps[(y1 + 1) * (RW + 1) + x1 + 1] - ps[(y0) * (RW + 1) + x1 + 1] - ps[(y1 + 1) * (RW + 1) + x0] + ps[(y0) * (RW + 1) + x0];
+          const s2 = ps2[(y1 + 1) * (RW + 1) + x1 + 1] - ps2[(y0) * (RW + 1) + x1 + 1] - ps2[(y1 + 1) * (RW + 1) + x0] + ps2[(y0) * (RW + 1) + x0];
+          const mean = s / area, vari = Math.max(0, s2 / area - mean * mean);
+          if (Math.sqrt(vari) <= tT) { mask[y * RW + x] = 1; cnt++; }
+        }
+      }
+      S.grateMask = mask;
+      S.openPct = 100 * (1 - cnt / (RW * RH));
+    }
+
+    let grateTimer: ReturnType<typeof setTimeout> | null = null;
+    function grateSliderInput(id: string, outId: string, suffix = '') {
+      const el = byId<HTMLInputElement>(id), out = byId(outId);
+      el.addEventListener('input', () => {
+        out.textContent = el.value + suffix;
+        if (grateTimer) clearTimeout(grateTimer);
+        grateTimer = setTimeout(() => {
+          if (disposed) return;
+          if (S.rectData) { computeGrateMask(); updateReadouts(); drawOverlay(); drawRectPreview(); }
+        }, 70);
+      });
+      el.addEventListener('change', () => { if (grateOnEl.checked) runAnalysis(); });
+    }
+
+    // ---------- readouts ----------
+    let depthUnit: 'in' | 'mm' = 'in';
+    function depthInches(): number {
+      const v = parseFloat(byId<HTMLInputElement>('pleatDepth').value);
+      if (!isFinite(v)) return NaN;
+      return depthUnit === 'mm' ? v / 25.4 : v;
+    }
+    function setDepthUnit(u: 'in' | 'mm') {
+      if (u === depthUnit) return;
+      const input = byId<HTMLInputElement>('pleatDepth');
+      const v = parseFloat(input.value);
+      if (isFinite(v)) {
+        input.value = u === 'mm' ? String(+(v * 25.4).toFixed(2)) : String(+(v / 25.4).toFixed(3));
+      }
+      input.step = u === 'mm' ? '0.5' : '0.125';
+      input.min = u === 'mm' ? '1' : '0.125';
+      depthUnit = u;
+      byId('depthIn').classList.toggle('active', u === 'in');
+      byId('depthMm').classList.toggle('active', u === 'mm');
+      updateReadouts();
+    }
+
+    function updateReadouts() {
+      const result = S.result;
+      const n = result ? currentLines().length : 0;
+      byId('roCount').textContent = result ? String(n) : '—';
+      byId('headCount').innerHTML = result ? `pleats <b>${n}</b>` : 'no image';
+      // dimension ACROSS the pleats: quad width if pleats are vertical in frame,
+      // quad height if they run horizontally; the media sheet width runs ALONG them
+      const faceW = parseFloat(byId<HTMLInputElement>('faceW').value);
+      const faceH = parseFloat(byId<HTMLInputElement>('faceH').value);
+      const depth = depthInches();
+      const across = S.transposed ? faceH : faceW;
+      const along = S.transposed ? faceW : faceH;
+      const ppfLabel = byId('roPPFLabel'), ppfSub = byId('roPPFSub');
+      ppfLabel.textContent = 'Pleats / ft';
+      ppfSub.textContent = '';
+      if (result && result.pitch > 0) {
+        let txt = `${result.pitch}<small> px</small>`;
+        let ppf = '—';
+        if (across > 0 && S.rectData) {
+          const workW = S.transposed ? S.rectData.RH : S.rectData.RW;
+          const pitchIn = result.pitch * across / workW;
+          if (n >= 50) {
+            // minipleat territory: metric pitch, PPI + pleats/dm
+            const pitchMm = pitchIn * 25.4;
+            txt = `${pitchMm.toFixed(2)}<small> mm</small>`;
+            ppfLabel.textContent = 'PPI';
+            ppf = (1 / pitchIn).toFixed(2);
+            ppfSub.textContent = `${(100 / pitchMm).toFixed(1)} pleats / dm`;
+          } else {
+            txt = `${pitchIn.toFixed(3)}<small> in</small>`;
+            ppf = (12 / pitchIn).toFixed(1);
+          }
+        }
+        byId('roPitch').innerHTML = txt;
+        byId('roPPF').textContent = ppf;
+      } else {
+        byId('roPitch').textContent = '—';
+        byId('roPPF').textContent = '—';
+      }
+      // media area: each pleat is a V of media ≈ 2 × depth, times the sheet width
+      if (result && n > 0 && depth > 0 && along > 0) {
+        const sqft = n * 2 * depth * along / 144;
+        byId('roMedia').innerHTML = `${sqft.toFixed(2)}<small> ft²</small>`;
+      } else {
+        byId('roMedia').textContent = '—';
+      }
+      byId('roOpen').innerHTML =
+        (grateOnEl.checked && S.openPct != null) ? `${S.openPct.toFixed(1)}<small> %</small>` : '—';
+      byId<HTMLButtonElement>('simulate').disabled = !result || n === 0;
+    }
+
+    // hand the measured values off to the pleated filter performance calculator
+    const onSimulate = () => {
+      const result = S.result;
+      const n = result ? currentLines().length : 0;
+      const qp = new URLSearchParams();
+      const fw = parseFloat(byId<HTMLInputElement>('faceW').value);
+      const fh = parseFloat(byId<HTMLInputElement>('faceH').value);
+      if (isFinite(fw) && fw > 0) qp.set('fw', String(fw));
+      if (isFinite(fh) && fh > 0) qp.set('fh', String(fh));
+      const dIn = depthInches();
+      if (isFinite(dIn) && dIn > 0) qp.set('pd', dIn.toFixed(3));
+      if (n > 0) qp.set('count', String(n));
+      if (grateOnEl.checked && S.openPct != null) {
+        qp.set('grating', Math.min(90, Math.max(0, 100 - S.openPct)).toFixed(1));
+      }
+      window.open('/calculators/pleated-filter-calculator?' + qp.toString(), '_blank', 'noopener');
+    };
+
+    // ---------- wiring ----------
+    const onDropzoneClick = () => fileInput.click();
+    const onDropzoneKey = (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); };
+    const onFileChange = (e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) loadFile(f); };
+    const onNewImage = () => fileInput.click();
+    const onAutoCorners = () => {
+      if (!S.gray) return;
+      const q = autoDetectQuad(S.gray, S.gw, S.gh);
+      if (q) { S.quad = q; S.removed.clear(); S.manual = []; runAnalysis(); }
+      else setStatus('Could not find the filter automatically — drag the corners by hand.');
+    };
+    const onGrateToggle = () => { grateSliders.style.display = grateOnEl.checked ? '' : 'none'; runAnalysis(); };
+    const onSensInput = () => { byId('sensOut').textContent = sensEl.value; };
+    const onSensChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
+    const onSpacingInput = () => { byId('spacingOut').textContent = (+spacingEl.value / 100).toFixed(2) + '×'; };
+    const onSpacingChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
+    const onTiltInput = () => { byId('tiltOut').textContent = tiltEl.value + '°'; };
+    const onTiltChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
+    const applyOrientClasses = () => {
+      byId('orientAuto').classList.toggle('active', orientMode === 'auto');
+      byId('orientV').classList.toggle('active', orientMode === 'v');
+      byId('orientH').classList.toggle('active', orientMode === 'h');
+    };
+    const onOrient = (m: 'auto' | 'v' | 'h') => () => {
+      if (orientMode === m) return;
+      orientMode = m;
+      applyOrientClasses();
+      S.removed.clear(); S.manual = [];
+      runAnalysis();
+    };
+    const onResetParams = () => {
+      sensEl.value = '35'; byId('sensOut').textContent = '35';
+      spacingEl.value = '60'; byId('spacingOut').textContent = '0.60×';
+      tiltEl.value = '0'; byId('tiltOut').textContent = '0°';
+      orientMode = 'auto'; applyOrientClasses();
+      grateOnEl.checked = true; grateSliders.style.display = '';
+      byId<HTMLInputElement>('gBright').value = '205'; byId('gBrightOut').textContent = '205';
+      byId<HTMLInputElement>('gTex').value = '12'; byId('gTexOut').textContent = '12';
+      S.removed.clear(); S.manual = [];
+      runAnalysis();
+    };
+
+    dropzone.addEventListener('click', onDropzoneClick);
+    dropzone.addEventListener('keydown', onDropzoneKey);
+    fileInput.addEventListener('change', onFileChange);
+    byId('newImage').addEventListener('click', onNewImage);
+    byId('autoCorners').addEventListener('click', onAutoCorners);
+    grateOnEl.addEventListener('change', onGrateToggle);
+    sensEl.addEventListener('input', onSensInput);
+    sensEl.addEventListener('change', onSensChange);
+    spacingEl.addEventListener('input', onSpacingInput);
+    spacingEl.addEventListener('change', onSpacingChange);
+    tiltEl.addEventListener('input', onTiltInput);
+    tiltEl.addEventListener('change', onTiltChange);
+    byId('orientAuto').addEventListener('click', onOrient('auto'));
+    byId('orientV').addEventListener('click', onOrient('v'));
+    byId('orientH').addEventListener('click', onOrient('h'));
+    byId('resetParams').addEventListener('click', onResetParams);
+    byId('faceW').addEventListener('input', updateReadouts);
+    byId('faceH').addEventListener('input', updateReadouts);
+    byId('pleatDepth').addEventListener('input', updateReadouts);
+    byId('depthIn').addEventListener('click', () => setDepthUnit('in'));
+    byId('depthMm').addEventListener('click', () => setDepthUnit('mm'));
+    byId('simulate').addEventListener('click', onSimulate);
+    ovCanvas.addEventListener('pointerdown', onPointerDown);
+    ovCanvas.addEventListener('pointermove', onPointerMove);
+    ovCanvas.addEventListener('pointerup', onPointerUp);
+    traceCanvas.addEventListener('click', onTraceClick);
+    grateSliderInput('gBright', 'gBrightOut');
+    grateSliderInput('gTex', 'gTexOut');
+
+    const addDrag = (e: Event) => { e.preventDefault(); dropzone.classList.add('drag'); };
+    const rmDrag = (e: Event) => { e.preventDefault(); dropzone.classList.remove('drag'); };
+    const onBodyDrop = (e: DragEvent) => { const f = e.dataTransfer?.files?.[0]; if (f) loadFile(f); };
+    document.body.addEventListener('dragover', addDrag);
+    document.body.addEventListener('dragenter', addDrag);
+    document.body.addEventListener('dragleave', rmDrag);
+    document.body.addEventListener('drop', rmDrag);
+    document.body.addEventListener('drop', onBodyDrop as EventListener);
+    const onResize = () => layoutStage();
+    window.addEventListener('resize', onResize);
+
+    layoutStage();
+
     return () => {
-      window.removeEventListener('mousemove', onGlobalMouseMove);
-      window.removeEventListener('mouseup', onGlobalMouseUp);
+      disposed = true;
+      if (grateTimer) clearTimeout(grateTimer);
+      document.body.removeEventListener('dragover', addDrag);
+      document.body.removeEventListener('dragenter', addDrag);
+      document.body.removeEventListener('dragleave', rmDrag);
+      document.body.removeEventListener('drop', rmDrag);
+      document.body.removeEventListener('drop', onBodyDrop as EventListener);
+      window.removeEventListener('resize', onResize);
     };
-  }, [canvasToPixel, handlePointerMove, handlePointerUp]);
-
-  const increment = () => setPleatCountStr((s: string) => String((parseInt(s) || 0) + 1));
-  const decrement = () => setPleatCountStr((s: string) => String(Math.max(0, (parseInt(s) || 0) - 1)));
-
-  const adjBtn: CSSProperties = {
-    width: 48, height: 48, minWidth: 48,
-    border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-    background: 'var(--surface)', color: 'var(--text-primary)',
-    fontSize: '1.5rem', fontWeight: 300, lineHeight: 1,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-    transition: 'border-color 0.15s, background 0.15s',
-  };
+  }, []);
 
   return (
     <main>
@@ -1485,423 +1076,235 @@ export default function PleatCounterPage() {
             <span className="gradient-text">Machine Vision Pleat Counting</span>
           </h1>
           <p className="section-subtitle" style={{ marginBottom: 0 }}>
-            Upload a photo of a filter — pleats are counted through grating obstructions using multi-strip analysis, autocorrelation, and ridge tracking
+            Upload a photo of a pleated filter and the face is perspective-corrected before counting. Ridges
+            are found by autocorrelation, the frame and grating are detected and excluded, and pitch,
+            pleats-per-foot, and open area are reported — entirely in the browser.
           </p>
         </div>
 
-        {/* Main content */}
-        <div style={{ maxWidth: 720, margin: '0 auto 4rem' }}>
+        {/* Tool */}
+        <div className="pc-root" ref={rootRef}>
+          <div className="pc-topbar">
+            <span className="pc-eyebrow">Perspective-corrected ridge detection</span>
+            <span className="pc-headcount" id="headCount">no image</span>
+          </div>
 
-          {/* Hidden file inputs */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,.heic,.heif"
-            capture="environment"
-            onChange={handleCapture}
-            style={{ display: 'none' }}
-          />
-          <input
-            ref={fileInputUploadRef}
-            type="file"
-            accept="image/*,.heic,.heif"
-            onChange={handleCapture}
-            style={{ display: 'none' }}
-          />
-
-          {/* Full-screen loading overlay (shown before canvas is ready) */}
-          {analyzing && !imageSrc && (
-            <div style={{
-              border: '2px dashed var(--border)',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--glass-bg)',
-              backdropFilter: 'blur(16px)',
-              padding: '3rem 2rem',
-              textAlign: 'center',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              gap: '1rem', minHeight: 220,
-            }}>
-              <div style={{ width: 40, height: 40, border: '3px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent-secondary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              <p style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
-                {loadingStatus || 'Loading image\u2026'}
-              </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                Large photos may take a moment to decode
-              </p>
-            </div>
-          )}
-
-          {/* Capture Zone / Canvas */}
-          {!imageSrc && !analyzing ? (
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              style={{
-                border: `2px dashed ${isDragActive ? 'var(--accent-secondary)' : 'var(--border)'}`,
-                borderRadius: 'var(--radius-lg)',
-                background: isDragActive ? 'rgba(0,184,148,0.05)' : 'var(--glass-bg)',
-                backdropFilter: 'blur(16px)',
-                padding: '3rem 2rem',
-                textAlign: 'center',
-                transition: 'border-color 0.2s, background 0.2s',
-                cursor: 'default',
-              }}
-            >
-              <div style={{ marginBottom: '1rem', color: 'var(--text-muted)' }}>
-                <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-              </div>
-              <p style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.4rem' }}>
-                Photograph your filter
-              </p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.75rem', maxWidth: 380, margin: '0 auto 1.75rem' }}>
-                Take a photo or upload an image of the filter&apos;s pleated media — pleats will be counted automatically, even through grating
-              </p>
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ fontSize: '1rem', padding: '0.8rem 1.75rem' }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <circle cx="12" cy="13" r="4" />
-                  </svg>
-                  Take Photo
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => fileInputUploadRef.current?.click()}
-                  style={{ fontSize: '1rem', padding: '0.8rem 1.75rem' }}
-                >
-                  Upload Image
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ marginBottom: '0.5rem' }}>
-              {/* Canvas */}
-              <div style={{ position: 'relative' }}>
-                <canvas
-                  ref={canvasRef}
-                  onMouseDown={onCanvasMouseDown}
-                  onMouseMove={onCanvasMouseMove}
-                  onMouseUp={onCanvasMouseUp}
-                  onTouchStart={onCanvasTouchStart}
-                  onTouchMove={onCanvasTouchMove}
-                  onTouchEnd={onCanvasTouchEnd}
-                  style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius-md)', display: 'block', touchAction: 'none', cursor: 'default' }}
-                />
-                {analyzing && (
-                  <div style={{
-                    position: 'absolute', inset: 0, display: 'flex',
-                    flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    background: 'rgba(26,26,46,0.6)', borderRadius: 'var(--radius-md)',
-                    gap: '0.75rem',
-                  }}>
-                    <div style={{ width: 36, height: 36, border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#00e676', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                    <p style={{ color: 'white', fontWeight: 600, fontSize: '0.95rem' }}>{loadingStatus || 'Analyzing pleats\u2026'}</p>
+          <div className="pc-wrap">
+            <div className="pc-main">
+            <div className="pc-stagecard">
+              <div className="pc-stage" id="stage">
+                <canvas id="imgCanvas" />
+                <canvas id="overlayCanvas" />
+                <div className="pc-dropzone" id="dropzone" tabIndex={0} role="button" aria-label="Upload a filter photo">
+                  <div className="pc-dropicon">
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                      <circle cx="12" cy="13" r="4" />
+                    </svg>
                   </div>
-                )}
-              </div>
-
-              {/* Legend + Retake row — below the image, never overlapping corner handles */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.72rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 12, height: 2, background: '#00e676', borderRadius: 2, display: 'inline-block' }} />
-                    Filter boundary
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 12, height: 2, background: 'rgba(0,191,255,0.6)', borderRadius: 2, display: 'inline-block' }} />
-                    Ridge lines
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 12, height: 2, background: 'rgba(255,214,10,0.85)', borderRadius: 2, display: 'inline-block' }} />
-                    Counting line
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 12, height: 2, background: 'rgba(255,82,82,0.7)', borderRadius: 2, display: 'inline-block' }} />
-                    Detected pleats
-                  </span>
-                  {analysisInfo?.gratingDetected && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <span style={{ width: 12, height: 2, background: 'rgba(255,165,0,0.5)', borderRadius: 2, display: 'inline-block' }} />
-                      Grating bars
-                    </span>
-                  )}
+                  <div className="pc-big">Drop a filter photo here</div>
+                  <div>or click to choose &nbsp;·&nbsp; <kbd>JPG</kbd> <kbd>PNG</kbd> <kbd>HEIC→JPG</kbd></div>
                 </div>
-                <button
-                  onClick={handleReset}
-                  style={{
-                    flexShrink: 0,
-                    background: 'var(--surface)', color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)', padding: '0.3rem 0.75rem',
-                    cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  Retake
-                </button>
+                <input type="file" id="fileInput" accept="image/*" hidden />
+              </div>
+              <div className="pc-tracewrap">
+                <div className="pc-tracehead"><span>Ridge intensity trace · detrended · click to add or remove a pleat</span><span id="traceInfo">—</span></div>
+                <canvas id="traceCanvas" />
               </div>
             </div>
-          )}
 
-          {/* Analysis info banner */}
-          {imageSrc && !analyzing && analysisInfo && (
-            <div style={{
-              marginTop: '1rem', padding: '0.6rem 1rem',
-              background: analysisInfo.gratingDetected ? 'rgba(255,165,0,0.08)' : 'rgba(0,184,148,0.06)',
-              border: `1px solid ${analysisInfo.gratingDetected ? 'rgba(255,165,0,0.2)' : 'rgba(0,184,148,0.15)'}`,
-              borderRadius: 'var(--radius-md)',
-              fontSize: '0.78rem', color: 'var(--text-secondary)',
-              display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'center',
-            }}>
-              {analysisInfo.gratingDetected && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ color: 'rgba(255,165,0,0.9)', fontWeight: 700, fontSize: '0.85rem' }}>GRATING DETECTED</span>
-                  <span style={{ color: 'var(--text-muted)' }}>&mdash; counting through obstructions</span>
-                </span>
-              )}
-              <span>Confidence: <strong>{Math.round(analysisInfo.confidence * 100)}%</strong></span>
-              {analysisInfo.period > 0 && (
-                <span>Period: <strong>{analysisInfo.period.toFixed(1)}px</strong></span>
-              )}
-            </div>
-          )}
-
-          {/* Detection controls */}
-          {imageSrc && (
-            <div style={{
-              marginTop: '0.75rem', padding: '0.9rem 1.1rem',
-              background: 'var(--surface)', borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-subtle)',
-              display: 'flex', flexDirection: 'column', gap: '0.75rem',
-            }}>
-
-              {/* Sensitivity slider */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Detection Sensitivity
-                  </label>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                    {sensitivity}%
+            <div className="pc-card pc-results">
+              <div className="pc-step"><span className="pc-n">4</span><h2>Results</h2></div>
+              <div className="pc-resrow">
+                <div className="pc-row" style={{ margin: 0 }}>
+                  <label htmlFor="faceW">Face size (in)</label>
+                  <input type="number" id="faceW" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face width in inches" />
+                  <span style={{ color: 'var(--text-muted)' }}>×</span>
+                  <input type="number" id="faceH" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face height in inches" />
+                </div>
+                <div className="pc-row" style={{ margin: 0 }}>
+                  <label htmlFor="pleatDepth">Pleat depth</label>
+                  <input type="number" id="pleatDepth" min={0.125} step={0.125} defaultValue={1.75} style={{ flex: '0 0 78px' }} aria-label="Pleat depth" />
+                  <span className="pc-unittoggle" role="radiogroup" aria-label="Pleat depth units">
+                    <button type="button" id="depthIn" className="active">in</button>
+                    <button type="button" id="depthMm">mm</button>
                   </span>
                 </div>
-                <input
-                  type="range" min={5} max={95} step={5}
-                  value={sensitivity}
-                  onChange={handleSensitivityChange}
-                  style={{ width: '100%', accentColor: 'var(--accent-secondary)', cursor: 'pointer' }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                  <span>Selective (strong pleats only)</span>
-                  <span>Sensitive (catches subtle pleats)</span>
-                </div>
               </div>
-
-              {/* Pleat feature toggle: bright tips vs dark valleys */}
-              <div>
-                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
-                  Count Feature
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {([true, false] as const).map((bright) => (
-                    <button
-                      key={String(bright)}
-                      onClick={() => handleToggleDetectBright(bright)}
-                      style={{
-                        flex: 1, padding: '0.35rem 0.5rem',
-                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
-                        borderRadius: 'var(--radius-sm)',
-                        border: detectBright === bright
-                          ? '1.5px solid var(--accent-secondary)'
-                          : '1.5px solid var(--border-subtle)',
-                        background: detectBright === bright
-                          ? 'rgba(0,184,148,0.12)'
-                          : 'transparent',
-                        color: detectBright === bright
-                          ? 'var(--accent-secondary)'
-                          : 'var(--text-muted)',
-                      }}
-                    >
-                      {bright ? 'Bright peaks (pleat tips)' : 'Dark valleys'}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                  {detectBright
-                    ? 'Lines snap to bright pleat tips facing the camera'
-                    : 'Lines snap to dark valleys between pleats'}
-                </div>
+              <div className="pc-readout">
+                <div className="pc-ro count"><div className="pc-k">Pleats</div><div className="pc-v" id="roCount">—</div></div>
+                <div className="pc-ro media"><div className="pc-k">Media area</div><div className="pc-v" id="roMedia">—</div></div>
+                <div className="pc-ro"><div className="pc-k">Pitch</div><div className="pc-v" id="roPitch">—</div></div>
+                <div className="pc-ro"><div className="pc-k" id="roPPFLabel">Pleats / ft</div><div className="pc-v" id="roPPF">—</div><div className="pc-sub" id="roPPFSub"></div></div>
+                <div className="pc-ro open"><div className="pc-k">Open area</div><div className="pc-v" id="roOpen">—</div></div>
               </div>
-
-              {/* Overlay visibility toggle */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Show Overlay
-                </span>
-                <button
-                  onClick={handleToggleOverlay}
-                  style={{
-                    padding: '0.3rem 0.75rem', fontSize: '0.75rem', fontWeight: 600,
-                    cursor: 'pointer', borderRadius: 'var(--radius-sm)',
-                    border: '1.5px solid var(--border-subtle)',
-                    background: showOverlay ? 'rgba(0,184,148,0.12)' : 'transparent',
-                    color: showOverlay ? 'var(--accent-secondary)' : 'var(--text-muted)',
-                  }}
-                >
-                  {showOverlay ? 'On' : 'Off'}
-                </button>
+              <div className="pc-simrow">
+                <button className="primary" id="simulate" disabled>Simulate performance ↗</button>
+                <span className="pc-simnote">Opens the pleated filter performance calculator on a new page with the face size, pleat depth, pleat count, and grating blockage pre-filled.</span>
               </div>
-
             </div>
-          )}
+            </div>
 
-          {/* Calculator Card */}
-          <div className="calculator-card" style={{ marginTop: '1.25rem' }}>
+            <div className="pc-rail">
+              <div className="pc-card">
+                <div className="pc-step"><span className="pc-n">1</span><h2>Frame the face</h2></div>
+                <p className="pc-hint">Corners snap to the pleated area automatically — the smooth, bright frame is excluded. Drag the purple dots to fine-tune; the rectified view in step 3 shows exactly what falls inside the frame.</p>
+                <div className="pc-btnrow">
+                  <button className="primary" id="autoCorners">Auto corners</button>
+                  <button id="newImage">New image</button>
+                </div>
+                <div className="pc-legend">
+                  <span className="pc-lq"><i></i>face outline</span>
+                  <span className="pc-lp"><i></i>pleat ridge</span>
+                  <span className="pc-lm"><i></i>manual line</span>
+                  <span className="pc-lg"><i></i>grating</span>
+                </div>
+              </div>
 
-            {/* Pleat count display */}
-            <div className="calc-field">
-              <label className="calc-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                Pleat Count
-                {imageSrc && pleatDetected && (
-                  <span style={{
-                    fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent-secondary)',
-                    background: 'rgba(0,184,148,0.1)', padding: '0.1rem 0.45rem',
-                    borderRadius: 999, letterSpacing: '0.04em',
-                  }}>
-                    AUTO-DETECTED
+              <div className="pc-card">
+                <div className="pc-step"><span className="pc-n">2</span><h2>Count pleats</h2><button type="button" className="pc-reset" id="resetParams">Reset defaults</button></div>
+                <div className="pc-row">
+                  <label htmlFor="sens">Sensitivity</label>
+                  <input type="range" id="sens" min={10} max={70} defaultValue={35} />
+                  <output id="sensOut">35</output>
+                </div>
+                <div className="pc-row">
+                  <label htmlFor="spacing">Min spacing</label>
+                  <input type="range" id="spacing" min={15} max={90} defaultValue={60} />
+                  <output id="spacingOut">0.60×</output>
+                </div>
+                <div className="pc-row">
+                  <label>Orientation</label>
+                  <span className="pc-unittoggle" role="radiogroup" aria-label="Pleat orientation">
+                    <button type="button" id="orientAuto" className="active">Auto</button>
+                    <button type="button" id="orientV">Vert</button>
+                    <button type="button" id="orientH">Horiz</button>
                   </span>
-                )}
-              </label>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                <button onClick={decrement} style={adjBtn} aria-label="Decrease pleat count">&minus;</button>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  className="calc-input"
-                  value={pleatCountStr}
-                  onChange={e => setPleatCountStr(e.target.value)}
-                  placeholder="0"
-                  min={0}
-                  style={{ textAlign: 'center', fontWeight: 800, fontSize: '1.5rem', flex: 1 }}
-                />
-                <button onClick={increment} style={adjBtn} aria-label="Increase pleat count">+</button>
+                </div>
+                <div className="pc-row">
+                  <label htmlFor="tilt">Tilt guide</label>
+                  <input type="range" id="tilt" min={-30} max={30} defaultValue={0} />
+                  <output id="tiltOut">0°</output>
+                </div>
+                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Orientation forces the ridge direction if auto picks wrong; the tilt guide recenters the ±12° lean search for strongly tilted pleats. Everything recounts when a setting changes. Tap the image, or click in the trace below it, to add a missed ridge or remove a false one.</p>
+                <div className="pc-status" id="status">Waiting for image.</div>
               </div>
-              {imageSrc && !analyzing && !pleatDetected && (
-                <p style={{ fontSize: '0.8rem', color: 'var(--accent-warm)', marginTop: '0.4rem' }}>
-                  No clear pattern detected — try raising sensitivity or enter count manually
-                </p>
-              )}
-            </div>
 
-            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '0.25rem 0 1.25rem' }} />
-
-            {/* Measurement inputs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 1.25rem' }}>
-              <div className="calc-field">
-                <label className="calc-label">
-                  Width <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(mm) &mdash; along pleat edge</span>
+              <div className="pc-card">
+                <div className="pc-step"><span className="pc-n">3</span><h2>Frame &amp; grating</h2></div>
+                <label className="pc-toggle" style={{ marginBottom: '0.6rem' }}>
+                  <input type="checkbox" id="grateOn" defaultChecked /> <span>Detect frame + grating (excluded from the count, measures open area)</span>
                 </label>
-                <input type="number" inputMode="decimal" className="calc-input"
-                  placeholder="e.g. 500" value={width} onChange={e => setWidth(e.target.value)} />
-              </div>
-              <div className="calc-field">
-                <label className="calc-label">
-                  Length <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(mm) &mdash; direction of counting pleats</span>
-                </label>
-                <input type="number" inputMode="decimal" className="calc-input"
-                  placeholder="e.g. 300" value={length} onChange={e => setLength(e.target.value)} />
-              </div>
-              <div className="calc-field">
-                <label className="calc-label">
-                  Pleat Height <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(mm) &mdash; fold depth</span>
-                </label>
-                <input type="number" inputMode="decimal" className="calc-input"
-                  placeholder="e.g. 28" value={pleatHeight} onChange={e => setPleatHeight(e.target.value)} />
-              </div>
-              <div className="calc-field" style={{ marginBottom: 0 }}>
-                <label className="calc-label">Panels</label>
-                <input type="number" inputMode="numeric" className="calc-input"
-                  placeholder="1" min={1} value={panels} onChange={e => setPanels(e.target.value)} />
-              </div>
-            </div>
-
-            {/* Results */}
-            {showResults && (
-              <div style={{
-                marginTop: '1.5rem', padding: '1.25rem',
-                background: 'rgba(0,184,148,0.07)',
-                border: '1px solid rgba(0,184,148,0.2)',
-                borderRadius: 'var(--radius-md)',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1.25rem' }}>
-
-                  {areaDisplay !== null && (
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-                        <span className="calc-result-label" style={{ marginBottom: 0 }}>Media Area</span>
-                        <select
-                          value={areaUnit}
-                          onChange={e => setAreaUnit(e.target.value as AreaUnit)}
-                          style={{
-                            fontSize: '0.72rem', fontWeight: 700,
-                            background: 'transparent', border: 'none',
-                            color: 'var(--accent-secondary)', cursor: 'pointer', outline: 'none',
-                          }}
-                        >
-                          <option value="ft²">ft²</option>
-                          <option value="m²">m²</option>
-                          <option value="in²">in²</option>
-                        </select>
-                      </div>
-                      <div className="calc-result-value">{fmt(areaDisplay, 2)}</div>
-                      <div className="calc-result-detail">{areaUnit}</div>
-                    </div>
-                  )}
-
-                  {ppi !== null && (
-                    <div>
-                      <div className="calc-result-label">Pleats / Inch</div>
-                      <div className="calc-result-value">{fmt(ppi, 2)}</div>
-                      <div className="calc-result-detail">PPI</div>
-                    </div>
-                  )}
-
-                  {pitchMm !== null && (
-                    <div>
-                      <div className="calc-result-label">Pleat Pitch</div>
-                      <div className="calc-result-value">{fmt(pitchMm, 1)}</div>
-                      <div className="calc-result-detail">mm / pleat</div>
-                    </div>
-                  )}
-
-                  {areaDisplay !== null && !isNaN(widthMm) && !isNaN(lengthMm) && widthMm > 0 && lengthMm > 0 && (
-                    <div>
-                      <div className="calc-result-label">Media : Face</div>
-                      <div className="calc-result-value">
-                        {fmt(areaMm2! / (widthMm * lengthMm * panelCount), 2)}
-                        <span style={{ fontSize: '1rem', fontWeight: 400 }}>&times;</span>
-                      </div>
-                      <div className="calc-result-detail">expansion ratio</div>
-                    </div>
-                  )}
+                <div className="pc-grate-sliders" id="grateSliders">
+                  <div className="pc-row">
+                    <label htmlFor="gBright">Brightness ≥</label>
+                    <input type="range" id="gBright" min={120} max={255} defaultValue={205} />
+                    <output id="gBrightOut">205</output>
+                  </div>
+                  <div className="pc-row">
+                    <label htmlFor="gTex">Texture ≤</label>
+                    <input type="range" id="gTex" min={2} max={40} defaultValue={12} />
+                    <output id="gTexOut">12</output>
+                  </div>
+                  <p className="pc-hint" style={{ marginTop: '0.3rem' }}>Frame strips and grating are bright <em>and</em> smooth. Tune until the pink shading hugs them without eating into the pleat ridges.</p>
+                </div>
+                <div className="pc-rectpanel">
+                  <div className="pc-ph"><span>Rectified face · pink = blocked</span><span id="rectInfo">—</span></div>
+                  <canvas id="rectCanvas" />
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
       <Footer />
+
+      <style>{PC_CSS}</style>
     </main>
   );
 }
+
+const PC_CSS = `
+.pc-root{margin:0 auto 4rem;color:var(--text-primary)}
+.pc-topbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
+.pc-eyebrow{font-size:0.72rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted)}
+.pc-headcount{font-size:0.9rem;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.pc-headcount b{color:var(--accent-secondary);font-size:1.2rem;font-weight:800}
+
+.pc-wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:1.25rem;align-items:start}
+@media(max-width:860px){.pc-wrap{grid-template-columns:1fr}}
+.pc-main{display:flex;flex-direction:column;gap:1rem;min-width:0}
+
+.pc-stagecard{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.05)}
+.pc-stage{position:relative;width:100%;background:repeating-conic-gradient(#eef1f8 0% 25%,#f6f7fb 0% 50%) 0 0/22px 22px}
+.pc-stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.pc-stage #imgCanvas{position:relative}
+.pc-dropzone{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.55rem;color:var(--text-secondary);cursor:pointer;text-align:center;padding:1.5rem}
+.pc-dropzone.hidden{display:none}
+.pc-dropzone .pc-big{font-size:1.05rem;font-weight:700;color:var(--text-primary)}
+.pc-dropzone kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.7rem;border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:var(--text-muted);background:var(--surface)}
+.pc-dropzone.drag{outline:2px dashed var(--accent-secondary);outline-offset:-10px;background:rgba(0,184,148,0.05)}
+.pc-dropicon{color:var(--text-muted);margin-bottom:0.15rem}
+.pc-dropzone:focus-visible{outline:2px solid var(--accent-primary);outline-offset:-6px}
+
+.pc-tracewrap{border-top:1px solid var(--border-subtle);background:var(--surface);padding:0.6rem 0.9rem 0.7rem}
+.pc-tracehead{display:flex;justify-content:space-between;gap:0.5rem;font-size:0.66rem;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.25rem;font-weight:600;flex-wrap:wrap}
+.pc-root #traceCanvas{display:block;width:100%;height:84px;cursor:pointer}
+
+.pc-rail{display:flex;flex-direction:column;gap:1rem}
+.pc-card{background:var(--glass-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-lg);padding:1.1rem 1.2rem}
+.pc-step{display:flex;align-items:center;gap:0.6rem;margin-bottom:0.7rem}
+.pc-root .pc-step .pc-reset{margin-left:auto;font-size:0.66rem;font-weight:600;padding:0.28rem 0.55rem;color:var(--text-secondary)}
+.pc-step .pc-n{font-size:0.72rem;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--accent-primary),#8b5cf6);border-radius:6px;padding:0.1rem 0.5rem;line-height:1.5}
+.pc-step h2{font-size:0.82rem;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;color:var(--text-primary)}
+.pc-hint{color:var(--text-secondary);font-size:0.8rem;line-height:1.55;margin-bottom:0.7rem}
+
+.pc-row{display:flex;align-items:center;gap:0.6rem;margin:0.55rem 0}
+.pc-row label{flex:0 0 92px;font-size:0.72rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.03em}
+.pc-row output{flex:0 0 52px;text-align:right;font-size:0.8rem;font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.pc-root input[type=range]{flex:1;accent-color:var(--accent-secondary);height:22px;cursor:pointer}
+.pc-grate-sliders input[type=range]{accent-color:var(--accent-warm)}
+.pc-root input[type=number],.pc-root input[type=text]{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-family:inherit;font-size:0.85rem;padding:0.4rem 0.5rem;width:90px;outline:none}
+.pc-root input[type=number]:focus,.pc-root input[type=text]:focus{border-color:var(--accent-primary);box-shadow:0 0 0 3px rgba(108,92,231,0.15)}
+
+.pc-root button{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-family:inherit;font-size:0.78rem;font-weight:600;letter-spacing:0.02em;padding:0.5rem 0.8rem;cursor:pointer;transition:all var(--transition-fast)}
+.pc-root button:hover{border-color:var(--accent-primary);background:var(--surface-hover)}
+.pc-root button.primary{background:linear-gradient(135deg,var(--accent-primary),#8b5cf6);border-color:transparent;color:#fff;box-shadow:0 2px 12px rgba(108,92,231,0.25)}
+.pc-root button.primary:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(108,92,231,0.35)}
+.pc-btnrow{display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.4rem}
+
+.pc-toggle{display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;user-select:none;font-size:0.8rem;color:var(--text-secondary);line-height:1.45}
+.pc-toggle input{accent-color:var(--accent-warm);width:15px;height:15px;margin-top:2px;flex-shrink:0}
+
+.pc-readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem;margin-top:0.3rem}
+.pc-ro{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.6rem 0.7rem}
+.pc-ro .pc-k{font-size:0.62rem;font-weight:600;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase}
+.pc-ro .pc-v{font-size:1.15rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);font-variant-numeric:tabular-nums;line-height:1.15}
+.pc-ro .pc-v small{font-size:0.68rem;font-weight:600;color:var(--text-muted)}
+.pc-ro.count .pc-v{color:var(--accent-secondary);font-size:1.55rem}
+.pc-ro.media .pc-v{color:var(--accent-primary);font-size:1.55rem}
+.pc-ro.open .pc-v{color:var(--accent-warm)}
+.pc-sub{font-size:0.65rem;font-weight:600;color:var(--text-muted);margin-top:0.15rem}
+.pc-resrow{display:flex;flex-wrap:wrap;gap:0.6rem 2rem;margin-bottom:0.9rem}
+.pc-unittoggle{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
+.pc-root .pc-unittoggle button{border:none;border-radius:0;padding:0.35rem 0.65rem;font-size:0.72rem;background:transparent;color:var(--text-secondary)}
+.pc-root .pc-unittoggle button:hover{background:var(--surface-hover)}
+.pc-root .pc-unittoggle button.active{background:var(--accent-secondary);color:#fff}
+.pc-simrow{display:flex;align-items:center;gap:0.9rem;flex-wrap:wrap;margin-top:1rem}
+.pc-simnote{font-size:0.72rem;color:var(--text-muted);line-height:1.45;flex:1;min-width:220px}
+.pc-root button:disabled{opacity:0.45;cursor:not-allowed;transform:none !important;box-shadow:none !important}
+.pc-status{font-size:0.72rem;color:var(--text-muted);margin-top:0.6rem;min-height:15px;line-height:1.45}
+
+.pc-rectpanel{margin-top:0.8rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--surface)}
+.pc-rectpanel .pc-ph{display:flex;justify-content:space-between;gap:0.5rem;padding:0.4rem 0.6rem;font-size:0.62rem;color:var(--text-muted);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border-subtle)}
+.pc-root #rectCanvas{display:block;margin:0 auto}
+
+.pc-legend{display:flex;gap:0.9rem;flex-wrap:wrap;font-size:0.68rem;color:var(--text-secondary);margin-top:0.7rem}
+.pc-legend span{display:inline-flex;align-items:center}
+.pc-legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.pc-legend .pc-lp i{background:var(--accent-secondary)}
+.pc-legend .pc-lm i{background:transparent;border-top:3px dashed var(--accent-secondary);height:0}
+.pc-legend .pc-lq i{background:var(--accent-primary)}
+.pc-legend .pc-lg i{background:var(--accent-warm)}
+`;
