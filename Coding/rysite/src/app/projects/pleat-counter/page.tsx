@@ -178,7 +178,11 @@ function analyzeRect(rect: Float32Array, RW: number, RH: number, opts: AnalyzeOp
     if (p2 > 0) pitch = p2;
   } else pitch = Math.round(RW / 20);
   const minDist = Math.max(3, Math.round(pitch * spacingFrac));
-  const peaks = findPeaks(det, minDist, promFrac);
+  const allPeaks = findPeaks(det, minDist, promFrac);
+  // The frame runs parallel to the face edges, so the texture jump at either
+  // extreme of the profile produces false ridges — skip peaks hugging the ends.
+  const edgeMargin = Math.max(3, Math.round(pitch * 0.5));
+  const peaks = allPeaks.filter(p => p.x >= edgeMargin && p.x <= det.length - 1 - edgeMargin);
   return { shearDeg: best.deg, profile: prof, det, pitch, peaks };
 }
 function transposeRect(rect: Float32Array, RW: number, RH: number): Float32Array {
@@ -843,24 +847,45 @@ export default function PleatCounterPage() {
       byId('roCount').textContent = result ? String(n) : '—';
       byId('headCount').innerHTML = result ? `pleats <b>${n}</b>` : 'no image';
       // dimension ACROSS the pleats: quad width if pleats are vertical in frame,
-      // quad height if they run horizontally
+      // quad height if they run horizontally; the media sheet width runs ALONG them
       const faceW = parseFloat(byId<HTMLInputElement>('faceW').value);
       const faceH = parseFloat(byId<HTMLInputElement>('faceH').value);
+      const depth = parseFloat(byId<HTMLInputElement>('pleatDepth').value);
       const across = S.transposed ? faceH : faceW;
+      const along = S.transposed ? faceW : faceH;
+      const ppfLabel = byId('roPPFLabel'), ppfSub = byId('roPPFSub');
+      ppfLabel.textContent = 'Pleats / ft';
+      ppfSub.textContent = '';
       if (result && result.pitch > 0) {
         let txt = `${result.pitch}<small> px</small>`;
         let ppf = '—';
         if (across > 0 && S.rectData) {
           const workW = S.transposed ? S.rectData.RH : S.rectData.RW;
           const pitchIn = result.pitch * across / workW;
-          txt = `${pitchIn.toFixed(3)}<small> in</small>`;
-          ppf = (12 / pitchIn).toFixed(1);
+          if (n >= 50) {
+            // minipleat territory: metric pitch, PPI + pleats/dm
+            const pitchMm = pitchIn * 25.4;
+            txt = `${pitchMm.toFixed(2)}<small> mm</small>`;
+            ppfLabel.textContent = 'PPI';
+            ppf = (1 / pitchIn).toFixed(2);
+            ppfSub.textContent = `${(100 / pitchMm).toFixed(1)} pleats / dm`;
+          } else {
+            txt = `${pitchIn.toFixed(3)}<small> in</small>`;
+            ppf = (12 / pitchIn).toFixed(1);
+          }
         }
         byId('roPitch').innerHTML = txt;
         byId('roPPF').textContent = ppf;
       } else {
         byId('roPitch').textContent = '—';
         byId('roPPF').textContent = '—';
+      }
+      // media area: each pleat is a V of media ≈ 2 × depth, times the sheet width
+      if (result && n > 0 && depth > 0 && along > 0) {
+        const sqft = n * 2 * depth * along / 144;
+        byId('roMedia').innerHTML = `${sqft.toFixed(2)}<small> ft²</small>`;
+      } else {
+        byId('roMedia').textContent = '—';
       }
       byId('roOpen').innerHTML =
         (grateOnEl.checked && S.openPct != null) ? `${S.openPct.toFixed(1)}<small> %</small>` : '—';
@@ -878,7 +903,6 @@ export default function PleatCounterPage() {
       else setStatus('Could not find the filter automatically — drag the corners by hand.');
     };
     const onResetCorners = () => { if (!S.img) return; resetQuad(); S.removed.clear(); S.manual = []; runAnalysis(); };
-    const onRecount = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
     const onGrateToggle = () => { grateSliders.style.display = grateOnEl.checked ? '' : 'none'; runAnalysis(); };
     const onSensInput = () => { byId('sensOut').textContent = sensEl.value; };
     const onSensChange = () => { S.removed.clear(); S.manual = []; runAnalysis(); };
@@ -891,7 +915,6 @@ export default function PleatCounterPage() {
     byId('newImage').addEventListener('click', onNewImage);
     byId('autoCorners').addEventListener('click', onAutoCorners);
     byId('resetCorners').addEventListener('click', onResetCorners);
-    byId('recount').addEventListener('click', onRecount);
     grateOnEl.addEventListener('change', onGrateToggle);
     sensEl.addEventListener('input', onSensInput);
     sensEl.addEventListener('change', onSensChange);
@@ -899,6 +922,7 @@ export default function PleatCounterPage() {
     spacingEl.addEventListener('change', onSpacingChange);
     byId('faceW').addEventListener('input', updateReadouts);
     byId('faceH').addEventListener('input', updateReadouts);
+    byId('pleatDepth').addEventListener('input', updateReadouts);
     ovCanvas.addEventListener('pointerdown', onPointerDown);
     ovCanvas.addEventListener('pointermove', onPointerMove);
     ovCanvas.addEventListener('pointerup', onPointerUp);
@@ -1007,13 +1031,10 @@ export default function PleatCounterPage() {
                 </div>
                 <div className="pc-row">
                   <label htmlFor="spacing">Min spacing</label>
-                  <input type="range" id="spacing" min={35} max={90} defaultValue={60} />
+                  <input type="range" id="spacing" min={15} max={90} defaultValue={60} />
                   <output id="spacingOut">0.60×</output>
                 </div>
-                <div className="pc-btnrow">
-                  <button className="primary" id="recount">Recount</button>
-                </div>
-                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Tap the image to add a missed ridge or remove a false one.</p>
+                <p className="pc-hint" style={{ margin: '0.7rem 0 0' }}>Spacing is a fraction of the detected pitch — go low for minipleats. Everything recounts when a setting changes. Tap the image to add a missed ridge or remove a false one.</p>
                 <div className="pc-status" id="status">Waiting for image.</div>
               </div>
 
@@ -1049,10 +1070,15 @@ export default function PleatCounterPage() {
                   <span style={{ color: 'var(--text-muted)' }}>×</span>
                   <input type="number" id="faceH" min={1} step={0.125} defaultValue={23.375} style={{ flex: '0 0 78px' }} aria-label="Face height in inches" />
                 </div>
+                <div className="pc-row">
+                  <label htmlFor="pleatDepth">Pleat depth (in)</label>
+                  <input type="number" id="pleatDepth" min={0.125} step={0.125} defaultValue={1} style={{ flex: '0 0 78px' }} aria-label="Pleat depth in inches" />
+                </div>
                 <div className="pc-readout">
                   <div className="pc-ro count"><div className="pc-k">Pleats</div><div className="pc-v" id="roCount">—</div></div>
+                  <div className="pc-ro media"><div className="pc-k">Media area</div><div className="pc-v" id="roMedia">—</div></div>
                   <div className="pc-ro"><div className="pc-k">Pitch</div><div className="pc-v" id="roPitch">—</div></div>
-                  <div className="pc-ro"><div className="pc-k">Pleats / ft</div><div className="pc-v" id="roPPF">—</div></div>
+                  <div className="pc-ro"><div className="pc-k" id="roPPFLabel">Pleats / ft</div><div className="pc-v" id="roPPF">—</div><div className="pc-sub" id="roPPFSub"></div></div>
                   <div className="pc-ro open"><div className="pc-k">Open area</div><div className="pc-v" id="roOpen">—</div></div>
                 </div>
               </div>
@@ -1124,7 +1150,10 @@ const PC_CSS = `
 .pc-ro .pc-v{font-size:1.15rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);font-variant-numeric:tabular-nums;line-height:1.15}
 .pc-ro .pc-v small{font-size:0.68rem;font-weight:600;color:var(--text-muted)}
 .pc-ro.count .pc-v{color:var(--accent-secondary);font-size:1.55rem}
+.pc-ro.media .pc-v{color:var(--accent-primary);font-size:1.55rem}
+.pc-ro.open{grid-column:1/-1}
 .pc-ro.open .pc-v{color:var(--accent-warm)}
+.pc-sub{font-size:0.65rem;font-weight:600;color:var(--text-muted);margin-top:0.15rem}
 .pc-status{font-size:0.72rem;color:var(--text-muted);margin-top:0.6rem;min-height:15px;line-height:1.45}
 
 .pc-rectpanel{margin-top:0.8rem;border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--surface)}
