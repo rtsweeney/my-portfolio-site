@@ -490,6 +490,62 @@ const CALC_CSS = `
   font-size: 0.8rem;
 }
 
+#pfc-root .share-bar {
+  margin-top: 1.5rem;
+  padding: 1.15rem 1.4rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-md, 12px);
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 12px rgba(108, 92, 231, 0.04);
+}
+#pfc-root .share-bar .share-txt { flex: 1; min-width: 200px; }
+#pfc-root .share-bar .share-title {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+#pfc-root .share-bar .share-desc {
+  font-size: 0.75rem;
+  color: var(--moss);
+  margin-top: 0.2rem;
+  line-height: 1.45;
+}
+#pfc-root .share-btn {
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.6rem 1.25rem;
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+#pfc-root .share-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(108, 92, 231, 0.3);
+}
+#pfc-root .share-status {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--moss);
+  flex-basis: 100%;
+  min-height: 0.9rem;
+}
+#pfc-root .share-status.ok { color: var(--accent-secondary, #00b894); }
+#pfc-root .share-status.err { color: var(--warn); }
+
 #pfc-root .fe-section {
   margin-top: 1.5rem;
   border: 1px solid var(--grid);
@@ -1824,23 +1880,135 @@ export default function PleatedFilterCalculatorPage() {
     (document.getElementById('timestamp') as HTMLElement).textContent =
       new Date().toISOString().split('T')[0];
 
-    // Prefill from the pleat counter's "Simulate performance" handoff
-    // (?fh=&fw=&pd=&count=&grating= — all imperial units)
+    // ===== SHARE / RESTORE =====
+    // Maps every input id (and toggle state) to a compact query-string key.
+    const SHARE_FIELDS: Array<[string, string]> = [
+      ['F_H', 'fh'], ['F_W', 'fw'], ['P_D', 'pd'],
+      ['PLEAT_COUNT', 'pcount'], ['PPI', 'ppi'], ['GRATING', 'grating'],
+      ['M_T', 'mt'], ['M_DP', 'mdp'], ['LIN_FRAC', 'linf'],
+      ['A_CONST', 'aconst'], ['B_CONST', 'bconst'],
+      ['M_PERM', 'mperm'], ['LIN_FRAC_PERM', 'linfp'],
+      ['V_FACE', 'vface'], ['Q_VOL', 'qvol'], ['RHO', 'rho'], ['KP_CAL', 'kpcal'],
+      ['fe-vel-a', 'fva'], ['fe-vel-b', 'fvb'],
+      ['fe-paste-a', 'fda'], ['fe-paste-b', 'fdb'],
+    ];
+
+    function buildShareURL() {
+      const params = new URLSearchParams();
+      // Toggle modes so the shared link restores the exact view.
+      params.set('units', S.units);
+      params.set('media', S.mediaMode);
+      params.set('flow', S.flowMode);
+      params.set('pleat', S.pleatMode);
+      params.set('femode', FE.mode);
+      // Every raw input value (as displayed in the current unit system).
+      for (const [id, key] of SHARE_FIELDS) {
+        const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
+        if (el) params.set(key, el.value);
+      }
+      const base = window.location.origin + window.location.pathname;
+      return base + '?' + params.toString();
+    }
+
+    function restoreFromURL(qp: URLSearchParams) {
+      // A full share link is identified by the presence of the units marker.
+      if (!qp.has('units')) return false;
+
+      // Units first: switching resets inputs to that system's defaults, so it
+      // must happen before we write the shared values on top.
+      const u = qp.get('units');
+      if (u === 'imperial' || u === 'metric') setUnits(u);
+
+      for (const [id, key] of SHARE_FIELDS) {
+        if (!qp.has(key)) continue;
+        const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
+        if (el) el.value = qp.get(key) as string;
+      }
+
+      const media = qp.get('media');
+      if (media === 'dp' || media === 'ab' || media === 'perm') setMediaMode(media);
+      const flow = qp.get('flow');
+      if (flow === 'face' || flow === 'cfm') setFlowMode(flow);
+      const pleat = qp.get('pleat');
+      if (pleat === 'count' || pleat === 'ppi') setPleatMode(pleat);
+      const femode = qp.get('femode');
+      if (femode === 'hepa' || femode === 'pre') setFEMode(femode);
+
+      // Reproduce the fractional-efficiency projection if datasets were shared.
+      const feA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value.trim();
+      const feB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value.trim();
+      if (feA && feB) {
+        try { runFEProjection(); } catch (e) { console.error('FE restore error:', e); }
+      }
+      return true;
+    }
+
     const qp = new URLSearchParams(window.location.search);
-    const prefill = (id: string, key: string, lo: number, hi: number) => {
-      const v = parseFloat(qp.get(key) ?? '');
-      if (isFinite(v) && v >= lo && v <= hi) {
-        (document.getElementById(id) as HTMLInputElement).value = String(v);
+    const restored = restoreFromURL(qp);
+
+    if (!restored) {
+      // Prefill from the pleat counter's "Simulate performance" handoff
+      // (?fh=&fw=&pd=&count=&grating= — all imperial units)
+      const prefill = (id: string, key: string, lo: number, hi: number) => {
+        const v = parseFloat(qp.get(key) ?? '');
+        if (isFinite(v) && v >= lo && v <= hi) {
+          (document.getElementById(id) as HTMLInputElement).value = String(v);
+        }
+      };
+      prefill('F_H', 'fh', 0.1, 1000);
+      prefill('F_W', 'fw', 0.1, 1000);
+      prefill('P_D', 'pd', 0.01, 100);
+      prefill('GRATING', 'grating', 0, 90);
+      if (qp.has('count')) {
+        prefill('PLEAT_COUNT', 'count', 1, 10000);
+        setPleatMode('count');
+      }
+    }
+
+    // Share button — copies a link encoding all inputs to the clipboard.
+    const shareBtnEl = document.getElementById('share-btn') as HTMLElement;
+    const shareStatusEl = document.getElementById('share-status') as HTMLElement;
+    let shareResetTimer: ReturnType<typeof setTimeout> | null = null;
+    const setShareStatus = (msg: string, ok: boolean) => {
+      shareStatusEl.textContent = msg;
+      shareStatusEl.classList.toggle('ok', ok);
+      shareStatusEl.classList.toggle('err', !ok);
+      if (shareResetTimer) clearTimeout(shareResetTimer);
+      shareResetTimer = setTimeout(() => {
+        shareStatusEl.textContent = '';
+        shareStatusEl.classList.remove('ok', 'err');
+      }, 4000);
+    };
+    const shareHandler = async () => {
+      const url = buildShareURL();
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+          setShareStatus('Link copied to clipboard', true);
+          return;
+        }
+        throw new Error('clipboard unavailable');
+      } catch {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          ta.style.position = 'fixed';
+          ta.style.top = '-9999px';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) { setShareStatus('Link copied to clipboard', true); return; }
+          throw new Error('execCommand failed');
+        } catch {
+          try { window.history.replaceState(null, '', url); } catch { /* noop */ }
+          setShareStatus('Copy blocked — link placed in the address bar', false);
+        }
       }
     };
-    prefill('F_H', 'fh', 0.1, 1000);
-    prefill('F_W', 'fw', 0.1, 1000);
-    prefill('P_D', 'pd', 0.01, 100);
-    prefill('GRATING', 'grating', 0, 90);
-    if (qp.has('count')) {
-      prefill('PLEAT_COUNT', 'count', 1, 10000);
-      setPleatMode('count');
-    }
+    shareBtnEl.addEventListener('click', shareHandler);
 
     render();
 
@@ -1854,6 +2022,8 @@ export default function PleatedFilterCalculatorPage() {
       fePreEl.removeEventListener('click', fePreHandler);
       feInputHandlers.forEach(([el, fn]) => el.removeEventListener('input', fn));
       unitListeners.forEach(([el, fn]) => el.removeEventListener('click', fn));
+      shareBtnEl.removeEventListener('click', shareHandler);
+      if (shareResetTimer) clearTimeout(shareResetTimer);
     };
   }, [chartLoaded]);
 
@@ -2298,6 +2468,20 @@ export default function PleatedFilterCalculatorPage() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="share-bar">
+              <div className="share-txt">
+                <div className="share-title">Share this configuration</div>
+                <div className="share-desc">
+                  Copies a link that restores every input — geometry, media, flow,
+                  advanced settings, and the fractional efficiency datasets.
+                </div>
+              </div>
+              <button type="button" className="share-btn" id="share-btn">
+                Copy shareable link
+              </button>
+              <span className="share-status" id="share-status"></span>
             </div>
           </section>
         </main>
