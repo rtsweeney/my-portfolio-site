@@ -76,13 +76,13 @@ export default async function ProjectsPage() {
                 Machine Vision Pleat Counting
               </h3>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                <p>Photograph a pleated filter panel and let the browser do the rest — auto-detects the panel boundary, counts pleats via edge-frequency analysis, and calculates useable media area and pleats per inch. No server, no ML model, pure canvas.</p>
+                <p>Photograph a pleated filter panel and let the browser do the rest — auto-detects the panel boundary, perspective-corrects the face, counts ridges through frame and grating obstructions with autocorrelation, and reports pitch, pleats per foot, and open area. No server, no ML model, pure canvas.</p>
               </div>
               <div className="project-tech-tags">
                 <span className="project-tech-tag">Computer Vision</span>
+                <span className="project-tech-tag">Homography</span>
                 <span className="project-tech-tag">Canvas API</span>
                 <span className="project-tech-tag">Next.js</span>
-                <span className="project-tech-tag">Mobile Camera</span>
               </div>
               <div className="project-links">
                 <span className="project-link">Open &rarr;</span>
