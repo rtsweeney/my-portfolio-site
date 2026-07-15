@@ -831,6 +831,64 @@ const CALC_CSS = `
   margin-top: 0.5rem;
 }
 
+/* Projected MERV rating banner (prefilter mode). */
+#pfc-root .fe-merv-box {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 12px);
+  background: linear-gradient(135deg, var(--accent-secondary, #00b894), #00a380);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 184, 148, 0.18);
+}
+#pfc-root .fe-merv-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  padding: 0.4rem 0.6rem;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm, 6px);
+  line-height: 1;
+}
+#pfc-root .fe-merv-badge .fe-merv-lbl {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  opacity: 0.9;
+}
+#pfc-root .fe-merv-badge .fe-merv-val {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-top: 0.15rem;
+}
+#pfc-root .fe-merv-detail { min-width: 0; }
+#pfc-root .fe-merv-detail .fe-merv-desc {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+#pfc-root .fe-merv-detail .fe-merv-e {
+  font-size: 0.72rem;
+  margin-top: 0.35rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.92;
+}
+#pfc-root .fe-merv-detail .fe-merv-ref {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.35rem;
+  opacity: 0.8;
+  font-weight: 600;
+}
+
 #pfc-root .fe-table {
   width: 100%;
   border-collapse: collapse;
@@ -895,12 +953,13 @@ function volumeMeanDiameter(lo: number, hi: number) {
   return Math.cbrt((lo * lo * lo + hi * hi * hi) / 2);
 }
 
-// Reasonable starting efficiencies (%) for a coarse prefilter at a low (A) and
-// high (B) face velocity, so the projector works out of the box. Efficiency
-// rises with velocity across these ranges (impaction/interception regime).
+// Default composite efficiencies (%) — the MERV 13 threshold row of ASHRAE
+// 52.2-2017 Table 12-1. Both velocity columns start equal so the projection to
+// V₄ reproduces these values (local N = 0) and reports MERV 13 out of the box;
+// vary one column to introduce a velocity dependence.
 const ASHRAE_DEFAULTS: Record<'a' | 'b', Record<string, number>> = {
-  a: { e1: 15, e2: 45, e3: 85 },
-  b: { e1: 20, e2: 55, e3: 92 },
+  a: { e1: 50, e2: 85, e3: 90 },
+  b: { e1: 50, e2: 85, e3: 90 },
 };
 
 export default function PleatedFilterCalculatorPage() {
@@ -1618,6 +1677,35 @@ export default function PleatedFilterCalculatorPage() {
       return localN[localN.length - 1].N;
     }
 
+    // Assign a MERV per ASHRAE 52.2-2017 Table 12-1 from the composite
+    // efficiencies (%) in the three size ranges. Returns the highest rating
+    // whose E₁/E₂/E₃ minimums are all satisfied. E₃ < 20% falls into MERV 1–4,
+    // which are distinguished by average arrestance (not computed here).
+    function determineMERV(e1: number, e2: number, e3: number) {
+      const reqs: Array<{ merv: number; e1?: number; e2?: number; e3?: number }> = [
+        { merv: 16, e1: 95, e2: 95, e3: 95 },
+        { merv: 15, e1: 85, e2: 90, e3: 95 },
+        { merv: 14, e1: 75, e2: 90, e3: 95 },
+        { merv: 13, e1: 50, e2: 85, e3: 90 },
+        { merv: 12, e1: 35, e2: 80, e3: 90 },
+        { merv: 11, e1: 20, e2: 65, e3: 85 },
+        { merv: 10, e2: 50, e3: 80 },
+        { merv: 9, e2: 35, e3: 75 },
+        { merv: 8, e2: 20, e3: 70 },
+        { merv: 7, e3: 50 },
+        { merv: 6, e3: 35 },
+        { merv: 5, e3: 20 },
+      ];
+      for (const r of reqs) {
+        const ok =
+          (r.e1 === undefined || e1 >= r.e1) &&
+          (r.e2 === undefined || e2 >= r.e2) &&
+          (r.e3 === undefined || e3 >= r.e3);
+        if (ok) return { merv: r.merv, low: false };
+      }
+      return { merv: null, low: true };
+    }
+
     function projectPen(pen_ref_pct: number, V_ref: number, V_target: number, N: number) {
       const lp_ref = Math.log(pen_ref_pct / 100);
       const lp_new = lp_ref * Math.pow(V_target / V_ref, N);
@@ -1741,6 +1829,41 @@ export default function PleatedFilterCalculatorPage() {
       (document.getElementById('fe-va') as HTMLElement).textContent = pA.V_cms.toFixed(3);
       (document.getElementById('fe-vb') as HTMLElement).textContent = pB.V_cms.toFixed(3);
       (document.getElementById('fe-vt') as HTMLElement).textContent = V4_cms.toFixed(3);
+
+      // ----- MERV rating from the projected efficiencies (prefilter mode only) -----
+      const mervBox = document.getElementById('fe-merv-box') as HTMLElement;
+      if (isPre) {
+        const effByKey: Record<string, number> = {};
+        for (const b of ASHRAE_BINS) {
+          const D = volumeMeanDiameter(b.lo, b.hi);
+          const row = rowsOut.find((rr) => Math.abs(rr.D - D) < 1e-6);
+          effByKey[b.key] = row && isFinite(row.effT) ? row.effT : NaN;
+        }
+        const e1 = effByKey.e1, e2 = effByKey.e2, e3 = effByKey.e3;
+        const valEl = document.getElementById('fe-merv-val') as HTMLElement;
+        const descEl = document.getElementById('fe-merv-desc') as HTMLElement;
+        const eEl = document.getElementById('fe-merv-e') as HTMLElement;
+        if ([e1, e2, e3].every((v) => isFinite(v))) {
+          const { merv, low } = determineMERV(e1, e2, e3);
+          if (low) {
+            valEl.textContent = '1–4';
+            descEl.textContent =
+              'E₃ is below 20% — the final MERV (1–4) is set by the average-arrestance test, which this tool does not compute.';
+          } else {
+            valEl.textContent = String(merv);
+            descEl.textContent = `Highest rating whose E₁/E₂/E₃ minimums are all met at the media velocity V₄ (${V4_cms.toFixed(2)} cm/s).`;
+          }
+          eEl.innerHTML =
+            `E<sub>1</sub> ${e1.toFixed(1)}% · E<sub>2</sub> ${e2.toFixed(1)}% · E<sub>3</sub> ${e3.toFixed(1)}% at V₄`;
+        } else {
+          valEl.textContent = '—';
+          descEl.textContent = 'Enter efficiencies that project to valid penetrations (0–100%) to compute a MERV.';
+          eEl.textContent = '';
+        }
+        mervBox.style.display = '';
+      } else {
+        mervBox.style.display = 'none';
+      }
 
       const nLbl = document.getElementById('fe-n-lbl') as HTMLElement;
       const nDet = document.getElementById('fe-n-det') as HTMLElement;
@@ -2640,6 +2763,20 @@ export default function PleatedFilterCalculatorPage() {
                       <div className="fe-cell-det">
                         MPPS: <span id="fe-mppsT">—</span> µm · Pen: <span id="fe-pmppsT">—</span> %
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="fe-merv-box" id="fe-merv-box" style={{ display: 'none' }}>
+                    <div className="fe-merv-badge">
+                      <span className="fe-merv-lbl">MERV</span>
+                      <span className="fe-merv-val" id="fe-merv-val">—</span>
+                    </div>
+                    <div className="fe-merv-detail">
+                      <div className="fe-merv-desc" id="fe-merv-desc">
+                        Projected rating from the efficiency at V<sub>4</sub>.
+                      </div>
+                      <div className="fe-merv-e" id="fe-merv-e"></div>
+                      <div className="fe-merv-ref">ASHRAE 52.2-2017 · Table 12-1</div>
                     </div>
                   </div>
 
