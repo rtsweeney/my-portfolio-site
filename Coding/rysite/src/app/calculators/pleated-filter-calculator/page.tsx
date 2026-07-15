@@ -771,6 +771,124 @@ const CALC_CSS = `
 }
 #pfc-root .fe-chart-wrap { position: relative; height: 360px; }
 
+/* ASHRAE 52.2 composite-efficiency entry — shown only in prefilter mode. */
+#pfc-root .fe-ashrae-block { display: none; margin-top: 0.4rem; }
+#pfc-root #fe-section.fe-ashrae .fe-ashrae-block { display: block; }
+#pfc-root #fe-section.fe-ashrae .fe-paste-textarea { display: none; }
+#pfc-root .fe-erow {
+  display: grid;
+  grid-template-columns: 1fr 88px 22px;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--paper-deep);
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
+}
+#pfc-root .fe-erow .fe-elbl {
+  font-size: 0.75rem;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.2;
+}
+#pfc-root .fe-erow .fe-elbl .fe-erange {
+  display: block;
+  font-size: 0.6rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--moss);
+  font-weight: 500;
+  margin-top: 2px;
+}
+#pfc-root .fe-erow input {
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--grid);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--paper);
+  color: var(--ink);
+  text-align: right;
+  outline: none;
+  transition: all 0.15s ease;
+}
+#pfc-root .fe-erow input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.15);
+}
+#pfc-root .fe-erow .fe-eunit {
+  font-size: 0.72rem;
+  color: var(--moss);
+  font-weight: 600;
+}
+#pfc-root .fe-ashrae-note {
+  font-size: 0.65rem;
+  color: var(--moss);
+  font-style: italic;
+  line-height: 1.4;
+  margin-top: 0.5rem;
+}
+
+/* Projected MERV rating banner (prefilter mode). */
+#pfc-root .fe-merv-box {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 12px);
+  background: linear-gradient(135deg, var(--accent-secondary, #00b894), #00a380);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 184, 148, 0.18);
+}
+#pfc-root .fe-merv-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  padding: 0.4rem 0.6rem;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm, 6px);
+  line-height: 1;
+}
+#pfc-root .fe-merv-badge .fe-merv-lbl {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  opacity: 0.9;
+}
+#pfc-root .fe-merv-badge .fe-merv-val {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-top: 0.15rem;
+}
+#pfc-root .fe-merv-detail { min-width: 0; }
+#pfc-root .fe-merv-detail .fe-merv-desc {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+#pfc-root .fe-merv-detail .fe-merv-e {
+  font-size: 0.72rem;
+  margin-top: 0.35rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.92;
+}
+#pfc-root .fe-merv-detail .fe-merv-ref {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.35rem;
+  opacity: 0.8;
+  font-weight: 600;
+}
+
 #pfc-root .fe-table {
   width: 100%;
   border-collapse: collapse;
@@ -817,6 +935,32 @@ const CALC_CSS = `
   #pfc-root .fe-summary { grid-template-columns: 1fr; }
 }
 `;
+
+// ASHRAE 52.2-2017 composite particle-size ranges (µm). In prefilter mode the
+// user enters one efficiency per range; each range is charted at the diameter
+// of a sphere whose volume equals the mean of the two range-endpoint sphere
+// volumes (the "volume-mean diameter").
+const ASHRAE_BINS = [
+  { key: 'e1', label: 'E1', lo: 0.3, hi: 1.0 },
+  { key: 'e2', label: 'E2', lo: 1.0, hi: 3.0 },
+  { key: 'e3', label: 'E3', lo: 3.0, hi: 10.0 },
+] as const;
+
+// Volume-mean diameter: since a sphere's volume ∝ D³, the diameter whose volume
+// is the average of the endpoint volumes is the cube root of the mean of the
+// endpoint cubes.
+function volumeMeanDiameter(lo: number, hi: number) {
+  return Math.cbrt((lo * lo * lo + hi * hi * hi) / 2);
+}
+
+// Default composite efficiencies (%) — the MERV 13 threshold row of ASHRAE
+// 52.2-2017 Table 12-1. Both velocity columns start equal so the projection to
+// V₄ reproduces these values (local N = 0) and reports MERV 13 out of the box;
+// vary one column to introduce a velocity dependence.
+const ASHRAE_DEFAULTS: Record<'a' | 'b', Record<string, number>> = {
+  a: { e1: 50, e2: 85, e3: 90 },
+  b: { e1: 50, e2: 85, e3: 90 },
+};
 
 export default function PleatedFilterCalculatorPage() {
   const [chartLoaded, setChartLoaded] = useState(false);
@@ -1406,6 +1550,20 @@ export default function PleatedFilterCalculatorPage() {
       return { rows };
     }
 
+    // Build a 3-point dataset from the ASHRAE E1–E3 efficiency inputs for one
+    // side ('a' or 'b'). Each range is placed at its volume-mean diameter.
+    function buildAshraeDataset(side: 'a' | 'b') {
+      const rows: any[] = [];
+      for (const b of ASHRAE_BINS) {
+        const el = document.getElementById(`fe-${side}-${b.key}`) as HTMLInputElement;
+        const eff = parseFloat(el.value);
+        if (!isFinite(eff)) return { error: `${b.label} efficiency is missing or not a number.` };
+        if (eff < 0 || eff > 100) return { error: `${b.label} efficiency must be between 0 and 100%.` };
+        rows.push({ D: volumeMeanDiameter(b.lo, b.hi), Eff: eff, Pen: 100 - eff, bin: b.label });
+      }
+      return { rows };
+    }
+
     function fitQuadraticLogLog(rows: any[]): any {
       const N = rows.length;
       let Sx0 = 0, Sx1 = 0, Sx2 = 0, Sx3 = 0, Sx4 = 0, Sy = 0, Sxy = 0, Sx2y = 0;
@@ -1519,6 +1677,35 @@ export default function PleatedFilterCalculatorPage() {
       return localN[localN.length - 1].N;
     }
 
+    // Assign a MERV per ASHRAE 52.2-2017 Table 12-1 from the composite
+    // efficiencies (%) in the three size ranges. Returns the highest rating
+    // whose E₁/E₂/E₃ minimums are all satisfied. E₃ < 20% falls into MERV 1–4,
+    // which are distinguished by average arrestance (not computed here).
+    function determineMERV(e1: number, e2: number, e3: number) {
+      const reqs: Array<{ merv: number; e1?: number; e2?: number; e3?: number }> = [
+        { merv: 16, e1: 95, e2: 95, e3: 95 },
+        { merv: 15, e1: 85, e2: 90, e3: 95 },
+        { merv: 14, e1: 75, e2: 90, e3: 95 },
+        { merv: 13, e1: 50, e2: 85, e3: 90 },
+        { merv: 12, e1: 35, e2: 80, e3: 90 },
+        { merv: 11, e1: 20, e2: 65, e3: 85 },
+        { merv: 10, e2: 50, e3: 80 },
+        { merv: 9, e2: 35, e3: 75 },
+        { merv: 8, e2: 20, e3: 70 },
+        { merv: 7, e3: 50 },
+        { merv: 6, e3: 35 },
+        { merv: 5, e3: 20 },
+      ];
+      for (const r of reqs) {
+        const ok =
+          (r.e1 === undefined || e1 >= r.e1) &&
+          (r.e2 === undefined || e2 >= r.e2) &&
+          (r.e3 === undefined || e3 >= r.e3);
+        if (ok) return { merv: r.merv, low: false };
+      }
+      return { merv: null, low: true };
+    }
+
     function projectPen(pen_ref_pct: number, V_ref: number, V_target: number, N: number) {
       const lp_ref = Math.log(pen_ref_pct / 100);
       const lp_new = lp_ref * Math.pow(V_target / V_ref, N);
@@ -1536,29 +1723,42 @@ export default function PleatedFilterCalculatorPage() {
       if (!isFinite(V_B) || V_B <= 0) { status.textContent = 'Dataset B: enter a valid face velocity (cm/s).'; status.classList.add('err'); return false; }
       if (Math.abs(V_A - V_B) < 1e-6) { status.textContent = 'Velocities A and B must differ.'; status.classList.add('err'); return false; }
 
-      const textA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value;
-      const textB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value;
-      const pA = parseTSIDataset(textA);
-      const pB = parseTSIDataset(textB);
+      const isPre = FE.mode === 'pre';
+      let pA: any, pB: any;
+      if (isPre) {
+        // Prefilter: read the three ASHRAE efficiency inputs per side.
+        pA = buildAshraeDataset('a');
+        pB = buildAshraeDataset('b');
+      } else {
+        const textA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value;
+        const textB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value;
+        pA = parseTSIDataset(textA);
+        pB = parseTSIDataset(textB);
+      }
       if (pA.error) { status.textContent = 'Dataset A: ' + pA.error; status.classList.add('err'); return false; }
       if (pB.error) { status.textContent = 'Dataset B: ' + pB.error; status.classList.add('err'); return false; }
 
       const fitA = fitQuadraticLogLog(pA.rows!);
       const fitB = fitQuadraticLogLog(pB.rows!);
-      if (fitA.error) { status.textContent = 'Dataset A fit: ' + fitA.error; status.classList.add('err'); return false; }
-      if (fitB.error) { status.textContent = 'Dataset B fit: ' + fitB.error; status.classList.add('err'); return false; }
+      // The quadratic fit is only required for the HEPA (global-N) projection.
+      // Prefilter mode drives everything off the raw entered points and its
+      // per-range local N, so a degenerate fit there is not fatal.
+      if (!isPre) {
+        if (fitA.error) { status.textContent = 'Dataset A fit: ' + fitA.error; status.classList.add('err'); return false; }
+        if (fitB.error) { status.textContent = 'Dataset B fit: ' + fitB.error; status.classList.add('err'); return false; }
+      }
 
       const sizes = pA.rows!.map((r: any) => r.D).sort((a: number, b: number) => a - b);
       let N_global: number | null = null;
       let N_local: any[] | null = null;
 
-      if (FE.mode === 'pre') {
+      if (isPre) {
         N_local = solveLocalN(pA.rows!, V_A, pB.rows!, V_B);
         if (N_local.length === 0) {
-          status.textContent = 'Could not solve local N — check that penetrations are 0–100% at matching diameters.';
+          status.textContent = 'Could not solve local N — check that efficiencies are between 0 and 100% (penetration must be > 0).';
           status.classList.add('err'); return false;
         }
-        N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
+        N_global = (fitA.error || fitB.error) ? null : solveGlobalN(fitA, V_A, fitB, V_B, sizes);
       } else {
         N_global = solveGlobalN(fitA, V_A, fitB, V_B, sizes);
         if (!isFinite(N_global)) {
@@ -1590,11 +1790,18 @@ export default function PleatedFilterCalculatorPage() {
 
       const rawRefMap = new Map<number, number>();
       for (const rr of rows_ref) rawRefMap.set(Number(rr.D.toFixed(4)), rr.Pen);
+      // Prefilter mode plots the raw entered penetrations rather than fitted
+      // values so each ASHRAE point charts exactly where the user put it.
+      const rawAMap = new Map<number, number>();
+      const rawBMap = new Map<number, number>();
+      for (const rr of pA.rows) rawAMap.set(Number(rr.D.toFixed(4)), rr.Pen);
+      for (const rr of pB.rows) rawBMap.set(Number(rr.D.toFixed(4)), rr.Pen);
 
       const rowsOut: any[] = [];
       for (const D of FE.sizes) {
-        const penA = penFromFit(fitA, D);
-        const penB = penFromFit(fitB, D);
+        const key = Number(D.toFixed(4));
+        const penA = isPre && rawAMap.has(key) ? rawAMap.get(key)! : penFromFit(fitA, D);
+        const penB = isPre && rawBMap.has(key) ? rawBMap.get(key)! : penFromFit(fitB, D);
         const N_here = isPre ? nAtDiameter(FE.N_local, D) : FE.N_global;
         let pen_ref: number;
         if (isPre) {
@@ -1622,6 +1829,41 @@ export default function PleatedFilterCalculatorPage() {
       (document.getElementById('fe-va') as HTMLElement).textContent = pA.V_cms.toFixed(3);
       (document.getElementById('fe-vb') as HTMLElement).textContent = pB.V_cms.toFixed(3);
       (document.getElementById('fe-vt') as HTMLElement).textContent = V4_cms.toFixed(3);
+
+      // ----- MERV rating from the projected efficiencies (prefilter mode only) -----
+      const mervBox = document.getElementById('fe-merv-box') as HTMLElement;
+      if (isPre) {
+        const effByKey: Record<string, number> = {};
+        for (const b of ASHRAE_BINS) {
+          const D = volumeMeanDiameter(b.lo, b.hi);
+          const row = rowsOut.find((rr) => Math.abs(rr.D - D) < 1e-6);
+          effByKey[b.key] = row && isFinite(row.effT) ? row.effT : NaN;
+        }
+        const e1 = effByKey.e1, e2 = effByKey.e2, e3 = effByKey.e3;
+        const valEl = document.getElementById('fe-merv-val') as HTMLElement;
+        const descEl = document.getElementById('fe-merv-desc') as HTMLElement;
+        const eEl = document.getElementById('fe-merv-e') as HTMLElement;
+        if ([e1, e2, e3].every((v) => isFinite(v))) {
+          const { merv, low } = determineMERV(e1, e2, e3);
+          if (low) {
+            valEl.textContent = '1–4';
+            descEl.textContent =
+              'E₃ is below 20% — the final MERV (1–4) is set by the average-arrestance test, which this tool does not compute.';
+          } else {
+            valEl.textContent = String(merv);
+            descEl.textContent = `Highest rating whose E₁/E₂/E₃ minimums are all met at the media velocity V₄ (${V4_cms.toFixed(2)} cm/s).`;
+          }
+          eEl.innerHTML =
+            `E<sub>1</sub> ${e1.toFixed(1)}% · E<sub>2</sub> ${e2.toFixed(1)}% · E<sub>3</sub> ${e3.toFixed(1)}% at V₄`;
+        } else {
+          valEl.textContent = '—';
+          descEl.textContent = 'Enter efficiencies that project to valid penetrations (0–100%) to compute a MERV.';
+          eEl.textContent = '';
+        }
+        mervBox.style.display = '';
+      } else {
+        mervBox.style.display = 'none';
+      }
 
       const nLbl = document.getElementById('fe-n-lbl') as HTMLElement;
       const nDet = document.getElementById('fe-n-det') as HTMLElement;
@@ -1819,6 +2061,14 @@ export default function PleatedFilterCalculatorPage() {
     const feClearHandler = () => {
       (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value = '';
       (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value = '';
+      // Restore the ASHRAE efficiency inputs to their defaults so prefilter mode
+      // stays usable after a clear.
+      (['a', 'b'] as const).forEach((side) => {
+        for (const b of ASHRAE_BINS) {
+          (document.getElementById(`fe-${side}-${b.key}`) as HTMLInputElement).value =
+            String(ASHRAE_DEFAULTS[side][b.key]);
+        }
+      });
       (document.getElementById('fe-results') as HTMLElement).style.display = 'none';
       const status = document.getElementById('fe-status') as HTMLElement;
       status.textContent = 'Ready · enter velocities, paste data, and fit';
@@ -1834,7 +2084,18 @@ export default function PleatedFilterCalculatorPage() {
 
     const FE_MODE_HINTS: Record<string, string> = {
       hepa: 'HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.',
-      pre: "Prefilter: per-diameter N from raw points. Projection uses each bin's own N — better for monotonic supermicron data.",
+      pre: 'Prefilter: enter ASHRAE 52.2 E1–E3 efficiencies at two velocities. Each range charts at its volume-mean diameter; a per-range local N links the datasets and projects to V₄.',
+    };
+    const FE_HOWTO: Record<string, string> = {
+      hepa:
+        '<span class="nlbl">How it works</span> Paste two fractional efficiency datasets at different face velocities. ' +
+        "The tool fits each curve to Pierce's quadratic model (ln Pen = A(ln D)² + B ln D + C), back-calculates the velocity " +
+        'exponent N, and projects the penetration curve to the media velocity V<sub>4</sub> computed by this calculator.',
+      pre:
+        '<span class="nlbl">How it works</span> Enter the ASHRAE 52.2-2017 composite efficiencies — E1 (0.3–1 µm), E2 (1–3 µm), ' +
+        'E3 (3–10 µm) — at two face velocities. Each range is charted at its <em>volume-mean diameter</em>: the diameter of a sphere ' +
+        'whose volume is the average of the range-endpoint sphere volumes. A per-range local exponent N links the two datasets and ' +
+        'projects the efficiency to the media velocity V<sub>4</sub>.',
     };
     function setFEMode(mode: 'hepa' | 'pre') {
       if (mode !== 'hepa' && mode !== 'pre') return;
@@ -1842,7 +2103,9 @@ export default function PleatedFilterCalculatorPage() {
       FE.mode = mode;
       (document.getElementById('fe-mode-hepa') as HTMLElement).classList.toggle('active', mode === 'hepa');
       (document.getElementById('fe-mode-pre') as HTMLElement).classList.toggle('active', mode === 'pre');
+      (document.getElementById('fe-section') as HTMLElement).classList.toggle('fe-ashrae', mode === 'pre');
       (document.getElementById('fe-mode-hint') as HTMLElement).textContent = FE_MODE_HINTS[mode];
+      (document.getElementById('fe-howto') as HTMLElement).innerHTML = FE_HOWTO[mode];
       FE.ready = false;
       FE.N_global = null;
       FE.N_local = null;
@@ -1860,7 +2123,8 @@ export default function PleatedFilterCalculatorPage() {
     const fePreHandler = () => setFEMode('pre');
     fePreEl.addEventListener('click', fePreHandler);
 
-    const feInputIds = ['fe-vel-a', 'fe-vel-b', 'fe-paste-a', 'fe-paste-b'];
+    const feInputIds = ['fe-vel-a', 'fe-vel-b', 'fe-paste-a', 'fe-paste-b',
+      'fe-a-e1', 'fe-a-e2', 'fe-a-e3', 'fe-b-e1', 'fe-b-e2', 'fe-b-e3'];
     const feInputHandlers: Array<[Element, EventListener]> = [];
     feInputIds.forEach((id) => {
       const el = document.getElementById(id) as HTMLElement;
@@ -1891,6 +2155,8 @@ export default function PleatedFilterCalculatorPage() {
       ['V_FACE', 'vface'], ['Q_VOL', 'qvol'], ['RHO', 'rho'], ['KP_CAL', 'kpcal'],
       ['fe-vel-a', 'fva'], ['fe-vel-b', 'fvb'],
       ['fe-paste-a', 'fda'], ['fe-paste-b', 'fdb'],
+      ['fe-a-e1', 'fae1'], ['fe-a-e2', 'fae2'], ['fe-a-e3', 'fae3'],
+      ['fe-b-e1', 'fbe1'], ['fe-b-e2', 'fbe2'], ['fe-b-e3', 'fbe3'],
     ];
 
     function buildShareURL() {
@@ -1934,10 +2200,19 @@ export default function PleatedFilterCalculatorPage() {
       const femode = qp.get('femode');
       if (femode === 'hepa' || femode === 'pre') setFEMode(femode);
 
-      // Reproduce the fractional-efficiency projection if datasets were shared.
-      const feA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value.trim();
-      const feB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value.trim();
-      if (feA && feB) {
+      // Reproduce the fractional-efficiency projection if inputs were shared.
+      let canProject: boolean;
+      if (FE.mode === 'pre') {
+        canProject = ASHRAE_BINS.every((b) =>
+          isFinite(parseFloat((document.getElementById(`fe-a-${b.key}`) as HTMLInputElement).value)) &&
+          isFinite(parseFloat((document.getElementById(`fe-b-${b.key}`) as HTMLInputElement).value))
+        );
+      } else {
+        const feA = (document.getElementById('fe-paste-a') as HTMLTextAreaElement).value.trim();
+        const feB = (document.getElementById('fe-paste-b') as HTMLTextAreaElement).value.trim();
+        canProject = !!(feA && feB);
+      }
+      if (canProject) {
         try { runFEProjection(); } catch (e) { console.error('FE restore error:', e); }
       }
       return true;
@@ -2330,7 +2605,7 @@ export default function PleatedFilterCalculatorPage() {
                 <span className="fe-caret">›</span>
               </div>
               <div className="fe-body">
-                <div className="note-strip">
+                <div className="note-strip" id="fe-howto">
                   <span className="nlbl">How it works</span>
                   Paste two fractional efficiency datasets at different face velocities.
                   The tool fits each curve to Pierce&apos;s quadratic model (ln Pen = A(ln D)² + B ln D + C),
@@ -2344,7 +2619,7 @@ export default function PleatedFilterCalculatorPage() {
                   </span>
                   <div className="toggle-row" style={{ marginBottom: 0, maxWidth: 380, flex: 1, minWidth: 260 }}>
                     <button id="fe-mode-hepa" className="active" data-mode="hepa">HEPA · 0.05–0.4 µm · global N</button>
-                    <button id="fe-mode-pre" data-mode="pre">Prefilter · 0.3–10 µm · local N</button>
+                    <button id="fe-mode-pre" data-mode="pre">Prefilter · ASHRAE E1–E3 · local N</button>
                   </div>
                   <span id="fe-mode-hint" style={{ fontSize: 10, color: 'var(--moss)', fontStyle: 'italic', flexBasis: '100%' }}>
                     HEPA: single velocity exponent from U-curve fit (Pierce). Use for sub-micron 3160 data.
@@ -2360,6 +2635,7 @@ export default function PleatedFilterCalculatorPage() {
                       <span className="fe-vel-unit">cm/s</span>
                     </div>
                     <textarea
+                      className="fe-paste-textarea"
                       id="fe-paste-a"
                       placeholder="Paste data starting with the column header row..."
                       defaultValue={`D (µm) \tEff. (%)\tPen. (%)\tP-95% (%)\tResistance (mmH2O) \tC-up (1/cm³)\tC-dn (1/cm³)\tCounts-dn
@@ -2371,6 +2647,30 @@ export default function PleatedFilterCalculatorPage() {
 0.25\t99.984553\t0.015447\t0.016084\t10.675500\t9.90E+04\t1.50E+01\t2.28E+03
 0.3\t99.990293\t0.009708\t0.010407\t10.724250\t4.82E+04\t4.78E+00\t7.41E+02`}
                     />
+                    <div className="fe-ashrae-block">
+                      {ASHRAE_BINS.map((b) => (
+                        <div className="fe-erow" key={b.key}>
+                          <span className="fe-elbl">
+                            {b.label} efficiency
+                            <span className="fe-erange">
+                              {b.lo}–{b.hi} µm → charts at {volumeMeanDiameter(b.lo, b.hi).toFixed(3)} µm
+                            </span>
+                          </span>
+                          <input
+                            type="number"
+                            id={`fe-a-${b.key}`}
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            defaultValue={ASHRAE_DEFAULTS.a[b.key]}
+                          />
+                          <span className="fe-eunit">%</span>
+                        </div>
+                      ))}
+                      <div className="fe-ashrae-note">
+                        Charted at the volume-mean diameter of each range (equal-volume sphere).
+                      </div>
+                    </div>
                   </div>
                   <div className="fe-paste-box">
                     <label>Dataset B · High velocity</label>
@@ -2380,6 +2680,7 @@ export default function PleatedFilterCalculatorPage() {
                       <span className="fe-vel-unit">cm/s</span>
                     </div>
                     <textarea
+                      className="fe-paste-textarea"
                       id="fe-paste-b"
                       placeholder="Paste data starting with the column header row..."
                       defaultValue={`D (µm) \tEff. (%)\tPen. (%)\tP-95% (%)\tResistance (mmH2O) \tC-up (1/cm³)\tC-dn (1/cm³)\tCounts-dn
@@ -2391,6 +2692,30 @@ export default function PleatedFilterCalculatorPage() {
 0.25\t99.944497\t0.055503\t0.057604\t28.804000\t3.29E+04\t1.79E+01\t2.71E+03
 0.3\t99.967221\t0.032779\t0.034843\t28.779000\t1.94E+04\t6.44E+00\t9.80E+02`}
                     />
+                    <div className="fe-ashrae-block">
+                      {ASHRAE_BINS.map((b) => (
+                        <div className="fe-erow" key={b.key}>
+                          <span className="fe-elbl">
+                            {b.label} efficiency
+                            <span className="fe-erange">
+                              {b.lo}–{b.hi} µm → charts at {volumeMeanDiameter(b.lo, b.hi).toFixed(3)} µm
+                            </span>
+                          </span>
+                          <input
+                            type="number"
+                            id={`fe-b-${b.key}`}
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            defaultValue={ASHRAE_DEFAULTS.b[b.key]}
+                          />
+                          <span className="fe-eunit">%</span>
+                        </div>
+                      ))}
+                      <div className="fe-ashrae-note">
+                        Charted at the volume-mean diameter of each range (equal-volume sphere).
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2438,6 +2763,20 @@ export default function PleatedFilterCalculatorPage() {
                       <div className="fe-cell-det">
                         MPPS: <span id="fe-mppsT">—</span> µm · Pen: <span id="fe-pmppsT">—</span> %
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="fe-merv-box" id="fe-merv-box" style={{ display: 'none' }}>
+                    <div className="fe-merv-badge">
+                      <span className="fe-merv-lbl">MERV</span>
+                      <span className="fe-merv-val" id="fe-merv-val">—</span>
+                    </div>
+                    <div className="fe-merv-detail">
+                      <div className="fe-merv-desc" id="fe-merv-desc">
+                        Projected rating from the efficiency at V<sub>4</sub>.
+                      </div>
+                      <div className="fe-merv-e" id="fe-merv-e"></div>
+                      <div className="fe-merv-ref">ASHRAE 52.2-2017 · Table 12-1</div>
                     </div>
                   </div>
 
