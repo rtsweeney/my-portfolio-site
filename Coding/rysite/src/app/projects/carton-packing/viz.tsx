@@ -85,11 +85,10 @@ export interface IsoCartonViewProps {
   carton: CartonSpec;
   member: MemberPack;
   units: string;
-  clearance: number;
 }
 
 /** Isometric cutaway of one carton SKU packed with one prism SKU. */
-export function IsoCartonView({ carton, member, units, clearance }: IsoCartonViewProps) {
+export function IsoCartonView({ carton, member, units }: IsoCartonViewProps) {
   const view = useMemo(() => {
     const { inner, outer } = carton;
     const OL = outer.l;
@@ -227,7 +226,6 @@ export function IsoCartonView({ carton, member, units, clearance }: IsoCartonVie
       >
         D {fmtDim(OD, units)}
       </text>
-      {clearance > 0 && <title>{`Block centered with ${fmtDim(clearance, units)} clearance per side`}</title>}
     </svg>
   );
 }
@@ -342,12 +340,14 @@ export interface PalletSideViewProps {
   maxLoadHeight: number;
   padThickness: number;
   units: string;
+  /** Real pallet height (e.g. 127 mm / 5 in), drawn to scale. */
+  palletHeight: number;
 }
 
 /** Side elevation of the full stack: layers, pads, and the height limit. */
-export function PalletSideView({ plan, maxLoadHeight, padThickness, units }: PalletSideViewProps) {
+export function PalletSideView({ plan, maxLoadHeight, padThickness, units, palletHeight }: PalletSideViewProps) {
   const W = plan.usable.x;
-  const palletH = Math.max(maxLoadHeight * 0.07, W * 0.055);
+  const palletH = palletHeight > 0 ? palletHeight : Math.max(maxLoadHeight * 0.05, W * 0.05);
   const fs = Math.max(W, maxLoadHeight + palletH) * 0.033;
 
   // Build the stack bottom-up: [pad?] layer × count … [pad?]
@@ -378,7 +378,7 @@ export function PalletSideView({ plan, maxLoadHeight, padThickness, units }: Pal
       viewBox={`${-margin} ${-margin} ${W + margin * 2 + fs * 9} ${totalH + margin * 2}`}
       role="img"
       aria-label={`Stack elevation: ${plan.totalLayers} layers, ${fmtDim(plan.stackHeight, units)} of ${fmtDim(maxLoadHeight, units)} allowed`}
-      style={{ width: '100%', height: 'auto', display: 'block' }}
+      style={{ width: '100%', height: 'auto', maxHeight: '380px', display: 'block', margin: '0 auto' }}
     >
       {/* height limit */}
       <line x1={0} y1={totalH - palletH - maxLoadHeight} x2={W} y2={totalH - palletH - maxLoadHeight} stroke="var(--text-muted, #8888a4)" strokeWidth={fs * 0.07} strokeDasharray={`${fs * 0.5} ${fs * 0.4}`} />
@@ -422,26 +422,126 @@ export function PalletSideView({ plan, maxLoadHeight, padThickness, units }: Pal
       <text x={W + fs * 0.4} y={totalH - palletH - plan.stackHeight + fs * 1.2} fontSize={fs} fill="var(--text-secondary, #4a4a68)" fontFamily="inherit">
         stack {fmtDim(plan.stackHeight, units)}
       </text>
+      {palletHeight > 0 && (
+        <text x={W + fs * 0.4} y={totalH - palletH * 0.15} fontSize={fs * 0.92} fill="var(--text-muted, #8888a4)" fontFamily="inherit">
+          {fmtDim(plan.stackHeight + palletHeight, units)} incl. pallet
+        </text>
+      )}
     </svg>
   );
 }
 
 // ── Column-configuration glyph (carton face cross-section) ────────────────────
 
+/**
+ * Cross-section of the carton's L × D face with the top open — flaps splayed
+ * outward where the prisms are loaded in from above.
+ */
 export function ConfigGlyph({ cols, tiers }: { cols: number; tiers: number }) {
-  const w = 34;
-  const h = 26;
-  const pad = 3.5;
-  const cw = (w - pad * 2) / cols;
-  const ch = (h - pad * 2) / tiers;
+  const w = 40;
+  const h = 30;
+  const flap = 7;
+  const top = flap + 1.5;
+  const pad = 3.2;
+  const boxL = 3.5;
+  const boxR = w - 3.5;
+  const cw = (boxR - boxL - pad * 2) / cols;
+  const ch = (h - top - pad * 1.6) / tiers;
   const cells: { x: number; y: number }[] = [];
-  for (let i = 0; i < cols; i++) for (let j = 0; j < tiers; j++) cells.push({ x: pad + i * cw, y: pad + j * ch });
+  for (let i = 0; i < cols; i++) for (let j = 0; j < tiers; j++) cells.push({ x: boxL + pad + i * cw, y: top + pad * 0.6 + j * ch });
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ flexShrink: 0 }}>
-      <rect x={0.75} y={0.75} width={w - 1.5} height={h - 1.5} rx={3} fill="none" stroke={KRAFT_EDGE} strokeWidth={1.5} />
+      {/* open-top carton: side + bottom walls, flaps splayed outward */}
+      <path
+        d={`M${boxL},${top} L${boxL},${h - 1.2} L${boxR},${h - 1.2} L${boxR},${top}`}
+        fill="none"
+        stroke={KRAFT_EDGE}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <line x1={boxL} y1={top} x2={boxL - 2.4} y2={top - flap} stroke={KRAFT_EDGE} strokeWidth={1.6} strokeLinecap="round" />
+      <line x1={boxR} y1={top} x2={boxR + 2.4} y2={top - flap} stroke={KRAFT_EDGE} strokeWidth={1.6} strokeLinecap="round" />
+      {/* load-direction arrow into the opening */}
+      <line x1={w / 2} y1={1.4} x2={w / 2} y2={top - 2.2} stroke={CARTON_STROKE} strokeWidth={1.2} strokeLinecap="round" opacity={0.75} />
+      <path d={`M${w / 2 - 2.1},${top - 4.4} L${w / 2},${top - 1.6} L${w / 2 + 2.1},${top - 4.4}`} fill="none" stroke={CARTON_STROKE} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" opacity={0.75} />
       {cells.map((c, i) => (
-        <rect key={i} x={c.x + 0.7} y={c.y + 0.7} width={cw - 1.4} height={ch - 1.4} rx={1.5} fill={CARTON_FILL} stroke={CARTON_STROKE} strokeWidth={1.1} />
+        <rect key={i} x={c.x + 0.6} y={c.y + 0.6} width={cw - 1.2} height={ch - 1.2} rx={1.5} fill={CARTON_FILL} stroke={CARTON_STROKE} strokeWidth={1.1} />
       ))}
+    </svg>
+  );
+}
+
+// ── Allowance diagram ─────────────────────────────────────────────────────────
+
+const ALLOW_FILL = '#d9f3ec';
+const ALLOW_STROKE = '#0a9a7f';
+
+export interface AllowanceDiagramProps {
+  allowMajor: string;
+  allowMinor: string;
+  allowDepth: string;
+  units: string;
+}
+
+/**
+ * Where each allowance is added: top view (major × minor) and front view
+ * (major × depth), prism block in purple, extra space in teal.
+ */
+export function AllowanceDiagram({ allowMajor, allowMinor, allowDepth, units }: AllowanceDiagramProps) {
+  const uu = units === 'in' ? '″' : ' mm';
+  const val = (v: string) => (isFinite(parseFloat(v)) ? `+${parseFloat(v)}${uu}` : '+?');
+  const panel = (
+    x0: number,
+    title: string,
+    rightLabel: string,
+    topLabel: string,
+    axisX: string,
+    axisY: string,
+  ) => {
+    const bw = 150;
+    const bh = 96;
+    const gapR = 26;
+    const gapT = 16;
+    const y0 = 26;
+    return (
+      <g key={title}>
+        <text x={x0 + (bw + gapR) / 2} y={13} textAnchor="middle" fontSize={10.5} fontWeight={700} fill="var(--text-secondary, #4a4a68)" fontFamily="inherit" letterSpacing="0.05em">
+          {title}
+        </text>
+        {/* carton inner boundary */}
+        <rect x={x0} y={y0} width={bw + gapR} height={bh + gapT} fill="none" stroke={KRAFT_EDGE} strokeWidth={1.8} rx={2.5} />
+        {/* allowance strips */}
+        <rect x={x0 + bw} y={y0} width={gapR} height={bh + gapT} fill={ALLOW_FILL} opacity={0.85} />
+        <rect x={x0} y={y0} width={bw} height={gapT} fill={ALLOW_FILL} opacity={0.85} />
+        <line x1={x0 + bw} y1={y0} x2={x0 + bw} y2={y0 + bh + gapT} stroke={ALLOW_STROKE} strokeWidth={1} strokeDasharray="3 2.4" />
+        <line x1={x0} y1={y0 + gapT} x2={x0 + bw} y2={y0 + gapT} stroke={ALLOW_STROKE} strokeWidth={1} strokeDasharray="3 2.4" />
+        {/* prism block */}
+        <rect x={x0 + 1.6} y={y0 + gapT + 1.6} width={bw - 3.2} height={bh - 3.2} rx={2} fill={PRISM_PX} opacity={0.92} />
+        <text x={x0 + bw / 2} y={y0 + gapT + bh / 2 + 3.5} textAnchor="middle" fontSize={9.5} fontWeight={600} fill="#fff" fontFamily="inherit">
+          prisms
+        </text>
+        {/* allowance labels */}
+        <text x={x0 + bw + gapR / 2} y={y0 + bh * 0.62} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={ALLOW_STROKE} fontFamily="inherit" transform={`rotate(-90 ${x0 + bw + gapR / 2} ${y0 + bh * 0.62})`}>
+          {rightLabel}
+        </text>
+        <text x={x0 + bw * 0.5} y={y0 + gapT - 4.5} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={ALLOW_STROKE} fontFamily="inherit">
+          {topLabel}
+        </text>
+        {/* axes */}
+        <text x={x0 + (bw + gapR) / 2} y={y0 + bh + gapT + 13} textAnchor="middle" fontSize={9} fill="var(--text-muted, #8888a4)" fontFamily="inherit">
+          {axisX}
+        </text>
+        <text x={x0 - 7} y={y0 + (bh + gapT) / 2} textAnchor="middle" fontSize={9} fill="var(--text-muted, #8888a4)" fontFamily="inherit" transform={`rotate(-90 ${x0 - 7} ${y0 + (bh + gapT) / 2})`}>
+          {axisY}
+        </text>
+      </g>
+    );
+  };
+  return (
+    <svg viewBox="0 0 420 156" role="img" aria-label="Diagram of where each allowance adds space inside the carton" style={{ width: '100%', maxWidth: '460px', height: 'auto', display: 'block' }}>
+      {panel(18, 'TOP VIEW', val(allowMajor), val(allowMinor), 'major flaps (L) →', 'minor flaps (W) →')}
+      {panel(240, 'FRONT VIEW', val(allowMajor), val(allowDepth), 'major flaps (L) →', 'depth (D) →')}
     </svg>
   );
 }
@@ -451,7 +551,7 @@ export function ConfigGlyph({ cols, tiers }: { cols: number; tiers: number }) {
 export function EffMeter({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
-    <span className="cpk-meter" title={`${(value * 100).toFixed(1)}% of this SKU's best possible filters/pallet`}>
+    <span className="cpk-meter" title={`${(value * 100).toFixed(1)}% of this SKU's best possible units per pallet`}>
       <span className="cpk-meter-track">
         <span className="cpk-meter-fill" style={{ width: `${pct}%` }} />
       </span>
@@ -485,7 +585,7 @@ export interface KChartProps {
 }
 
 /**
- * Weighted filters/pallet vs carton SKU count. Single series (site purple),
+ * Weighted units/pallet vs carton SKU count. Single series (site purple),
  * clickable markers select the K whose solution is shown below.
  */
 export function KChart({ solutions, goalK, selectedK, onSelect }: KChartProps) {
@@ -513,8 +613,8 @@ export function KChart({ solutions, goalK, selectedK, onSelect }: KChartProps) {
   if (feasible.length === 0) return null;
 
   return (
-    <div style={{ position: 'relative' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Usage-weighted filters per pallet for each carton SKU count" style={{ width: '100%', height: 'auto', display: 'block' }}>
+    <div className="cpk-chartwrap" style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Usage-weighted units per pallet for each carton SKU count" style={{ width: '100%', height: 'auto', display: 'block' }}>
         {/* gridlines + y ticks */}
         {ticks.map((t) => (
           <g key={t}>
@@ -580,8 +680,8 @@ export function KChart({ solutions, goalK, selectedK, onSelect }: KChartProps) {
           }}
         >
           <div className="cpk-tooltip-title">{hovered.k} carton SKU{hovered.k === 1 ? '' : 's'}</div>
-          <div>{fmt(hovered.weightedFpp, 1)} weighted filters/pallet</div>
-          <div>{fmt(hovered.pallets, 1)} pallets per usage period</div>
+          <div>{fmt(hovered.weightedFpp, 1)} weighted units/pallet</div>
+          <div>{fmt(hovered.pallets, 1)} pallets per year</div>
           <div>{(hovered.weightedEff * 100).toFixed(1)}% of ideal</div>
           <div className="cpk-tooltip-hint">click to inspect</div>
         </div>

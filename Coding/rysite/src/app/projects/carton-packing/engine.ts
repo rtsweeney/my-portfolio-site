@@ -10,9 +10,10 @@
 //    dimension (W) — the axis along which prisms accumulate ("stack").
 //  · A column configuration multiplies the base stack: `cols` side-by-side
 //    columns across L, `tiers` stacked along D. Units/carton = cols·tiers·n.
-//  · Inner dims:  IL = cols·dl + 2·clearance + allowMajor
+//  · Inner dims:  IL = cols·dl + allowMajor
 //                 ID = tiers·dd + allowDepth
-//                 IW = n·dw + 2·clearance + allowMinor  (n free, ≥ 1)
+//                 IW = n·dw + allowMinor  (n free, ≥ 1)
+//    Each allowance is the total extra space added to that inner dimension.
 //  · Outer dims:  OL = IL + 2·wall, OW = IW + 2·wall, OD = ID + 4·wall
 //    (side walls once per side; top + bottom flap stacks ≈ 2 plies each).
 //  · Pallet: usable footprint = pallet + 2·overhang per dimension. Cartons may
@@ -28,9 +29,9 @@ export type CartonAxis = 'major' | 'depth' | 'minor';
 export type AxisMapping = Record<CartonAxis, PrismAxis>;
 
 export const DEFAULT_MAPPING: AxisMapping = {
-  major: 'width', // filter width  → carton major-flap dimension (L)
-  depth: 'height', // filter height → carton depth (vertical when upright)
-  minor: 'depth', // filter depth  → carton minor-flap dimension (stacking axis)
+  major: 'width', // prism width  → carton major-flap dimension (L)
+  depth: 'height', // prism height → carton depth (vertical when upright)
+  minor: 'depth', // prism depth  → carton minor-flap dimension (stacking axis)
 };
 
 export interface PrismSku {
@@ -78,9 +79,7 @@ export interface Settings {
   maxSide: number;
   /** Enabled column-configuration ids (subset of COLUMN_CONFIGS). */
   allowedConfigs: string[];
-  /** Clearance on either side of the packed block, applied in-plane (L and W). */
-  clearance: number;
-  /** Extra push-in allowance added to each carton inner dimension. */
+  /** Total extra space added to each carton inner dimension (push-in room). */
   allowMajor: number;
   allowMinor: number;
   allowDepth: number;
@@ -255,9 +254,9 @@ interface Paddings {
 
 function paddings(s: Settings): Paddings {
   return {
-    padL: 2 * s.clearance + s.allowMajor,
+    padL: s.allowMajor,
     padD: s.allowDepth,
-    padW: 2 * s.clearance + s.allowMinor,
+    padW: s.allowMinor,
     maxInnerL: s.maxSide - 2 * s.wall,
     maxInnerD: s.maxSide - 4 * s.wall,
     maxInnerW: s.maxSide - 2 * s.wall,
@@ -941,8 +940,11 @@ export async function solve(
   }
 
   // Ideal (dedicated-carton) prisms/pallet per SKU — the efficiency baseline.
+  // Evaluated with unit weight so a zero-usage SKU still gets a real baseline
+  // (its own usage would zero out every candidate's score).
   onProgress?.({ label: 'Sizing ideal dedicated cartons', frac: 0.02 });
-  const idealState: SolverState = { ctx: baseCtx, oriented, memo: new Map(), misses: 0, token, onProgress };
+  const orientedIdeal = oriented.map((op) => ({ ...op, weight: 1 }));
+  const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress };
   const ideals = new Array<number>(prisms.length).fill(EPS);
   for (let i = 0; i < prisms.length; i++) {
     const g = await evalGroup(idealState, [i]);
@@ -1036,7 +1038,9 @@ async function buildSolution(state: SolverState, k: number, groups: number[][] |
           unitsPerCarton: m.units,
           fpp: m.fpp,
           idealFpp: ideal,
-          efficiency: m.fpp / ideal,
+          // A shared carton can never beat a dedicated one; the min guards
+          // float jitter in the ratio.
+          efficiency: Math.min(m.fpp / ideal, 1),
           volumeFill: innerVol > 0 ? (vol * m.units) / innerVol : 0,
         };
       })

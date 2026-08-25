@@ -76,13 +76,13 @@ export default async function ProjectsPage() {
                 Carton Packing Optimizer
               </h3>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                <p>Feed it a list of boxes and how heavily each one ships, and it designs the best small set of carton sizes — packing columns and stacks inside each carton, tiling cartons onto pallets with mixed 90° rotations, and charting the gains from adding or removing a carton SKU. Isometric packing views for every carton, all computed in your browser.</p>
+                <p>A free box size and pallet load calculator. Enter product dimensions and annual volumes and it designs the best small set of carton sizes, tiles them onto pallets with mixed 90° rotations, charts the trade-off of adding or removing a carton SKU, and writes supplier-ready carton specs — with isometric packing views for every carton, all computed in your browser.</p>
               </div>
               <div className="project-tech-tags">
+                <span className="project-tech-tag">Box Size Calculator</span>
+                <span className="project-tech-tag">Pallet Loading</span>
                 <span className="project-tech-tag">Optimization</span>
-                <span className="project-tech-tag">Packing</span>
                 <span className="project-tech-tag">SVG</span>
-                <span className="project-tech-tag">Next.js</span>
               </div>
               <div className="project-links">
                 <span className="project-link">Open &rarr;</span>
