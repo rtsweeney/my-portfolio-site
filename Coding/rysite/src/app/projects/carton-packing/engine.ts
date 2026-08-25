@@ -16,6 +16,11 @@
 //    Each allowance is the total extra space added to that inner dimension.
 //  · Outer dims:  OL = IL + 2·wall, OW = IW + 2·wall, OD = ID + 4·wall
 //    (side walls once per side; top + bottom flap stacks ≈ 2 plies each).
+//  · Closing constraint: W never exceeds L. On an RSC the two minor flaps each
+//    span half the width and fold across L, so a carton with W > L cannot be
+//    closed normally. L is a free dimension, so when the stack is deeper than
+//    the packed row is wide, L is widened to W — dead space beside the column,
+//    contents still aligned — instead of rejecting the carton.
 //  · Pallet: usable footprint = pallet + 2·overhang per dimension. Cartons may
 //    be placed upright (L×W footprint) and, when flutes are not required
 //    vertical, on their side with the L×D plane down (height = OW). 90°
@@ -42,6 +47,12 @@ export interface PrismSku {
   depth: number;
   /** Usage weight (e.g. units per year). Drives the weighted objective. */
   usage: number;
+  /**
+   * Optional prescribed count per carton. When set, every carton of this SKU
+   * holds exactly this many (an enabled orientation's columns × tiers must
+   * divide it evenly); when null/absent the optimizer chooses freely.
+   */
+  perCarton?: number | null;
 }
 
 export interface ColumnConfig {
@@ -83,6 +94,11 @@ export interface Settings {
   allowMajor: number;
   allowMinor: number;
   allowDepth: number;
+  /**
+   * Smallest viable carton: SKUs without a prescribed per-carton count must
+   * fit at least this many per carton. Guards against over-optimized shapes.
+   */
+  minUnitsPerCarton: number;
   /** Corrugated board caliper. */
   wall: number;
   /** If true, cartons must sit upright on the pallet (flutes orthogonal to ground). */
@@ -109,6 +125,8 @@ export interface OrientedPrism {
   /** Dimension along carton W (minor flaps, stacking axis). */
   dw: number;
   weight: number;
+  /** Prescribed count per carton, or null when the optimizer chooses. */
+  fixed: number | null;
 }
 
 export interface Dims {
@@ -236,6 +254,7 @@ export function orientPrism(p: PrismSku, mapping: AxisMapping): OrientedPrism {
     dd: p[mapping.depth],
     dw: p[mapping.minor],
     weight: Math.max(p.usage, 0),
+    fixed: p.perCarton != null && p.perCarton >= 1 ? Math.round(p.perCarton) : null,
   };
 }
 
@@ -416,6 +435,8 @@ interface OrientationOption {
   perLayer: number;
 }
 
+// Upright is listed first and stacks at the bottom of the pallet; on-side
+// layers (flutes horizontal) always go on top of the upright layers.
 function orientationOptions(outer: Dims, s: Settings, cache: TileCache): OrientationOption[] {
   const usX = s.palletLen + 2 * s.overhangLen;
   const usY = s.palletWid + 2 * s.overhangWid;
@@ -589,11 +610,22 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   const Ds = Array.from(candD).sort((a, b) => a - b);
   if (Ls.length === 0 || Ds.length === 0) return null;
 
-  // Stack-width candidates: tight for some member. Thinned to a cap, keeping
-  // the highest-usage members' candidates when over budget.
+  // Stack-width candidates: tight for some member. Prescribed-count members'
+  // required widths are always included; the rest are thinned to a cap,
+  // keeping the highest-usage members' candidates when over budget.
   const wCands = new Set<number>();
+  for (const { op } of ms) {
+    if (op.fixed == null) continue;
+    for (const c of configs) {
+      const m = c.cols * c.tiers;
+      if (op.fixed % m !== 0) continue;
+      const v = (op.fixed / m) * op.dw + pad.padW;
+      if (v <= pad.maxInnerW + EPS) wCands.add(round2(v));
+    }
+  }
   const byWeight = [...ms].sort((a, b) => b.op.weight - a.op.weight);
   outer: for (const { op } of byWeight) {
+    if (op.fixed != null) continue;
     for (let n = 1; ; n++) {
       const v = n * op.dw + pad.padW;
       if (v > pad.maxInnerW + EPS) break;
@@ -623,13 +655,16 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
         for (const c of configs) {
           if (c.cols * op.dl + pad.padL <= L + EPS && c.tiers * op.dd + pad.padD <= D + EPS) {
             const m = c.cols * c.tiers;
+            // A prescribed count must split evenly across the configuration;
+            // the max multiplier minimizes the width that count needs.
+            if (op.fixed != null && op.fixed % m !== 0) continue;
             if (m > bestM) {
               bestM = m;
               bestC = c;
             }
           }
         }
-        if (!bestC) {
+        if (!bestC || (op.fixed != null && (op.fixed / bestM) * op.dw + pad.padW > pad.maxInnerW + EPS)) {
           ok = false;
           break;
         }
@@ -658,21 +693,38 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   for (const list of Array.from(vecs.values())) {
     for (const vec of list) {
       for (const W of Ws) {
-        // Every member needs at least one full stack.
+        // Prescribed counts must fit exactly; free members fill the width and
+        // must reach the minimum viable count per carton.
         let feasible = true;
         const scored: { weight: number; fpp: number; idx: number }[] = [];
         const ns: number[] = [];
         for (let i = 0; i < ms.length; i++) {
-          const n = floorEps((W - pad.padW) / ms[i].op.dw);
-          if (n < 1) {
-            feasible = false;
-            break;
+          const op = ms[i].op;
+          if (op.fixed != null) {
+            const n = op.fixed / vec.mult[i];
+            if (n * op.dw + pad.padW > W + EPS) {
+              feasible = false;
+              break;
+            }
+            ns.push(n);
+          } else {
+            const n = floorEps((W - pad.padW) / op.dw);
+            if (n < 1 || vec.mult[i] * n < settings.minUnitsPerCarton) {
+              feasible = false;
+              break;
+            }
+            ns.push(n);
           }
-          ns.push(n);
         }
         if (!feasible) continue;
 
-        const inner: Dims = { l: vec.l, w: W, d: vec.d };
+        // The minor-flap side may never exceed the major-flap side, or the
+        // major flaps cannot meet to close. The major-flap side is a free
+        // dimension though: widen it to the stack width, leaving dead space
+        // beside the prisms, rather than rejecting the carton.
+        const innerL = Math.max(vec.l, W);
+        if (innerL > pad.maxInnerL + EPS) break; // Ws ascends, so no wider W fits either
+        const inner: Dims = { l: innerL, w: W, d: vec.d };
         const out = innerToOuter(inner, settings.wall);
         if (out.l > settings.maxSide + EPS || out.w > settings.maxSide + EPS || out.d > settings.maxSide + EPS) continue;
         const cpp = cartonsPerPallet(out, settings, ctx.tileCache);
@@ -708,9 +760,33 @@ function round2(x: number): number {
 
 // ── Partition solver ──────────────────────────────────────────────────────────
 
+// Browsers clamp nested setTimeout(0) to ~4ms, which would dominate a solve
+// that yields thousands of times. A MessageChannel round-trip is not clamped,
+// so it hands the UI a paint opportunity at a fraction of the cost.
+let yieldPort: MessagePort | null = null;
+const yieldQueue: (() => void)[] = [];
+
 function yieldToUi(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  if (typeof MessageChannel === 'undefined') {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (!yieldPort) {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      const next = yieldQueue.shift();
+      if (next) next();
+    };
+    channel.port1.start();
+    yieldPort = channel.port2;
+  }
+  return new Promise((resolve) => {
+    yieldQueue.push(resolve);
+    yieldPort!.postMessage(0);
+  });
 }
+
+/** Yield at most once per frame budget, so long solves stay responsive. */
+const FRAME_BUDGET_MS = 12;
 
 interface SolverState {
   ctx: EvalContext;
@@ -719,6 +795,16 @@ interface SolverState {
   misses: number;
   token: CancelToken;
   onProgress?: (u: ProgressUpdate) => void;
+  /** Timestamp of the last UI yield, for the frame-budget check. */
+  lastYield: number;
+}
+
+/** Hand the UI a slot only when this run has held the thread past its budget. */
+async function breathe(state: SolverState): Promise<void> {
+  const now = Date.now();
+  if (now - state.lastYield < FRAME_BUDGET_MS) return;
+  state.lastYield = now;
+  await yieldToUi();
 }
 
 async function evalGroup(state: SolverState, idxs: number[]): Promise<GroupEval | null> {
@@ -729,7 +815,7 @@ async function evalGroup(state: SolverState, idxs: number[]): Promise<GroupEval 
   const res = bestCartonForGroup(idxs, state.oriented, state.ctx);
   state.memo.set(key, res);
   state.misses++;
-  if (state.misses % 24 === 0) await yieldToUi();
+  await breathe(state);
   if (state.token.cancelled) throw new SolveCancelled();
   return res;
 }
@@ -884,22 +970,67 @@ async function polish(
 
 function feasibilityIssue(op: OrientedPrism, ctx: EvalContext): string | null {
   const { pad, settings, configs } = ctx;
-  const fitting = configs.filter(
+  const sizeFits = configs.filter(
     (c) => c.cols * op.dl + pad.padL <= pad.maxInnerL + EPS && c.tiers * op.dd + pad.padD <= pad.maxInnerD + EPS,
   );
-  if (fitting.length === 0 || op.dw + pad.padW > pad.maxInnerW + EPS) {
-    return 'exceeds the max carton side length with every allowed packing orientation';
+
+  // The smallest viable stack count per configuration: the prescribed count,
+  // or enough to reach the minimum units per carton.
+  const minStack = (c: ColumnConfig): number | null => {
+    const m = c.cols * c.tiers;
+    if (op.fixed != null) {
+      if (op.fixed % m !== 0) return null;
+      return op.fixed / m;
+    }
+    return Math.max(1, Math.ceil((settings.minUnitsPerCarton - EPS) / m));
+  };
+
+  if (op.fixed != null && !configs.some((c) => op.fixed! % (c.cols * c.tiers) === 0)) {
+    return `its set count of ${op.fixed} per carton cannot be split evenly across any enabled packing orientation`;
   }
-  const fitsPallet = fitting.some((c) => {
-    const inner: Dims = {
-      l: c.cols * op.dl + pad.padL,
-      d: c.tiers * op.dd + pad.padD,
-      w: op.dw + pad.padW,
-    };
+
+  // Smallest closable carton for a configuration: the major-flap side is
+  // widened to the stack width when the stack is the longer of the two, so a
+  // narrow prism just leaves dead space beside the column rather than failing.
+  const minInner = (c: ColumnConfig): Dims | null => {
+    const n = minStack(c);
+    if (n == null) return null;
+    const w = n * op.dw + pad.padW;
+    return { l: Math.max(c.cols * op.dl + pad.padL, w), w, d: c.tiers * op.dd + pad.padD };
+  };
+
+  const withinMax = sizeFits.filter((c) => {
+    const n = minStack(c);
+    return n != null && n * op.dw + pad.padW <= pad.maxInnerW + EPS;
+  });
+  const viable = withinMax.filter((c) => {
+    const inner = minInner(c);
+    return inner != null && inner.l <= pad.maxInnerL + EPS;
+  });
+  if (viable.length === 0) {
+    if (withinMax.length > 0) {
+      // The stack fits the width cap, but squaring the major-flap side up to
+      // it (so the flaps can close) pushes past the max side length.
+      return op.fixed != null
+        ? `its set count of ${op.fixed} per carton needs a stack deeper than the max carton side length allows once the major-flap side is widened to match it, so the carton could not close — lower the count or enable a 2-across orientation`
+        : `reaching the minimum ${settings.minUnitsPerCarton} prisms per carton needs a stack deeper than the max carton side length allows once the major-flap side is widened to match it — raise the max side, enable a 2-across orientation, or lower the minimum`;
+    }
+    if (op.fixed != null) {
+      return `its set count of ${op.fixed} per carton exceeds the max carton side length with every enabled packing orientation`;
+    }
+    if (sizeFits.length > 0 && op.dw + pad.padW <= pad.maxInnerW + EPS) {
+      return `it cannot reach the minimum ${settings.minUnitsPerCarton} prisms per carton within the max carton side length`;
+    }
+    return 'exceeds the max carton side length with every enabled packing orientation';
+  }
+
+  const fitsPallet = viable.some((c) => {
+    const inner = minInner(c);
+    if (inner == null) return false;
     return cartonsPerPallet(innerToOuter(inner, settings.wall), settings, ctx.tileCache) > 0;
   });
   if (!fitsPallet) {
-    return 'its smallest possible carton does not fit the pallet footprint or max load height';
+    return 'its smallest viable carton does not fit the pallet footprint or max load height';
   }
   return null;
 }
@@ -944,7 +1075,7 @@ export async function solve(
   // (its own usage would zero out every candidate's score).
   onProgress?.({ label: 'Sizing ideal dedicated cartons', frac: 0.02 });
   const orientedIdeal = oriented.map((op) => ({ ...op, weight: 1 }));
-  const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress };
+  const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
   const ideals = new Array<number>(prisms.length).fill(EPS);
   for (let i = 0; i < prisms.length; i++) {
     const g = await evalGroup(idealState, [i]);
@@ -952,7 +1083,7 @@ export async function solve(
   }
 
   const ctx: EvalContext = { ...baseCtx, ideals, objective: settings.objective };
-  const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress };
+  const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
 
   const n = prisms.length;
   const kLo = Math.max(1, settings.goalSkus - settings.kSpread);
