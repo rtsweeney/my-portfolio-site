@@ -16,6 +16,9 @@
 //    Each allowance is the total extra space added to that inner dimension.
 //  · Outer dims:  OL = IL + 2·wall, OW = IW + 2·wall, OD = ID + 4·wall
 //    (side walls once per side; top + bottom flap stacks ≈ 2 plies each).
+//  · Closing constraint: W never exceeds L. The major flaps hinge on the L
+//    panels and fold across W to meet; if the minor-flap dimension were the
+//    longer one the flaps could not close over the contents.
 //  · Pallet: usable footprint = pallet + 2·overhang per dimension. Cartons may
 //    be placed upright (L×W footprint) and, when flutes are not required
 //    vertical, on their side with the L×D plane down (height = OW). 90°
@@ -688,6 +691,9 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   for (const list of Array.from(vecs.values())) {
     for (const vec of list) {
       for (const W of Ws) {
+        // The minor-flap dimension may never exceed the major-flap dimension,
+        // or the major flaps cannot meet to close the carton.
+        if (W > vec.l + EPS) break;
         // Prescribed counts must fit exactly; free members fill the width and
         // must reach the minimum viable count per carton.
         let feasible = true;
@@ -749,9 +755,33 @@ function round2(x: number): number {
 
 // ── Partition solver ──────────────────────────────────────────────────────────
 
+// Browsers clamp nested setTimeout(0) to ~4ms, which would dominate a solve
+// that yields thousands of times. A MessageChannel round-trip is not clamped,
+// so it hands the UI a paint opportunity at a fraction of the cost.
+let yieldPort: MessagePort | null = null;
+const yieldQueue: (() => void)[] = [];
+
 function yieldToUi(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  if (typeof MessageChannel === 'undefined') {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (!yieldPort) {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      const next = yieldQueue.shift();
+      if (next) next();
+    };
+    channel.port1.start();
+    yieldPort = channel.port2;
+  }
+  return new Promise((resolve) => {
+    yieldQueue.push(resolve);
+    yieldPort!.postMessage(0);
+  });
 }
+
+/** Yield at most once per frame budget, so long solves stay responsive. */
+const FRAME_BUDGET_MS = 12;
 
 interface SolverState {
   ctx: EvalContext;
@@ -760,6 +790,16 @@ interface SolverState {
   misses: number;
   token: CancelToken;
   onProgress?: (u: ProgressUpdate) => void;
+  /** Timestamp of the last UI yield, for the frame-budget check. */
+  lastYield: number;
+}
+
+/** Hand the UI a slot only when this run has held the thread past its budget. */
+async function breathe(state: SolverState): Promise<void> {
+  const now = Date.now();
+  if (now - state.lastYield < FRAME_BUDGET_MS) return;
+  state.lastYield = now;
+  await yieldToUi();
 }
 
 async function evalGroup(state: SolverState, idxs: number[]): Promise<GroupEval | null> {
@@ -770,7 +810,7 @@ async function evalGroup(state: SolverState, idxs: number[]): Promise<GroupEval 
   const res = bestCartonForGroup(idxs, state.oriented, state.ctx);
   state.memo.set(key, res);
   state.misses++;
-  if (state.misses % 24 === 0) await yieldToUi();
+  await breathe(state);
   if (state.token.cancelled) throw new SolveCancelled();
   return res;
 }
@@ -944,11 +984,22 @@ function feasibilityIssue(op: OrientedPrism, ctx: EvalContext): string | null {
     return `its set count of ${op.fixed} per carton cannot be split evenly across any enabled packing orientation`;
   }
 
-  const viable = sizeFits.filter((c) => {
+  const withinMax = sizeFits.filter((c) => {
     const n = minStack(c);
     return n != null && n * op.dw + pad.padW <= pad.maxInnerW + EPS;
   });
+  // The minor-flap dimension (stack) may never exceed the major-flap
+  // dimension, or the major flaps cannot meet to close the carton.
+  const viable = withinMax.filter((c) => {
+    const n = minStack(c);
+    return n != null && n * op.dw + pad.padW <= c.cols * op.dl + pad.padL + EPS;
+  });
   if (viable.length === 0) {
+    if (withinMax.length > 0) {
+      return op.fixed != null
+        ? `its set count of ${op.fixed} per carton would make the minor-flap side longer than the major-flap side, so the carton could not close — lower the count or enable a 2-across orientation`
+        : `reaching the minimum ${settings.minUnitsPerCarton} prisms per carton would make the minor-flap side longer than the major-flap side, so the carton could not close — enable a 2-across orientation or lower the minimum`;
+    }
     if (op.fixed != null) {
       return `its set count of ${op.fixed} per carton exceeds the max carton side length with every enabled packing orientation`;
     }
@@ -1014,7 +1065,7 @@ export async function solve(
   // (its own usage would zero out every candidate's score).
   onProgress?.({ label: 'Sizing ideal dedicated cartons', frac: 0.02 });
   const orientedIdeal = oriented.map((op) => ({ ...op, weight: 1 }));
-  const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress };
+  const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
   const ideals = new Array<number>(prisms.length).fill(EPS);
   for (let i = 0; i < prisms.length; i++) {
     const g = await evalGroup(idealState, [i]);
@@ -1022,7 +1073,7 @@ export async function solve(
   }
 
   const ctx: EvalContext = { ...baseCtx, ideals, objective: settings.objective };
-  const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress };
+  const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
 
   const n = prisms.length;
   const kLo = Math.max(1, settings.goalSkus - settings.kSpread);
