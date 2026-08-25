@@ -37,6 +37,12 @@ interface PrismRow {
   height: string;
   depth: string;
   usage: string;
+  /** Optional prescribed count per carton; blank lets the optimizer choose. */
+  perCarton: string;
+}
+
+function normalizeRows(rows: PrismRow[]): PrismRow[] {
+  return rows.map((r) => ({ ...r, perCarton: r.perCarton ?? '' }));
 }
 
 interface FormState {
@@ -46,6 +52,7 @@ interface FormState {
   mapMinor: PrismAxis;
   goalSkus: string;
   maxSide: string;
+  minUnits: string;
   configs: Record<string, boolean>;
   allowMajor: string;
   allowMinor: string;
@@ -79,6 +86,7 @@ const DEFAULT_FORM: FormState = {
   mapMinor: DEFAULT_MAPPING.minor,
   goalSkus: '4',
   maxSide: '700',
+  minUnits: '4',
   configs: Object.fromEntries(COLUMN_CONFIGS.map((c) => [c.id, c.defaultOn])),
   allowMajor: '20',
   allowMinor: '10',
@@ -102,14 +110,14 @@ const PALLET_HEIGHT_MM = 127;
 const PALLET_HEIGHT_IN = 5;
 
 const SAMPLE_PRISMS: PrismRow[] = [
-  { id: 1, name: '594 × 594 × 44', width: '594', height: '594', depth: '44', usage: '5200' },
-  { id: 2, name: '594 × 594 × 21', width: '594', height: '594', depth: '21', usage: '3100' },
-  { id: 3, name: '594 × 594 × 95', width: '594', height: '594', depth: '95', usage: '2600' },
-  { id: 4, name: '494 × 494 × 44', width: '494', height: '494', depth: '44', usage: '2400' },
-  { id: 5, name: '594 × 494 × 44', width: '594', height: '494', depth: '44', usage: '1800' },
-  { id: 6, name: '494 × 494 × 21', width: '494', height: '494', depth: '21', usage: '900' },
-  { id: 7, name: '594 × 294 × 44', width: '594', height: '294', depth: '44', usage: '700' },
-  { id: 8, name: '494 × 394 × 21', width: '494', height: '394', depth: '21', usage: '450' },
+  { id: 1, name: '594 × 594 × 44', width: '594', height: '594', depth: '44', usage: '5200', perCarton: '' },
+  { id: 2, name: '594 × 594 × 21', width: '594', height: '594', depth: '21', usage: '3100', perCarton: '' },
+  { id: 3, name: '594 × 594 × 95', width: '594', height: '594', depth: '95', usage: '2600', perCarton: '' },
+  { id: 4, name: '494 × 494 × 44', width: '494', height: '494', depth: '44', usage: '2400', perCarton: '' },
+  { id: 5, name: '594 × 494 × 44', width: '594', height: '494', depth: '44', usage: '1800', perCarton: '' },
+  { id: 6, name: '494 × 494 × 21', width: '494', height: '494', depth: '21', usage: '900', perCarton: '' },
+  { id: 7, name: '594 × 294 × 44', width: '594', height: '294', depth: '44', usage: '700', perCarton: '' },
+  { id: 8, name: '494 × 394 × 21', width: '494', height: '394', depth: '21', usage: '450', perCarton: '' },
 ];
 
 const STORAGE_KEY = 'carton-packing-optimizer-v2';
@@ -121,9 +129,24 @@ const AXIS_LABELS: Record<PrismAxis, string> = {
 };
 
 const OBJECTIVES: { id: ObjectiveId; label: string; hint: string }[] = [
-  { id: 'pallets', label: 'Minimize total pallets per year', hint: 'Fewest pallet positions for the annual volume — the warehouse-space objective.' },
-  { id: 'wfpp', label: 'Maximize weighted units per pallet', hint: 'Highest-usage prisms drive the carton dimensions hardest.' },
-  { id: 'weff', label: 'Maximize weighted efficiency vs. ideal', hint: 'Each SKU is scored relative to its own perfectly sized dedicated carton.' },
+  {
+    id: 'pallets',
+    label: 'Minimize total pallets per year',
+    hint:
+      'Adds up the pallet positions a year of volume needs — each SKU’s annual usage ÷ its units per pallet — and makes that total as small as possible. Choose this when floor space, racking, or trailer cube is the real cost: high-volume SKUs steer the carton dimensions in exact proportion to the space they consume, and low-volume SKUs are allowed a looser fit if it saves pallets overall.',
+  },
+  {
+    id: 'wfpp',
+    label: 'Maximize weighted units per pallet',
+    hint:
+      'Maximizes the average units-per-pallet across SKUs, weighted by annual usage. It pushes your highest-volume SKUs toward the densest possible packing, but physically small SKUs (which naturally fit more per pallet) pull on the average harder than they do on the pallet-count objective — pick this when the number on the pallet sheet is the metric you report.',
+  },
+  {
+    id: 'weff',
+    label: 'Maximize weighted efficiency vs. ideal',
+    hint:
+      'Scores each SKU as a percentage of the best it could achieve in its own perfectly sized dedicated carton (100% = nothing lost by sharing), then maximizes the usage-weighted average. Size-neutral: a small or low-volume SKU counts the same per point of efficiency as a large one, so nothing in the catalog gets a badly compromised fit — sometimes at the cost of a few more total pallets.',
+  },
 ];
 
 // ── Small reusable inputs ─────────────────────────────────────────────────────
@@ -206,18 +229,37 @@ function annualPalletsFor(c: CartonSpec): number {
   return c.members.reduce((a, m) => a + m.prism.usage / Math.max(m.fpp, 1e-9), 0);
 }
 
-function buildSpecText(sol: SolutionK, units: Units): string {
+/** Overall footprint of the placed load (max extent over the layer patterns). */
+function loadExtents(c: CartonSpec): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  for (const l of c.pallet.layers) {
+    const xs = l.placements.map((r) => [r.x, r.x + r.w]).flat();
+    const ys = l.placements.map((r) => [r.y, r.y + r.h]).flat();
+    if (xs.length > 0) x = Math.max(x, Math.max(...xs) - Math.min(...xs));
+    if (ys.length > 0) y = Math.max(y, Math.max(...ys) - Math.min(...ys));
+  }
+  return { x, y };
+}
+
+function buildSpecText(sol: SolutionK, units: Units, palletLen: number, palletWid: number, palletH: number): string {
   const lines: string[] = [];
   lines.push(`Carton specifications — ${sol.k} carton SKU${sol.k === 1 ? '' : 's'}`);
   lines.push(`Dimensions are L × W × D (major flap × minor flap × depth) in ${units}.`);
   lines.push('');
   for (const c of sol.cartons) {
+    const ext = loadExtents(c);
+    const ohL = Math.max(0, (ext.x - palletLen) / 2);
+    const ohW = Math.max(0, (ext.y - palletWid) / 2);
+    const oh = (v: number) => (v > 0.049 ? `${Math.round(v * 10) / 10} ${units} per side` : 'none');
     lines.push(`Carton ${c.label}`);
     lines.push(`  Inner: ${dims3(c.inner, units)}`);
     lines.push(`  Outer: ${dims3(c.outer, units)}`);
     lines.push(`  Est. cartons per year: ${fmt(annualCartons(c))}`);
     lines.push(`  Cartons per pallet: ${fmt(c.cartonsPerPallet)}`);
-    lines.push(`  Serves: ${c.members.map((m) => `${m.prism.name} (${fmt(m.prism.usage)}/yr)`).join(', ')}`);
+    lines.push(`  Load bounding box: ${dims3({ l: ext.x, w: ext.y, d: c.pallet.stackHeight }, units)} (${Math.round((c.pallet.stackHeight + palletH) * 10) / 10} ${units} incl. pallet)`);
+    lines.push(`  Overhang: length ${oh(ohL)}; width ${oh(ohW)}`);
+    lines.push(`  Serves: ${c.members.map((m) => `${m.prism.name} (${fmt(m.prism.usage)}/yr${m.prism.perCarton != null ? `, set ${m.prism.perCarton}/carton` : ''})`).join(', ')}`);
     lines.push('');
   }
   const totalCartons = sol.cartons.reduce((a, c) => a + annualCartons(c), 0);
@@ -254,7 +296,7 @@ export default function CartonPackingPage() {
       if (raw) {
         const data = JSON.parse(raw) as { form?: Partial<FormState>; prisms?: PrismRow[]; nextId?: number };
         if (data.form) setForm({ ...DEFAULT_FORM, ...data.form, configs: { ...DEFAULT_FORM.configs, ...(data.form.configs ?? {}) } });
-        if (Array.isArray(data.prisms) && data.prisms.length > 0) setPrisms(data.prisms);
+        if (Array.isArray(data.prisms) && data.prisms.length > 0) setPrisms(normalizeRows(data.prisms));
         if (typeof data.nextId === 'number') setNextId(data.nextId);
       }
     } catch {
@@ -313,7 +355,7 @@ export default function CartonPackingPage() {
     setPrisms((ps) => ps.map((p) => (p.id === id ? { ...p, [key]: value } : p)));
   };
   const addPrism = () => {
-    setPrisms((ps) => [...ps, { id: nextId, name: '', width: '', height: '', depth: '', usage: '' }]);
+    setPrisms((ps) => [...ps, { id: nextId, name: '', width: '', height: '', depth: '', usage: '', perCarton: '' }]);
     setNextId((n) => n + 1);
   };
   const removePrism = (id: number) => setPrisms((ps) => ps.filter((p) => p.id !== id));
@@ -330,10 +372,13 @@ export default function CartonPackingPage() {
     for (const line of importText.split(/\n+/)) {
       const parts = line.split(/[\t,;]/).map((s) => s.trim()).filter((s) => s.length > 0);
       if (parts.length < 4) continue;
-      const nums = parts.slice(-4);
-      if (nums.some((n) => !isFinite(parseFloat(n)))) continue;
-      const name = parts.length > 4 ? parts.slice(0, parts.length - 4).join(' ') : `${nums[0]} × ${nums[1]} × ${nums[2]}`;
-      rows.push({ id: id++, name, width: nums[0], height: nums[1], depth: nums[2], usage: nums[3] });
+      // Trailing numeric run is w, h, d, usage, and optionally per-carton count.
+      let numCount = 0;
+      while (numCount < parts.length && numCount < 5 && isFinite(parseFloat(parts[parts.length - 1 - numCount]))) numCount++;
+      if (numCount < 4) continue;
+      const nums = parts.slice(parts.length - numCount);
+      const name = parts.length > numCount ? parts.slice(0, parts.length - numCount).join(' ') : `${nums[0]} × ${nums[1]} × ${nums[2]}`;
+      rows.push({ id: id++, name, width: nums[0], height: nums[1], depth: nums[2], usage: nums[3], perCarton: nums[4] ?? '' });
     }
     if (rows.length > 0) {
       setPrisms((ps) => [...ps, ...rows]);
@@ -358,7 +403,7 @@ export default function CartonPackingPage() {
       try {
         const data = JSON.parse(text) as { form?: Partial<FormState>; prisms?: PrismRow[]; nextId?: number };
         if (data.form) setForm({ ...DEFAULT_FORM, ...data.form, configs: { ...DEFAULT_FORM.configs, ...(data.form.configs ?? {}) } });
-        if (Array.isArray(data.prisms)) setPrisms(data.prisms);
+        if (Array.isArray(data.prisms)) setPrisms(normalizeRows(data.prisms));
         if (typeof data.nextId === 'number') setNextId(data.nextId);
         setErrors([]);
       } catch {
@@ -388,10 +433,19 @@ export default function CartonPackingPage() {
         return;
       }
       if (!isFinite(u) || u < 0) {
-        problems.push(`Prism ${label}: usage must be a number ≥ 0.`);
+        problems.push(`Prism ${label}: annual usage must be a number ≥ 0.`);
         return;
       }
-      prismSkus.push({ id: String(p.id), name: p.name.trim() || `${p.width} × ${p.height} × ${p.depth}`, width: w, height: h, depth: d, usage: u });
+      let perCarton: number | null = null;
+      if (p.perCarton.trim() !== '') {
+        const q = parseFloat(p.perCarton);
+        if (!isFinite(q) || q < 1 || Math.abs(q - Math.round(q)) > 1e-9) {
+          problems.push(`Prism ${label}: per-carton count must be a whole number ≥ 1 (or blank).`);
+          return;
+        }
+        perCarton = Math.round(q);
+      }
+      prismSkus.push({ id: String(p.id), name: p.name.trim() || `${p.width} × ${p.height} × ${p.depth}`, width: w, height: h, depth: d, usage: u, perCarton });
     });
     if (prismSkus.length === 0) problems.push('Add at least one prism SKU.');
 
@@ -407,6 +461,7 @@ export default function CartonPackingPage() {
       goalSkus: goal,
       kSpread: 3,
       maxSide: num('Max carton side', form.maxSide, 1),
+      minUnitsPerCarton: Math.round(num('Minimum prisms per carton', form.minUnits, 1)),
       allowedConfigs: allowed,
       allowMajor: num('Major-flap allowance', form.allowMajor),
       allowMinor: num('Minor-flap allowance', form.allowMinor),
@@ -512,7 +567,8 @@ export default function CartonPackingPage() {
           <p className="cpk-hint">
             Dimensions are the prism&apos;s width × height × depth in {u === 'mm' ? 'millimeters' : 'inches'}. Annual usage
             is the number of units shipped per year — it weights the optimization, so the highest-volume SKUs get packed
-            most efficiently.
+            most efficiently. Set <b>per carton</b> to lock a SKU to an exact count per carton (it must split evenly
+            across an enabled packing orientation); leave it blank and the optimizer chooses.
           </p>
           {importOpen && (
             <div className="cpk-import">
@@ -537,6 +593,7 @@ export default function CartonPackingPage() {
                   <th>Height ({u})</th>
                   <th>Depth ({u})</th>
                   <th>Annual usage</th>
+                  <th>Per carton (optional)</th>
                   <th aria-label="Row actions" />
                 </tr>
               </thead>
@@ -548,6 +605,7 @@ export default function CartonPackingPage() {
                     <td><input type="number" inputMode="decimal" value={p.height} onChange={(e) => updatePrism(p.id, 'height', e.target.value)} /></td>
                     <td><input type="number" inputMode="decimal" value={p.depth} onChange={(e) => updatePrism(p.id, 'depth', e.target.value)} /></td>
                     <td><input type="number" inputMode="decimal" value={p.usage} onChange={(e) => updatePrism(p.id, 'usage', e.target.value)} /></td>
+                    <td><input type="number" inputMode="numeric" value={p.perCarton} placeholder="auto" onChange={(e) => updatePrism(p.id, 'perCarton', e.target.value)} /></td>
                     <td className="cpk-rowactions">
                       <button type="button" title="Duplicate" onClick={() => duplicatePrism(p.id)}>⧉</button>
                       <button type="button" title="Remove" onClick={() => removePrism(p.id)}>✕</button>
@@ -555,7 +613,7 @@ export default function CartonPackingPage() {
                   </tr>
                 ))}
                 {prisms.length === 0 && (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No prisms yet — add a row or load the sample data.</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No prisms yet — add a row or load the sample data.</td></tr>
                 )}
               </tbody>
             </table>
@@ -610,6 +668,13 @@ export default function CartonPackingPage() {
             <div className="cpk-cardhead"><h2>3 · Cartons</h2></div>
             <NumField label="Goal number of carton SKUs" value={form.goalSkus} onChange={(v) => set('goalSkus', v)} step="1" hint="The simulation also runs ±3 SKUs around this goal." />
             <NumField label={`Max single side length (${u})`} value={form.maxSide} onChange={(v) => set('maxSide', v)} hint="Cap on every outer carton dimension." />
+            <NumField
+              label="Minimum prisms per carton"
+              value={form.minUnits}
+              onChange={(v) => set('minUnits', v)}
+              step="1"
+              hint="Every SKU must fit at least this many in its carton — keeps the optimizer from producing impractically small cartons. A per-SKU per-carton count overrides this for that SKU."
+            />
             <div className="cpk-divider" />
             <div className="cpk-cardhead"><h2>Loading allowances</h2></div>
             <p className="cpk-hint">
@@ -656,7 +721,7 @@ export default function CartonPackingPage() {
             <div className="cpk-three">
               <NumField label={`Length (${u})`} value={form.palletLen} onChange={(v) => { set('palletLen', v); set('palletPreset', 'custom'); }} />
               <NumField label={`Width (${u})`} value={form.palletWid} onChange={(v) => { set('palletWid', v); set('palletPreset', 'custom'); }} />
-              <NumField label={`Max stack height (${u})`} value={form.maxLoadHeight} onChange={(v) => set('maxLoadHeight', v)} hint="Cartons + pads above the deck. The pallet itself is assumed 5 in (127 mm) tall — the default 2,370 mm keeps the full stack under 2,500 mm." />
+              <NumField label={`Max stack height (${u})`} value={form.maxLoadHeight} onChange={(v) => set('maxLoadHeight', v)} hint="Cartons + pads above the deck." />
             </div>
             <div className="cpk-three">
               <NumField label={`Overhang, length side (${u})`} value={form.overhangLen} onChange={(v) => set('overhangLen', v)} hint="Per side." />
@@ -696,6 +761,16 @@ export default function CartonPackingPage() {
               </select>
               <span className="cpk-hint">{OBJECTIVES.find((o) => o.id === form.objective)?.hint}</span>
             </label>
+            <details className="cpk-objcompare">
+              <summary>Compare all three objectives</summary>
+              <ul>
+                {OBJECTIVES.map((o) => (
+                  <li key={o.id}>
+                    <b>{o.label}{o.id === form.objective ? ' (selected)' : ''}.</b> {o.hint}
+                  </li>
+                ))}
+              </ul>
+            </details>
             <p className="cpk-hint">
               No SKU mixing: a carton is always packed with a single prism SKU, and each prism SKU is assigned to exactly
               one carton SKU. Cartons may be turned 90° on the pallet, and orientations may be mixed.
@@ -795,7 +870,15 @@ export default function CartonPackingPage() {
                     type="button"
                     onClick={() => {
                       navigator.clipboard
-                        .writeText(buildSpecText(selectedSolution, runCtx.units))
+                        .writeText(
+                          buildSpecText(
+                            selectedSolution,
+                            runCtx.units,
+                            runCtx.settings.palletLen,
+                            runCtx.settings.palletWid,
+                            runCtx.units === 'in' ? PALLET_HEIGHT_IN : PALLET_HEIGHT_MM,
+                          ),
+                        )
                         .then(() => {
                           setCopied(true);
                           setTimeout(() => setCopied(false), 1800);
@@ -912,6 +995,8 @@ export default function CartonPackingPage() {
                   <li>Inner dims: L = columns × prism-L + major allowance; W = stack count × prism-W + minor allowance; D = tiers × prism-D + depth allowance. Each allowance is the total extra space in that dimension, and the stack count is maximized to the carton width for every SKU sharing the carton.</li>
                   <li>Outer dims add 2 × wall on L and W and 4 × wall on depth (two flap plies top and bottom). The max side limit applies to outer dims.</li>
                   <li>Each carton is packed with one SKU at a time; each prism SKU is assigned to exactly one carton SKU.</li>
+                  <li>Every SKU without a set per-carton count must reach the minimum prisms per carton; a set count overrides the minimum for that SKU and must split evenly across an enabled packing orientation (columns × tiers must divide it).</li>
+                  <li>When orientations mix on a pallet, upright layers always stack at the bottom and on-side layers on top; layers are numbered from the deck up.</li>
                   <li>Pallet patterns mix 90° rotations using a block-pattern search (up to three guillotine splits). Fully interlocked pinwheel patterns are not searched, so a rare layout may fit one more carton than reported.</li>
                   <li>The pallet is assumed 5 in (127 mm) tall; the max stack height applies to cartons and pads above the deck.</li>
                   <li>With flutes not required vertical, cartons may also rest on the depth × major-flap face (minor flaps vertical); layers of different orientations can mix within the height budget.</li>
@@ -947,6 +1032,34 @@ function CartonCard({ carton, solution, ctx }: { carton: CartonSpec; solution: S
   const layerSummary = carton.pallet.layers
     .map((l) => `${l.count} layer${l.count > 1 ? 's' : ''} of ${l.perLayer} ${l.orientation === 'upright' ? 'upright' : 'on side'}`)
     .join(' + ');
+
+  // Layer numbering (1 = bottom; upright groups always stack below on-side)
+  // and the footprint each pattern actually occupies.
+  const groups = carton.pallet.layers;
+  let firstLayer = 1;
+  const groupInfo = groups.map((l) => {
+    const from = firstLayer;
+    const to = firstLayer + l.count - 1;
+    firstLayer = to + 1;
+    const xs = l.placements.map((r) => [r.x, r.x + r.w]).flat();
+    const ys = l.placements.map((r) => [r.y, r.y + r.h]).flat();
+    const extX = xs.length > 0 ? Math.max(...xs) - Math.min(...xs) : 0;
+    const extY = ys.length > 0 ? Math.max(...ys) - Math.min(...ys) : 0;
+    return { from, to, extX, extY };
+  });
+  const totalLayers = carton.pallet.totalLayers;
+  const topOnSide = groups.length > 1 && groups[groups.length - 1].orientation === 'onSide';
+  const bboxX = Math.max(0, ...groupInfo.map((g) => g.extX));
+  const bboxY = Math.max(0, ...groupInfo.map((g) => g.extY));
+  const palletH = u === 'in' ? PALLET_HEIGHT_IN : PALLET_HEIGHT_MM;
+  const ohL = Math.max(0, (bboxX - s.palletLen) / 2);
+  const ohW = Math.max(0, (bboxY - s.palletWid) / 2);
+  const overhangNote = (v: number, side: string) => (v > 0.049 ? `${fmtDim(v, u)} per side along the pallet ${side}` : `none along the pallet ${side}`);
+  const layerLabel = (gi: number) => {
+    const g = groupInfo[gi];
+    const pos = g.to === totalLayers ? (g.from === 1 ? '' : ' · top' ) : g.from === 1 ? ' · bottom' : ' · middle';
+    return (g.from === g.to ? `Layer ${g.from}` : `Layers ${g.from}–${g.to}`) + pos;
+  };
 
   return (
     <section className="cpk-card">
@@ -1004,7 +1117,7 @@ function CartonCard({ carton, solution, ctx }: { carton: CartonSpec; solution: S
                   <tr key={m.prism.id}>
                     <td>{m.prism.name}</td>
                     <td className="cpk-num">{fmt(m.prism.usage)}</td>
-                    <td className="cpk-num">{m.cols}×{m.tiers}×{m.nPerStack}</td>
+                    <td className="cpk-num">{m.cols}×{m.tiers}×{m.nPerStack}{m.prism.perCarton != null && <span className="cpk-tag">set</span>}</td>
                     <td className="cpk-num">{m.unitsPerCarton}</td>
                     <td className="cpk-num">{fmt(m.fpp)}</td>
                     <td className="cpk-num">{fmt(Math.ceil(m.prism.usage / Math.max(m.unitsPerCarton, 1)))}</td>
@@ -1038,12 +1151,17 @@ function CartonCard({ carton, solution, ctx }: { carton: CartonSpec; solution: S
       )}
 
       {/* pallet views */}
+      <div className="cpk-bbox">
+        Load bounding box: <b>{fmt(Math.round(bboxX * 10) / 10, 1)} × {fmt(Math.round(bboxY * 10) / 10, 1)} × {fmt(Math.round(carton.pallet.stackHeight * 10) / 10, 1)} {u}</b>
+        {' '}({fmtDim(carton.pallet.stackHeight + palletH, u)} tall incl. the {fmtDim(palletH, u)} pallet) · overhang: {overhangNote(ohL, 'length')}; {overhangNote(ohW, 'width')}.
+      </div>
       <div className="cpk-pallet-grid">
         {carton.pallet.layers.map((l, li) => (
           <div key={li} className="cpk-pallet-tile">
             <PalletTopView plan={carton.pallet} layerIndex={li} palletLen={s.palletLen} palletWid={s.palletWid} units={u} />
             <div className="cpk-viz-caption">
-              Layer pattern · {l.perLayer}/layer × {l.count} layer{l.count > 1 ? 's' : ''} ({l.orientation === 'upright' ? 'upright' : 'on side'})
+              <b>{layerLabel(li)}</b> · {l.perLayer}/layer, {l.orientation === 'upright' ? 'upright' : 'on side (flutes horizontal)'} · extent {fmt(Math.round(groupInfo[li].extX * 10) / 10, 1)} × {fmt(Math.round(groupInfo[li].extY * 10) / 10, 1)} {u}
+              {topOnSide && li === carton.pallet.layers.length - 2 && ' — the on-side top layer stacks directly on this pattern'}
             </div>
           </div>
         ))}
@@ -1167,6 +1285,14 @@ const CPK_CSS = `
 .cpk-meter-track{width:64px;height:7px;border-radius:999px;background:#e6e2fb;overflow:hidden;display:inline-block}
 .cpk-meter-fill{display:block;height:100%;background:var(--accent-primary);border-radius:999px}
 .cpk-meter-num{font-size:0.72rem;font-weight:700;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+
+.cpk-bbox{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.55rem 0.8rem;font-size:0.78rem;color:var(--text-secondary);margin-top:1.1rem;line-height:1.55}
+.cpk-bbox b{color:var(--text-primary);font-variant-numeric:tabular-nums}
+
+.cpk-objcompare{margin-top:0.4rem}
+.cpk-objcompare summary{cursor:pointer;font-size:0.74rem;font-weight:700;color:var(--accent-secondary)}
+.cpk-objcompare ul{margin:0.5rem 0 0 1.1rem;display:flex;flex-direction:column;gap:0.5rem;font-size:0.76rem;color:var(--text-secondary);line-height:1.55}
+.cpk-objcompare b{color:var(--text-primary)}
 
 .cpk-notes-summary{cursor:pointer;font-size:0.8rem;font-weight:700;color:var(--text-secondary)}
 .cpk-notes{margin:0.7rem 0 0 1.1rem;display:flex;flex-direction:column;gap:0.4rem;font-size:0.78rem;color:var(--text-secondary);line-height:1.55}

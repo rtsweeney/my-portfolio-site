@@ -351,13 +351,15 @@ export function PalletSideView({ plan, maxLoadHeight, padThickness, units, palle
   const fs = Math.max(W, maxLoadHeight + palletH) * 0.033;
 
   // Build the stack bottom-up: [pad?] layer × count … [pad?]
-  const rows: { kind: 'pad' | 'layer'; h: number; layer?: number }[] = [];
+  const rows: { kind: 'pad' | 'layer'; h: number; layer?: number; no?: number }[] = [];
   const everyPad = plan.padCount > plan.layers.reduce((a, l) => a + l.count, 0);
   const hasPads = plan.padCount > 0;
   if (hasPads) rows.push({ kind: 'pad', h: padThickness });
+  let layerNo = 0;
   plan.layers.forEach((l, li) => {
     for (let i = 0; i < l.count; i++) {
-      rows.push({ kind: 'layer', h: l.height, layer: li });
+      layerNo++;
+      rows.push({ kind: 'layer', h: l.height, layer: li, no: layerNo });
       if (everyPad) rows.push({ kind: 'pad', h: padThickness });
     }
   });
@@ -410,6 +412,11 @@ export function PalletSideView({ plan, maxLoadHeight, padThickness, units, palle
                 strokeWidth={fs * 0.07}
               />
             ))}
+            {r.h > fs * 1.3 && (
+              <text x={-fs * 0.35} y={yTop + r.h / 2 + fs * 0.32} fontSize={fs * 0.85} fill="var(--text-muted, #8888a4)" textAnchor="end" fontFamily="inherit">
+                L{r.no}
+              </text>
+            )}
           </g>
         );
       })}
