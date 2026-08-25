@@ -1045,7 +1045,7 @@ export default function CartonPackingPage() {
                 <ul className="cpk-notes">
                   <li>Inner dims: L = columns × prism-L + major allowance; W = stack count × prism-W + minor allowance; D = tiers × prism-D + depth allowance. Each allowance is the total extra space in that dimension, and the stack count is maximized to the carton width for every SKU sharing the carton.</li>
                   <li>Outer dims add 2 × wall on L and W and 4 × wall on depth (two flap plies top and bottom). The max side limit applies to outer dims.</li>
-                  <li>The minor-flap dimension (W) is never allowed to exceed the major-flap dimension (L): the major flaps hinge on the L panels and fold across W to meet, so a carton with a longer minor-flap side could not be closed.</li>
+                  <li>The minor-flap dimension (W) is never allowed to exceed the major-flap dimension (L): on an RSC the two minor flaps each span half the width and fold across L, so a carton with a longer minor-flap side could not be closed. The major-flap side does not have to hug the contents — when the stack is deeper than the packed row is wide, L is widened to match W, leaving dead space beside the prisms while keeping them aligned.</li>
                   <li>The three highest annual-volume prism SKUs are shown in bold throughout the results.</li>
                   <li>Each carton is packed with one SKU at a time; each prism SKU is assigned to exactly one carton SKU.</li>
                   <li>Every SKU without a set per-carton count must reach the minimum prisms per carton; a set count overrides the minimum for that SKU and must split evenly across an enabled packing orientation (columns × tiers must divide it).</li>

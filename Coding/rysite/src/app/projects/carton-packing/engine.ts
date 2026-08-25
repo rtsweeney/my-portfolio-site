@@ -16,9 +16,11 @@
 //    Each allowance is the total extra space added to that inner dimension.
 //  · Outer dims:  OL = IL + 2·wall, OW = IW + 2·wall, OD = ID + 4·wall
 //    (side walls once per side; top + bottom flap stacks ≈ 2 plies each).
-//  · Closing constraint: W never exceeds L. The major flaps hinge on the L
-//    panels and fold across W to meet; if the minor-flap dimension were the
-//    longer one the flaps could not close over the contents.
+//  · Closing constraint: W never exceeds L. On an RSC the two minor flaps each
+//    span half the width and fold across L, so a carton with W > L cannot be
+//    closed normally. L is a free dimension, so when the stack is deeper than
+//    the packed row is wide, L is widened to W — dead space beside the column,
+//    contents still aligned — instead of rejecting the carton.
 //  · Pallet: usable footprint = pallet + 2·overhang per dimension. Cartons may
 //    be placed upright (L×W footprint) and, when flutes are not required
 //    vertical, on their side with the L×D plane down (height = OW). 90°
@@ -691,9 +693,6 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   for (const list of Array.from(vecs.values())) {
     for (const vec of list) {
       for (const W of Ws) {
-        // The minor-flap dimension may never exceed the major-flap dimension,
-        // or the major flaps cannot meet to close the carton.
-        if (W > vec.l + EPS) break;
         // Prescribed counts must fit exactly; free members fill the width and
         // must reach the minimum viable count per carton.
         let feasible = true;
@@ -719,7 +718,13 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
         }
         if (!feasible) continue;
 
-        const inner: Dims = { l: vec.l, w: W, d: vec.d };
+        // The minor-flap side may never exceed the major-flap side, or the
+        // major flaps cannot meet to close. The major-flap side is a free
+        // dimension though: widen it to the stack width, leaving dead space
+        // beside the prisms, rather than rejecting the carton.
+        const innerL = Math.max(vec.l, W);
+        if (innerL > pad.maxInnerL + EPS) break; // Ws ascends, so no wider W fits either
+        const inner: Dims = { l: innerL, w: W, d: vec.d };
         const out = innerToOuter(inner, settings.wall);
         if (out.l > settings.maxSide + EPS || out.w > settings.maxSide + EPS || out.d > settings.maxSide + EPS) continue;
         const cpp = cartonsPerPallet(out, settings, ctx.tileCache);
@@ -984,21 +989,31 @@ function feasibilityIssue(op: OrientedPrism, ctx: EvalContext): string | null {
     return `its set count of ${op.fixed} per carton cannot be split evenly across any enabled packing orientation`;
   }
 
+  // Smallest closable carton for a configuration: the major-flap side is
+  // widened to the stack width when the stack is the longer of the two, so a
+  // narrow prism just leaves dead space beside the column rather than failing.
+  const minInner = (c: ColumnConfig): Dims | null => {
+    const n = minStack(c);
+    if (n == null) return null;
+    const w = n * op.dw + pad.padW;
+    return { l: Math.max(c.cols * op.dl + pad.padL, w), w, d: c.tiers * op.dd + pad.padD };
+  };
+
   const withinMax = sizeFits.filter((c) => {
     const n = minStack(c);
     return n != null && n * op.dw + pad.padW <= pad.maxInnerW + EPS;
   });
-  // The minor-flap dimension (stack) may never exceed the major-flap
-  // dimension, or the major flaps cannot meet to close the carton.
   const viable = withinMax.filter((c) => {
-    const n = minStack(c);
-    return n != null && n * op.dw + pad.padW <= c.cols * op.dl + pad.padL + EPS;
+    const inner = minInner(c);
+    return inner != null && inner.l <= pad.maxInnerL + EPS;
   });
   if (viable.length === 0) {
     if (withinMax.length > 0) {
+      // The stack fits the width cap, but squaring the major-flap side up to
+      // it (so the flaps can close) pushes past the max side length.
       return op.fixed != null
-        ? `its set count of ${op.fixed} per carton would make the minor-flap side longer than the major-flap side, so the carton could not close — lower the count or enable a 2-across orientation`
-        : `reaching the minimum ${settings.minUnitsPerCarton} prisms per carton would make the minor-flap side longer than the major-flap side, so the carton could not close — enable a 2-across orientation or lower the minimum`;
+        ? `its set count of ${op.fixed} per carton needs a stack deeper than the max carton side length allows once the major-flap side is widened to match it, so the carton could not close — lower the count or enable a 2-across orientation`
+        : `reaching the minimum ${settings.minUnitsPerCarton} prisms per carton needs a stack deeper than the max carton side length allows once the major-flap side is widened to match it — raise the max side, enable a 2-across orientation, or lower the minimum`;
     }
     if (op.fixed != null) {
       return `its set count of ${op.fixed} per carton exceeds the max carton side length with every enabled packing orientation`;
@@ -1010,13 +1025,8 @@ function feasibilityIssue(op: OrientedPrism, ctx: EvalContext): string | null {
   }
 
   const fitsPallet = viable.some((c) => {
-    const n = minStack(c);
-    if (n == null) return false;
-    const inner: Dims = {
-      l: c.cols * op.dl + pad.padL,
-      d: c.tiers * op.dd + pad.padD,
-      w: n * op.dw + pad.padW,
-    };
+    const inner = minInner(c);
+    if (inner == null) return false;
     return cartonsPerPallet(innerToOuter(inner, settings.wall), settings, ctx.tileCache) > 0;
   });
   if (!fitsPallet) {
