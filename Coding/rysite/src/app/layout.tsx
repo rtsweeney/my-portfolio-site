@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "Sweeney Town",
-  description: "Ryan Sweeney's personal corner of the internet — concerts, travel, projects, and resume.",
+  description: "Calculators, tools, and fun inventions built by Ryan Sweeney — plus concerts and travel.",
 };
 
 export default function RootLayout({

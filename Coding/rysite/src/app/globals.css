@@ -445,6 +445,16 @@ a {
   margin-top: 2rem;
 }
 
+/* Featured builds: fewer, larger cards up top */
+.home-grid-featured {
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+}
+
+/* Secondary section cards: a compact single row on wide screens */
+.home-grid-sections {
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+
 .home-card-icon {
   font-size: 2.5rem;
   margin-bottom: 1rem;
