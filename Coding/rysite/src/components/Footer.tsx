@@ -20,6 +20,9 @@ export default function Footer() {
       <p className="footer-text">
         Built by <a href="https://github.com/rtsweeney">Ryan Sweeney</a> &mdash; sweeney.town
       </p>
+      <p className="footer-text" style={{ marginTop: '0.5rem' }}>
+        <a href="/resume.pdf" target="_blank" rel="noopener noreferrer">Resume (PDF)</a>
+      </p>
     </footer>
   );
 }

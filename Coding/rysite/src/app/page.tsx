@@ -1,6 +1,45 @@
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 
+const featured = [
+  {
+    name: 'Pleated Filter Calculator',
+    href: '/calculators/pleated-filter-calculator',
+    icon: '&#128168;',
+    accent: 'card-accent-purple',
+    description:
+      'Model pressure drop, find the optimal pleat count, and project fractional efficiency and MERV rating for a pleated air filter — built on the Sothen & Tatarchuk method.',
+    tags: ['Pressure Drop', 'MERV', 'Filtration'],
+  },
+  {
+    name: 'Carton Packing Optimizer',
+    href: '/projects/carton-packing',
+    icon: '&#128230;',
+    accent: 'card-accent-orange',
+    description:
+      'Enter product dimensions and annual volumes and it designs the best small set of carton sizes, tiles them onto pallets, charts the trade-off of adding or dropping a carton SKU, and writes supplier-ready specs.',
+    tags: ['Box Sizing', 'Pallet Loading', 'Optimization'],
+  },
+  {
+    name: 'Machine Vision Pleat Counting',
+    href: '/projects/pleat-counter',
+    icon: '&#128247;',
+    accent: 'card-accent-teal',
+    description:
+      'Photograph a filter panel and the browser does the rest — finds the panel, corrects the perspective, counts ridges through frames and grating, and reports pitch, pleats per foot, and open area.',
+    tags: ['Computer Vision', 'Canvas', 'No Server'],
+  },
+  {
+    name: 'Planetarium',
+    href: '/planetarium',
+    icon: '&#127776;',
+    accent: 'card-accent-gold',
+    description:
+      'An interactive star map. See what is in the sky tonight from wherever you are, pick a constellation, and find out exactly where to look.',
+    tags: ['Astronomy', 'Geolocation', 'Canvas'],
+  },
+];
+
 export default function Home() {
   return (
     <main>
@@ -13,39 +52,72 @@ export default function Home() {
           <span className="gradient-text">sweeney.town</span>
         </h1>
         <p className="hero-subtitle animate-in animate-delay-3">
-          Concerts I&apos;ve been to. Places I&apos;ve traveled. Projects I&apos;ve built.
-          My resume, too &mdash; but honestly the other stuff is more fun.
+          A workshop for calculators, and fun little inventions and tools. Engineering
+          math that usually lives in a spreadsheet, rebuilt so it runs in your browser
+          &mdash; plus whatever else I felt like building.
         </p>
         <div className="hero-cta-group animate-in animate-delay-4">
-          <Link href="/projects" className="btn btn-primary">See My Projects</Link>
-          <Link href="/resume" className="btn btn-secondary">View Resume</Link>
+          <Link href="/calculators" className="btn btn-primary">Browse Calculators</Link>
+          <Link href="/projects" className="btn btn-secondary">See All Projects</Link>
+        </div>
+      </section>
+
+      {/* Featured builds */}
+      <section className="container" style={{ paddingBottom: '4rem' }}>
+        <h2 className="section-title" style={{ textAlign: 'center' }}>Start Here</h2>
+        <p className="section-subtitle" style={{ textAlign: 'center' }}>
+          The tools I get asked about most. Everything runs in your browser &mdash; nothing to install,
+          nothing to sign up for.
+        </p>
+
+        <div className="home-grid home-grid-featured">
+          {featured.map((item) => (
+            <Link key={item.href} href={item.href} style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className={`card ${item.accent}`} style={{ height: '100%' }}>
+                <div
+                  className="home-card-icon"
+                  dangerouslySetInnerHTML={{ __html: item.icon }}
+                />
+                <h3 className="home-card-title">{item.name}</h3>
+                <p className="home-card-desc">{item.description}</p>
+                <div className="project-tech-tags">
+                  {item.tags.map((tag) => (
+                    <span key={tag} className="project-tech-tag">{tag}</span>
+                  ))}
+                </div>
+                <div className="project-links">
+                  <span className="project-link">Open &rarr;</span>
+                </div>
+              </div>
+            </Link>
+          ))}
         </div>
       </section>
 
       {/* Section Cards */}
       <section className="container" style={{ paddingBottom: '4rem' }}>
-        <h2 className="section-title" style={{ textAlign: 'center' }}>What&apos;s Here</h2>
+        <h2 className="section-title" style={{ textAlign: 'center' }}>The Rest of the Site</h2>
         <p className="section-subtitle" style={{ textAlign: 'center' }}>
-          Everything I&apos;m working on, thinking about, or building.
+          More tools, and a few things that are just for fun.
         </p>
 
-        <div className="home-grid">
-          <Link href="/projects" style={{ textDecoration: 'none' }}>
+        <div className="home-grid home-grid-sections">
+          <Link href="/calculators" style={{ textDecoration: 'none' }}>
             <div className="card card-accent-purple">
-              <div className="home-card-icon">&#128736;</div>
-              <h3 className="home-card-title">Projects</h3>
+              <div className="home-card-icon">&#128425;</div>
+              <h3 className="home-card-title">Calculators</h3>
               <p className="home-card-desc">
-                Personal and professional projects I&apos;ve built or am working on. Code, design, and everything in between.
+                Handy engineering and everyday calculators &mdash; filters, air density, unit conversion, and more added over time.
               </p>
             </div>
           </Link>
 
-          <Link href="/resume" style={{ textDecoration: 'none' }}>
+          <Link href="/projects" style={{ textDecoration: 'none' }}>
             <div className="card card-accent-teal">
-              <div className="home-card-icon">&#128196;</div>
-              <h3 className="home-card-title">Resume</h3>
+              <div className="home-card-icon">&#128736;</div>
+              <h3 className="home-card-title">Projects</h3>
               <p className="home-card-desc">
-                My professional experience, skills, and career journey laid out in a clean digital format.
+                Bigger builds and experiments &mdash; optimizers, machine vision, live dashboards, and reactive visuals.
               </p>
             </div>
           </Link>
@@ -55,7 +127,7 @@ export default function Home() {
               <div className="home-card-icon">&#127925;</div>
               <h3 className="home-card-title">Concerts</h3>
               <p className="home-card-desc">
-                Shows I&apos;ve attended, rated and reviewed. From dive bars to arenas.
+                Shows I&apos;ve been to, rated and reviewed. From dive bars to arenas.
               </p>
             </div>
           </Link>

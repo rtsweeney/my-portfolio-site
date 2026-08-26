@@ -45,9 +45,6 @@ export default function Navigation() {
           <Link href="/projects" className={`nav-link ${isActive('/projects') ? 'active' : ''}`}>
             Projects
           </Link>
-          <Link href="/resume" className={`nav-link ${isActive('/resume') ? 'active' : ''}`}>
-            Resume
-          </Link>
           <Link href="/concerts" className={`nav-link ${isActive('/concerts') ? 'active' : ''}`}>
             Concerts
           </Link>
