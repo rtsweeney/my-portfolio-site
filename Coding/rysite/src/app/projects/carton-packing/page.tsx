@@ -1366,13 +1366,12 @@ const CPK_CSS = `
 .cpk-progressbar{flex:1;height:8px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:999px;overflow:hidden}
 .cpk-progressbar div{height:100%;background:linear-gradient(90deg,var(--accent-primary),#8b5cf6);border-radius:999px;transition:width 0.2s ease}
 
-.cpk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.7rem;align-items:stretch}
+.cpk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:0.6rem;align-items:stretch}
 .cpk-tile{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.75rem 0.9rem;display:flex;flex-direction:column;justify-content:center}
 .cpk-tile-label{font-size:0.64rem;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase}
-.cpk-tile-value{font-size:1.55rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);line-height:1.1}
-.cpk-tile.cpk-hero{grid-column:span 2;border-color:rgba(108,92,231,0.3);background:linear-gradient(135deg,rgba(108,92,231,0.06),rgba(139,92,246,0.03))}
-.cpk-tile.cpk-hero .cpk-tile-value{font-size:2.2rem;color:var(--accent-primary)}
-@media(max-width:680px){.cpk-tile.cpk-hero{grid-column:span 1}}
+.cpk-tile-value{font-size:1.4rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);line-height:1.15}
+.cpk-tile.cpk-hero{border-color:rgba(108,92,231,0.3);background:linear-gradient(135deg,rgba(108,92,231,0.06),rgba(139,92,246,0.03))}
+.cpk-tile.cpk-hero .cpk-tile-value{font-size:1.85rem;color:var(--accent-primary)}
 .cpk-tile-delta{font-size:0.72rem;font-weight:600;color:var(--accent-secondary);margin-top:0.2rem}
 .cpk-tile-sub{font-size:0.68rem;font-weight:600;color:var(--text-muted);margin-top:0.2rem;line-height:1.4}
 .cpk-tile-warn{border-color:rgba(225,112,85,0.5);background:rgba(225,112,85,0.07)}

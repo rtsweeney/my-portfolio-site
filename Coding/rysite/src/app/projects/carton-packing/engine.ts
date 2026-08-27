@@ -603,11 +603,11 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   for (const { op } of ms) {
     for (const c of colsVals) {
       const v = c * op.dl + pad.padL;
-      if (v <= pad.maxInnerL + EPS) candL.add(round2(v));
+      if (v <= pad.maxInnerL + EPS) candL.add(ceil2(v));
     }
     for (const t of tiersVals) {
       const v = t * op.dd + pad.padD;
-      if (v <= pad.maxInnerD + EPS) candD.add(round2(v));
+      if (v <= pad.maxInnerD + EPS) candD.add(ceil2(v));
     }
   }
   const Ls = Array.from(candL).sort((a, b) => a - b);
@@ -624,7 +624,7 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
       const m = c.cols * c.tiers;
       if (op.fixed % m !== 0) continue;
       const v = (op.fixed / m) * op.dw + pad.padW;
-      if (v <= pad.maxInnerW + EPS) wCands.add(round2(v));
+      if (v <= pad.maxInnerW + EPS) wCands.add(ceil2(v));
     }
   }
   const byWeight = [...ms].sort((a, b) => b.op.weight - a.op.weight);
@@ -633,7 +633,7 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
     for (let n = 1; ; n++) {
       const v = n * op.dw + pad.padW;
       if (v > pad.maxInnerW + EPS) break;
-      wCands.add(round2(v));
+      wCands.add(ceil2(v));
       if (wCands.size >= ctx.candWCap) break outer;
     }
   }
@@ -758,8 +758,14 @@ export function bestCartonForGroup(idxs: number[], oriented: OrientedPrism[], ct
   return best;
 }
 
-function round2(x: number): number {
-  return Math.round(x * 100) / 100;
+/**
+ * Candidate inner dimensions are "the smallest size that fits X", so they must
+ * never round DOWN: Math.round would turn a required 603.852 into 603.85 and
+ * the requirement would no longer be satisfied, silently discarding the
+ * candidate. Rounding up keeps the de-duplication without shrinking anything.
+ */
+function ceil2(x: number): number {
+  return Math.ceil(x * 100) / 100;
 }
 
 // ── Partition solver ──────────────────────────────────────────────────────────
@@ -767,25 +773,44 @@ function round2(x: number): number {
 // Browsers clamp nested setTimeout(0) to ~4ms, which would dominate a solve
 // that yields thousands of times. A MessageChannel round-trip is not clamped,
 // so it hands the UI a paint opportunity at a fraction of the cost.
-let yieldPort: MessagePort | null = null;
+type LoopPort = MessagePort & { ref?: () => void; unref?: () => void };
+let yieldSend: LoopPort | null = null;
+let yieldRecv: LoopPort | null = null;
 const yieldQueue: (() => void)[] = [];
+
+/**
+ * Hold Node's event loop open only while a yield is actually in flight — an
+ * always-ref'd port would never let a CLI exit, an always-unref'd one would let
+ * it exit mid-solve. Browsers have no ref/unref and simply ignore this.
+ */
+function setLoopRef(on: boolean): void {
+  for (const port of [yieldSend, yieldRecv]) {
+    if (!port) continue;
+    if (on) port.ref?.();
+    else port.unref?.();
+  }
+}
 
 function yieldToUi(): Promise<void> {
   if (typeof MessageChannel === 'undefined') {
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
-  if (!yieldPort) {
+  if (!yieldRecv) {
     const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
+    yieldRecv = channel.port1 as LoopPort;
+    yieldSend = channel.port2 as LoopPort;
+    yieldRecv.onmessage = () => {
       const next = yieldQueue.shift();
+      if (yieldQueue.length === 0) setLoopRef(false);
       if (next) next();
     };
-    channel.port1.start();
-    yieldPort = channel.port2;
+    yieldRecv.start();
+    setLoopRef(false);
   }
   return new Promise((resolve) => {
     yieldQueue.push(resolve);
-    yieldPort!.postMessage(0);
+    setLoopRef(true);
+    yieldSend!.postMessage(0);
   });
 }
 
@@ -1099,11 +1124,32 @@ export async function solve(
     ideals[i] = g ? g.members[0].fpp : EPS;
   }
 
-  const ctx: EvalContext = { ...baseCtx, ideals, objective: settings.objective };
+  // Authoritative screen: the analytic check above explains *why* a SKU fails,
+  // but only the real carton search decides. Anything that cannot be built a
+  // dedicated carton is dropped here too, so one bad SKU can never make every
+  // grouping infeasible.
+  const stillPackable: OrientedPrism[] = [];
+  const keptIdeals: number[] = [];
+  oriented.forEach((op, i) => {
+    if (ideals[i] > EPS) {
+      stillPackable.push(op);
+      keptIdeals.push(ideals[i]);
+    } else {
+      issues.push({ prism: op.prism, reason: 'no carton within the current limits can hold it' });
+    }
+  });
+  oriented = stillPackable;
+  if (oriented.length === 0) {
+    return { solutions: [], issues, goalK: settings.goalSkus, elapsedMs: Date.now() - started, totalPrisms, packedPrisms: 0 };
+  }
+
+  const ctx: EvalContext = { ...baseCtx, ideals: keptIdeals, objective: settings.objective };
   const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
 
   const n = oriented.length;
-  const kLo = Math.max(1, settings.goalSkus - settings.kSpread);
+  // Clamp the low end to the packable count too, so a heavily-skipped run still
+  // reports the sweep points it can rather than an empty table.
+  const kLo = Math.max(1, Math.min(settings.goalSkus - settings.kSpread, n));
   const kHi = Math.min(n, settings.goalSkus + settings.kSpread);
   const ks: number[] = [];
   for (let k = kLo; k <= kHi; k++) ks.push(k);
