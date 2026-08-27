@@ -218,9 +218,13 @@ export interface PrismIssue {
 
 export interface SolveResult {
   solutions: SolutionK[];
+  /** SKUs that could not be packed; they are excluded from the solutions. */
   issues: PrismIssue[];
   goalK: number;
   elapsedMs: number;
+  /** SKUs submitted, and how many of them the solutions actually pack. */
+  totalPrisms: number;
+  packedPrisms: number;
 }
 
 export interface ProgressUpdate {
@@ -1043,7 +1047,7 @@ export async function solve(
 ): Promise<SolveResult> {
   const started = Date.now();
   const configs = COLUMN_CONFIGS.filter((c) => settings.allowedConfigs.includes(c.id));
-  const oriented = prisms.map((p) => orientPrism(p, settings.mapping));
+  let oriented = prisms.map((p) => orientPrism(p, settings.mapping));
   const pad = paddings(settings);
   const tileCache: TileCache = new Map();
 
@@ -1059,15 +1063,28 @@ export async function solve(
 
   // Up-front feasibility screen.
   const issues: PrismIssue[] = [];
+  const totalPrisms = prisms.length;
   if (configs.length === 0) {
-    return { solutions: [], issues: prisms.map((p) => ({ prism: p, reason: 'no packing orientation is enabled' })), goalK: settings.goalSkus, elapsedMs: 0 };
+    return {
+      solutions: [],
+      issues: prisms.map((p) => ({ prism: p, reason: 'no packing orientation is enabled' })),
+      goalK: settings.goalSkus,
+      elapsedMs: 0,
+      totalPrisms,
+      packedPrisms: 0,
+    };
   }
+  // Un-packable SKUs are set aside and reported; the run continues on the rest
+  // so one bad size never blocks the whole simulation.
+  const packable: OrientedPrism[] = [];
   oriented.forEach((op) => {
     const issue = feasibilityIssue(op, baseCtx);
     if (issue) issues.push({ prism: op.prism, reason: issue });
+    else packable.push(op);
   });
-  if (issues.length > 0) {
-    return { solutions: [], issues, goalK: settings.goalSkus, elapsedMs: Date.now() - started };
+  oriented = packable;
+  if (oriented.length === 0) {
+    return { solutions: [], issues, goalK: settings.goalSkus, elapsedMs: Date.now() - started, totalPrisms, packedPrisms: 0 };
   }
 
   // Ideal (dedicated-carton) prisms/pallet per SKU — the efficiency baseline.
@@ -1076,8 +1093,8 @@ export async function solve(
   onProgress?.({ label: 'Sizing ideal dedicated cartons', frac: 0.02 });
   const orientedIdeal = oriented.map((op) => ({ ...op, weight: 1 }));
   const idealState: SolverState = { ctx: baseCtx, oriented: orientedIdeal, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
-  const ideals = new Array<number>(prisms.length).fill(EPS);
-  for (let i = 0; i < prisms.length; i++) {
+  const ideals = new Array<number>(oriented.length).fill(EPS);
+  for (let i = 0; i < oriented.length; i++) {
     const g = await evalGroup(idealState, [i]);
     ideals[i] = g ? g.members[0].fpp : EPS;
   }
@@ -1085,7 +1102,7 @@ export async function solve(
   const ctx: EvalContext = { ...baseCtx, ideals, objective: settings.objective };
   const state: SolverState = { ctx, oriented, memo: new Map(), misses: 0, token, onProgress, lastYield: Date.now() };
 
-  const n = prisms.length;
+  const n = oriented.length;
   const kLo = Math.max(1, settings.goalSkus - settings.kSpread);
   const kHi = Math.min(n, settings.goalSkus + settings.kSpread);
   const ks: number[] = [];
@@ -1108,37 +1125,38 @@ export async function solve(
     const span = 0.93 / ks.length;
     onProgress?.({ label: `Optimizing ${k} carton SKU${k === 1 ? '' : 's'}`, frac: base });
 
-    let bestGroups: number[][] | null = null;
-    let bestScore = NEG;
+    // Candidate starts: the interval DP over each sort order, plus a split of
+    // the previous K's solution.
+    const candidates: number[][][] = [];
     for (const order of orders) {
       const res = await dpPartition(state, order, k, base, span * 0.7);
-      if (res && res.score > bestScore) {
-        bestScore = res.score;
-        bestGroups = res.groups;
-      }
+      if (res) candidates.push(res.groups);
     }
-    // Seed from the previous K's solution: splitting a group can only help, so
-    // this guards the K-sweep against heuristic dips.
     if (prevGroups && prevGroups.length === k - 1) {
       const seeded = await splitSeed(state, prevGroups);
-      if (seeded) {
-        const seededScore = await totalScore(state, seeded);
-        if (seededScore > bestScore) {
-          bestScore = seededScore;
-          bestGroups = seeded;
-        }
-      }
+      if (seeded) candidates.push(seeded);
     }
-    if (bestGroups) {
-      onProgress?.({ label: `Refining ${k}-SKU grouping`, frac: base + span * 0.75 });
-      bestGroups = await polish(state, bestGroups, 2600);
+
+    // Local search is what decides quality, and the best pre-search candidate
+    // does not always polish to the best result — so polish each and compare
+    // finished scores. The memo makes the extra passes mostly cache hits.
+    onProgress?.({ label: `Refining ${k}-SKU grouping`, frac: base + span * 0.75 });
+    let bestGroups: number[][] | null = null;
+    let bestScore = NEG;
+    for (const cand of candidates) {
+      const polished = await polish(state, cand.map((g) => [...g]), 2600);
+      const score = await totalScore(state, polished);
+      if (score > bestScore) {
+        bestScore = score;
+        bestGroups = polished;
+      }
     }
     solutions.push(await buildSolution(state, k, bestGroups));
     prevGroups = bestGroups;
   }
 
   onProgress?.({ label: 'Done', frac: 1 });
-  return { solutions, issues: [], goalK: settings.goalSkus, elapsedMs: Date.now() - started };
+  return { solutions, issues, goalK: settings.goalSkus, elapsedMs: Date.now() - started, totalPrisms, packedPrisms: oriented.length };
 }
 
 async function buildSolution(state: SolverState, k: number, groups: number[][] | null): Promise<SolutionK> {

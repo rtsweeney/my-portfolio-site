@@ -589,13 +589,15 @@ export interface KChartProps {
   goalK: number;
   selectedK: number;
   onSelect: (k: number) => void;
+  /** Formats a pallets-per-year figure as an annual freight cost. */
+  freightFor?: (pallets: number) => string;
 }
 
 /**
  * Weighted units/pallet vs carton SKU count. Single series (site purple),
  * clickable markers select the K whose solution is shown below.
  */
-export function KChart({ solutions, goalK, selectedK, onSelect }: KChartProps) {
+export function KChart({ solutions, goalK, selectedK, onSelect, freightFor }: KChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const feasible = solutions.filter((s) => s.feasible);
 
@@ -689,6 +691,7 @@ export function KChart({ solutions, goalK, selectedK, onSelect }: KChartProps) {
           <div className="cpk-tooltip-title">{hovered.k} carton SKU{hovered.k === 1 ? '' : 's'}</div>
           <div>{fmt(hovered.weightedFpp, 1)} weighted units/pallet</div>
           <div>{fmt(hovered.pallets, 1)} pallets per year</div>
+          {freightFor && <div>{freightFor(hovered.pallets)} freight per year</div>}
           <div>{(hovered.weightedEff * 100).toFixed(1)}% of ideal</div>
           <div className="cpk-tooltip-hint">click to inspect</div>
         </div>
