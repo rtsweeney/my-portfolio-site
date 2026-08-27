@@ -68,6 +68,8 @@ interface FormState {
   padsEnabled: boolean;
   padThickness: string;
   padMode: 'every' | 'topBottom';
+  palletsPerTrailer: string;
+  costPerTrailer: string;
   objective: ObjectiveId;
 }
 
@@ -76,6 +78,7 @@ const PALLET_PRESETS: { id: string; label: string; len: number; wid: number }[] 
   { id: 'eur', label: 'EUR 1200 × 800 mm', len: 1200, wid: 800 },
   { id: 'eur2', label: 'EUR2 1200 × 1000 mm', len: 1200, wid: 1000 },
   { id: 'sq42', label: '42 × 42 in (1067 × 1067 mm)', len: 1067, wid: 1067 },
+  { id: 'sq48', label: '48 × 48 in (1219 × 1219 mm)', len: 1219, wid: 1219 },
   { id: 'custom', label: 'Custom', len: 0, wid: 0 },
 ];
 
@@ -102,6 +105,8 @@ const DEFAULT_FORM: FormState = {
   padsEnabled: false,
   padThickness: '5',
   padMode: 'topBottom',
+  palletsPerTrailer: '26',
+  costPerTrailer: '3000',
   objective: 'pallets',
 };
 
@@ -213,6 +218,18 @@ function convertValue(v: string, to: Units): string {
 interface RunContext {
   settings: Settings;
   units: Units;
+  palletsPerTrailer: number;
+  costPerTrailer: number;
+}
+
+/** Annual freight: pallets per year ÷ pallets per trailer × cost per trailer. */
+function freightPerYear(pallets: number, ctx: RunContext): number {
+  if (!(ctx.palletsPerTrailer > 0)) return 0;
+  return (pallets / ctx.palletsPerTrailer) * ctx.costPerTrailer;
+}
+
+function money(v: number): string {
+  return `$${Math.round(v).toLocaleString('en-US')}`;
 }
 
 /**
@@ -485,7 +502,7 @@ export default function CartonPackingPage() {
     const settings: Settings = {
       mapping,
       goalSkus: goal,
-      kSpread: 3,
+      kSpread: 5,
       maxSide: num('Max carton side', form.maxSide, 1),
       minUnitsPerCarton: Math.round(num('Minimum prisms per carton', form.minUnits, 1)),
       allowedConfigs: allowed,
@@ -519,7 +536,12 @@ export default function CartonPackingPage() {
     try {
       const res = await solve(prismSkus, settings, (u) => setProgress(u), tokenRef.current);
       setResult(res);
-      setRunCtx({ settings, units: form.units });
+      setRunCtx({
+        settings,
+        units: form.units,
+        palletsPerTrailer: Math.max(parseFloat(form.palletsPerTrailer) || 0, 0),
+        costPerTrailer: Math.max(parseFloat(form.costPerTrailer) || 0, 0),
+      });
       const feasibleKs = res.solutions.filter((s) => s.feasible).map((s) => s.k);
       if (feasibleKs.length > 0) {
         const target = feasibleKs.includes(settings.goalSkus)
@@ -709,7 +731,7 @@ export default function CartonPackingPage() {
           {/* ── Carton parameters ── */}
           <section className="cpk-card">
             <div className="cpk-cardhead"><h2>3 · Cartons</h2></div>
-            <NumField label="Goal number of carton SKUs" value={form.goalSkus} onChange={(v) => set('goalSkus', v)} step="1" hint="The simulation also runs ±3 SKUs around this goal." />
+            <NumField label="Goal number of carton SKUs" value={form.goalSkus} onChange={(v) => set('goalSkus', v)} step="1" hint="The simulation also runs ±5 SKUs around this goal." />
             <NumField label={`Max single side length (${u})`} value={form.maxSide} onChange={(v) => set('maxSide', v)} hint="Cap on every outer carton dimension." />
             <NumField
               label="Minimum prisms per carton"
@@ -776,6 +798,13 @@ export default function CartonPackingPage() {
               onChange={(v) => set('flutesVertical', v)}
               hint="Checked: cartons always sit upright. Unchecked: cartons may also lie with the depth × major-flap plane on the pallet."
             />
+            <div className="cpk-divider" />
+            <div className="cpk-cardhead"><h2>Freight</h2></div>
+            <p className="cpk-hint">Turns pallets per year into an annual freight cost. Display only — it does not change the packing.</p>
+            <div className="cpk-three">
+              <NumField label="Pallets per trailer" value={form.palletsPerTrailer} onChange={(v) => set('palletsPerTrailer', v)} step="1" />
+              <NumField label="Shipping cost per trailer" value={form.costPerTrailer} onChange={(v) => set('costPerTrailer', v)} suffix="$" />
+            </div>
             <div className="cpk-divider" />
             <Toggle label="Pallet pads" checked={form.padsEnabled} onChange={(v) => set('padsEnabled', v)} />
             {form.padsEnabled && (
@@ -858,7 +887,12 @@ export default function CartonPackingPage() {
         {/* ── Results ── */}
         {result && result.issues.length > 0 && (
           <section className="cpk-card cpk-issues">
-            <div className="cpk-cardhead"><h2>These prisms can&apos;t be packed with the current setup</h2></div>
+            <div className="cpk-cardhead">
+              <h2>
+                {result.issues.length} prism SKU{result.issues.length === 1 ? '' : 's'} skipped — packed {result.packedPrisms} of {result.totalPrisms}
+              </h2>
+            </div>
+            <p className="cpk-hint">These can&apos;t be packed with the current setup, so the simulation ran without them.</p>
             {result.issues.map((iss) => (
               <p key={iss.prism.id}>
                 <b>{iss.prism.name}</b> — {iss.reason}.
@@ -889,6 +923,13 @@ export default function CartonPackingPage() {
                     )}
                   </div>
                   <div className="cpk-tile">
+                    <div className="cpk-tile-label">Freight cost per year</div>
+                    <div className="cpk-tile-value">{money(freightPerYear(selectedSolution.pallets, runCtx))}</div>
+                    <div className="cpk-tile-sub">
+                      {fmt(Math.ceil(selectedSolution.pallets / Math.max(runCtx.palletsPerTrailer, 1)))} trailers at {money(runCtx.costPerTrailer)}
+                    </div>
+                  </div>
+                  <div className="cpk-tile">
                     <div className="cpk-tile-label">Weighted units per pallet</div>
                     <div className="cpk-tile-value">{fmt(selectedSolution.weightedFpp, 1)}</div>
                   </div>
@@ -896,13 +937,77 @@ export default function CartonPackingPage() {
                     <div className="cpk-tile-label">Weighted efficiency vs. ideal</div>
                     <div className="cpk-tile-value">{(selectedSolution.weightedEff * 100).toFixed(1)}%</div>
                   </div>
-                  <div className="cpk-tile">
+                  <div className={`cpk-tile${result.issues.length > 0 ? ' cpk-tile-warn' : ''}`}>
                     <div className="cpk-tile-label">Prism SKUs packed</div>
-                    <div className="cpk-tile-value">{selectedSolution.cartons.reduce((a, c) => a + c.members.length, 0)}</div>
+                    <div className="cpk-tile-value">
+                      {selectedSolution.cartons.reduce((a, c) => a + c.members.length, 0)}/{result.totalPrisms}
+                    </div>
+                    {result.issues.length > 0 && (
+                      <div className="cpk-tile-sub cpk-warn">
+                        ⚠ {result.issues.length} SKU{result.issues.length === 1 ? '' : 's'} skipped — see below
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>
             )}
+
+            {/* K sweep chart + table */}
+            <section className="cpk-card">
+              <div className="cpk-cardhead"><h2>Add or remove carton SKUs?</h2></div>
+              <p className="cpk-hint">
+                Usage-weighted units per pallet for each carton SKU count. Click a point to inspect that solution.
+                {runCtx.settings.objective !== 'wfpp' && ' Cartons were optimized for your selected objective; this chart reports the weighted units/pallet each solution achieves.'}
+              </p>
+              <KChart
+                solutions={result.solutions}
+                goalK={result.goalK}
+                selectedK={selectedK}
+                onSelect={setSelectedK}
+                freightFor={(pallets) => money(freightPerYear(pallets, runCtx))}
+              />
+              <div className="cpk-tablewrap" style={{ marginTop: '0.9rem' }}>
+                <table className="cpk-table cpk-sweeptable">
+                  <thead>
+                    <tr>
+                      <th>Carton SKUs</th>
+                      <th className="cpk-num">Weighted units/pallet</th>
+                      <th className="cpk-num">vs. goal</th>
+                      <th className="cpk-num">Pallets/year</th>
+                      <th className="cpk-num">Freight/year</th>
+                      <th className="cpk-num">Weighted efficiency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.solutions.map((s) => (
+                      <tr
+                        key={s.k}
+                        className={s.k === selectedK ? 'selected' : ''}
+                        onClick={() => s.feasible && setSelectedK(s.k)}
+                        style={{ cursor: s.feasible ? 'pointer' : 'default' }}
+                      >
+                        <td>{s.k}{s.k === result.goalK && <span className="cpk-tag goal">goal</span>}</td>
+                        {s.feasible ? (
+                          <>
+                            <td className="cpk-num">{fmt(s.weightedFpp, 1)}</td>
+                            <td className="cpk-num">
+                              {goalSolution
+                                ? `${s.weightedFpp >= goalSolution.weightedFpp ? '+' : ''}${fmt(((s.weightedFpp - goalSolution.weightedFpp) / goalSolution.weightedFpp) * 100, 1)}%`
+                                : '—'}
+                            </td>
+                            <td className="cpk-num">{fmt(s.pallets, 1)}</td>
+                            <td className="cpk-num">{money(freightPerYear(s.pallets, runCtx))}</td>
+                            <td className="cpk-num">{(s.weightedEff * 100).toFixed(1)}%</td>
+                          </>
+                        ) : (
+                          <td colSpan={5} style={{ color: 'var(--text-muted)' }}>no feasible grouping found</td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
             {/* supplier-ready carton specifications */}
             {selectedSolution && (
@@ -984,55 +1089,6 @@ export default function CartonPackingPage() {
               </section>
             )}
 
-            {/* K sweep chart + table */}
-            <section className="cpk-card">
-              <div className="cpk-cardhead"><h2>Add or remove carton SKUs?</h2></div>
-              <p className="cpk-hint">
-                Usage-weighted units per pallet for each carton SKU count. Click a point to inspect that solution.
-                {runCtx.settings.objective !== 'wfpp' && ' Cartons were optimized for your selected objective; this chart reports the weighted units/pallet each solution achieves.'}
-              </p>
-              <KChart solutions={result.solutions} goalK={result.goalK} selectedK={selectedK} onSelect={setSelectedK} />
-              <div className="cpk-tablewrap" style={{ marginTop: '0.9rem' }}>
-                <table className="cpk-table cpk-sweeptable">
-                  <thead>
-                    <tr>
-                      <th>Carton SKUs</th>
-                      <th className="cpk-num">Weighted units/pallet</th>
-                      <th className="cpk-num">vs. goal</th>
-                      <th className="cpk-num">Pallets/year</th>
-                      <th className="cpk-num">Weighted efficiency</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.solutions.map((s) => (
-                      <tr
-                        key={s.k}
-                        className={s.k === selectedK ? 'selected' : ''}
-                        onClick={() => s.feasible && setSelectedK(s.k)}
-                        style={{ cursor: s.feasible ? 'pointer' : 'default' }}
-                      >
-                        <td>{s.k}{s.k === result.goalK && <span className="cpk-tag goal">goal</span>}</td>
-                        {s.feasible ? (
-                          <>
-                            <td className="cpk-num">{fmt(s.weightedFpp, 1)}</td>
-                            <td className="cpk-num">
-                              {goalSolution
-                                ? `${s.weightedFpp >= goalSolution.weightedFpp ? '+' : ''}${fmt(((s.weightedFpp - goalSolution.weightedFpp) / goalSolution.weightedFpp) * 100, 1)}%`
-                                : '—'}
-                            </td>
-                            <td className="cpk-num">{fmt(s.pallets, 1)}</td>
-                            <td className="cpk-num">{(s.weightedEff * 100).toFixed(1)}%</td>
-                          </>
-                        ) : (
-                          <td colSpan={4} style={{ color: 'var(--text-muted)' }}>no feasible grouping found</td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
             {/* carton cards */}
             {selectedSolution?.cartons.map((carton) => (
               <CartonCard key={carton.label} carton={carton} solution={selectedSolution} ctx={runCtx} top3={resultTop3} />
@@ -1107,7 +1163,12 @@ function CartonCard({ carton, solution, ctx, top3 }: { carton: CartonSpec; solut
   const palletH = u === 'in' ? PALLET_HEIGHT_IN : PALLET_HEIGHT_MM;
   const ohL = Math.max(0, (bboxX - s.palletLen) / 2);
   const ohW = Math.max(0, (bboxY - s.palletWid) / 2);
-  const overhangNote = (v: number, side: string) => (v > 0.049 ? `${fmtDim(v, u)} per side along the pallet ${side}` : `none along the pallet ${side}`);
+  const overhangNote = (v: number, side: string) =>
+    v > 0.049 ? (
+      <><b className="cpk-overhang">{fmtDim(v, u)} per side</b> along the pallet {side}</>
+    ) : (
+      <>none along the pallet {side}</>
+    );
   const layerLabel = (gi: number) => {
     const g = groupInfo[gi];
     const pos = g.to === totalLayers ? (g.from === 1 ? '' : ' · top' ) : g.from === 1 ? ' · bottom' : ' · middle';
@@ -1305,14 +1366,18 @@ const CPK_CSS = `
 .cpk-progressbar{flex:1;height:8px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:999px;overflow:hidden}
 .cpk-progressbar div{height:100%;background:linear-gradient(90deg,var(--accent-primary),#8b5cf6);border-radius:999px;transition:width 0.2s ease}
 
-.cpk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.7rem;align-items:stretch}
+.cpk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:0.6rem;align-items:stretch}
 .cpk-tile{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.75rem 0.9rem;display:flex;flex-direction:column;justify-content:center}
 .cpk-tile-label{font-size:0.64rem;font-weight:700;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase}
-.cpk-tile-value{font-size:1.55rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);line-height:1.1}
-.cpk-tile.cpk-hero{grid-column:span 2;border-color:rgba(108,92,231,0.3);background:linear-gradient(135deg,rgba(108,92,231,0.06),rgba(139,92,246,0.03))}
-.cpk-tile.cpk-hero .cpk-tile-value{font-size:2.2rem;color:var(--accent-primary)}
-@media(max-width:680px){.cpk-tile.cpk-hero{grid-column:span 1}}
+.cpk-tile-value{font-size:1.4rem;font-weight:800;margin-top:0.2rem;color:var(--text-primary);line-height:1.15}
+.cpk-tile.cpk-hero{border-color:rgba(108,92,231,0.3);background:linear-gradient(135deg,rgba(108,92,231,0.06),rgba(139,92,246,0.03))}
+.cpk-tile.cpk-hero .cpk-tile-value{font-size:1.85rem;color:var(--accent-primary)}
 .cpk-tile-delta{font-size:0.72rem;font-weight:600;color:var(--accent-secondary);margin-top:0.2rem}
+.cpk-tile-sub{font-size:0.68rem;font-weight:600;color:var(--text-muted);margin-top:0.2rem;line-height:1.4}
+.cpk-tile-warn{border-color:rgba(225,112,85,0.5);background:rgba(225,112,85,0.07)}
+.cpk-tile-warn .cpk-tile-value{color:var(--accent-orange)}
+.cpk-tile-sub.cpk-warn{color:var(--accent-orange)}
+.cpk-overhang{font-weight:800;text-decoration:underline;color:var(--accent-orange)}
 .cpk-chartwrap{max-width:780px;margin:0 auto}
 
 .cpk-tooltip{position:absolute;top:12%;background:var(--surface-raised);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:0.5rem 0.7rem;font-size:0.74rem;color:var(--text-secondary);pointer-events:none;white-space:nowrap;z-index:5}
