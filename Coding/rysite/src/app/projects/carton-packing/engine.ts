@@ -25,7 +25,8 @@
 //    be placed upright (L×W footprint) and, when flutes are not required
 //    vertical, on their side with the L×D plane down (height = OW). 90°
 //    rotations may be mixed within a layer; layers of different orientations
-//    may be mixed within the height budget. Pads add per the selected mode.
+//    may be mixed within the height budget, with the number of on-side layers
+//    capped by maxOnSideLayers. Pads add per the selected mode.
 
 export type PrismAxis = 'width' | 'height' | 'depth';
 export type CartonAxis = 'major' | 'depth' | 'minor';
@@ -103,6 +104,13 @@ export interface Settings {
   wall: number;
   /** If true, cartons must sit upright on the pallet (flutes orthogonal to ground). */
   flutesVertical: boolean;
+  /**
+   * Cap on how many layers may lie on their side (flutes horizontal) when
+   * flutesVertical is off. null lifts the cap, so a whole pallet may be
+   * stacked on its side if that packs better. Ignored when flutes must be
+   * vertical.
+   */
+  maxOnSideLayers: number | null;
   palletLen: number;
   palletWid: number;
   /** Max height of the carton stack above the pallet deck, pads included. */
@@ -490,14 +498,18 @@ function bestStack(outer: Dims, s: Settings, cache: TileCache): StackPlan | null
     }
   };
 
+  // On-side layers are capped independently of position in `opts`, since
+  // upright is only listed first when it actually fits.
+  const cap = (i: number) =>
+    opts[i].orientation === 'onSide' && s.maxOnSideLayers != null ? Math.max(0, s.maxOnSideLayers) : Infinity;
+  const fit = (i: number, room: number) => Math.min(Math.max(0, floorEps(room / eff[i])), cap(i));
+
   if (opts.length === 1) {
-    const n = Math.max(0, floorEps(budget / eff[0]));
-    consider([n]);
+    consider([fit(0, budget)]);
   } else {
-    const max0 = Math.max(0, floorEps(budget / eff[0]));
+    const max0 = fit(0, budget);
     for (let n0 = 0; n0 <= max0; n0++) {
-      const n1 = Math.max(0, floorEps((budget - n0 * eff[0]) / eff[1]));
-      consider([n0, n1]);
+      consider([n0, fit(1, budget - n0 * eff[0])]);
       consider([n0, 0]);
     }
   }

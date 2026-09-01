@@ -2,7 +2,9 @@
 
 // SVG visualization components for the carton packing optimizer.
 // All rendering is client-side; colors lean on the site palette
-// (purple = prisms/data, kraft tans = corrugated, teal = rotated placements).
+// (purple = prisms/data and upright cartons, kraft tans = corrugated,
+// teal = cartons lying on their side). Carton hue tracks orientation only —
+// a 90° turn within a layer is shown by tick direction, never by color.
 
 import { useMemo, useState } from 'react';
 import type { CartonSpec, MemberPack, PalletPlan, SolutionK } from './engine';
@@ -234,8 +236,8 @@ export function IsoCartonView({ carton, member, units }: IsoCartonViewProps) {
 
 const CARTON_FILL = '#eae7fc';
 const CARTON_STROKE = '#6c5ce7';
-const CARTON_ROT_FILL = '#d9f3ec';
-const CARTON_ROT_STROKE = '#0a9a7f';
+const CARTON_SIDE_FILL = '#d9f3ec';
+const CARTON_SIDE_STROKE = '#0a9a7f';
 const WOOD_FILL = '#e3c9a2';
 const WOOD_STROKE = '#b5905e';
 
@@ -271,12 +273,17 @@ export function PalletTopView({ plan, layerIndex, palletLen, palletWid, units }:
   const fs = Math.max(usable.x, usable.y) * 0.032;
   const hasRotated = rects.some((r) => r.rotated);
   const hasBase = rects.some((r) => !r.rotated);
+  // One hue per layer orientation: upright keeps the base colour, on-side
+  // layers switch so they read at a glance in a mixed stack.
+  const onSide = layer.orientation === 'onSide';
+  const fill = onSide ? CARTON_SIDE_FILL : CARTON_FILL;
+  const stroke = onSide ? CARTON_SIDE_STROKE : CARTON_STROKE;
 
   return (
     <svg
       viewBox={`${-ohX - margin} ${-ohY - margin} ${usable.x + margin * 2} ${usable.y + margin * 2 + fs * 2.4}`}
       role="img"
-      aria-label={`Pallet layer pattern: ${layer.perLayer} cartons per layer`}
+      aria-label={`Pallet layer pattern: ${layer.perLayer} cartons per layer, ${onSide ? 'lying on their side' : 'upright'}`}
       style={{ width: '100%', height: 'auto', display: 'block' }}
     >
       {/* pallet deck with slat hints */}
@@ -288,42 +295,60 @@ export function PalletTopView({ plan, layerIndex, palletLen, palletWid, units }:
       {(ohX > 0.01 || ohY > 0.01) && (
         <rect x={-ohX} y={-ohY} width={usable.x} height={usable.y} fill="none" stroke="var(--text-muted, #8888a4)" strokeWidth={fs * 0.07} strokeDasharray={`${fs * 0.5} ${fs * 0.4}`} />
       )}
-      {/* cartons */}
-      {rects.map((r, i) => (
-        <g key={i}>
-          <rect
-            x={r.x + shiftX - ohX + fs * 0.06}
-            y={r.y + shiftY - ohY + fs * 0.06}
-            width={r.w - fs * 0.12}
-            height={r.h - fs * 0.12}
-            rx={fs * 0.22}
-            fill={r.rotated ? CARTON_ROT_FILL : CARTON_FILL}
-            stroke={r.rotated ? CARTON_ROT_STROKE : CARTON_STROKE}
-            strokeWidth={fs * 0.09}
-          />
-          {layer.orientation === 'upright' &&
-            (r.rotated ? (
-              <line x1={r.x + shiftX - ohX + r.w / 2} y1={r.y + shiftY - ohY + r.h * 0.14} x2={r.x + shiftX - ohX + r.w / 2} y2={r.y + shiftY - ohY + r.h * 0.86} stroke={CARTON_ROT_STROKE} strokeWidth={fs * 0.06} opacity={0.6} />
+      {/* Cartons. Colour encodes orientation only — every carton in a layer
+          shares it — so on-side layers stand out in a mixed stack. A 90° turn
+          within a layer is shown by the tick direction, not by hue. */}
+      {rects.map((r, i) => {
+        const x = r.x + shiftX - ohX;
+        const y = r.y + shiftY - ohY;
+        return (
+          <g key={i}>
+            <rect
+              x={x + fs * 0.06}
+              y={y + fs * 0.06}
+              width={r.w - fs * 0.12}
+              height={r.h - fs * 0.12}
+              rx={fs * 0.22}
+              fill={fill}
+              stroke={stroke}
+              strokeWidth={fs * 0.09}
+            />
+            {r.rotated ? (
+              <line x1={x + r.w / 2} y1={y + r.h * 0.14} x2={x + r.w / 2} y2={y + r.h * 0.86} stroke={stroke} strokeWidth={fs * 0.06} opacity={0.6} />
             ) : (
-              <line x1={r.x + shiftX - ohX + r.w * 0.14} y1={r.y + shiftY - ohY + r.h / 2} x2={r.x + shiftX - ohX + r.w * 0.86} y2={r.y + shiftY - ohY + r.h / 2} stroke={CARTON_STROKE} strokeWidth={fs * 0.06} opacity={0.6} />
-            ))}
-        </g>
-      ))}
+              <line x1={x + r.w * 0.14} y1={y + r.h / 2} x2={x + r.w * 0.86} y2={y + r.h / 2} stroke={stroke} strokeWidth={fs * 0.06} opacity={0.6} />
+            )}
+          </g>
+        );
+      })}
       {/* legend */}
       <g fontFamily="inherit" fontSize={fs} fill="var(--text-secondary, #4a4a68)">
-        {hasBase && (
+        <g>
+          <rect x={-ohX} y={usable.y - ohY + margin * 0.5} width={fs * 1.15} height={fs * 0.8} rx={fs * 0.15} fill={fill} stroke={stroke} strokeWidth={fs * 0.06} />
+          <text x={-ohX + fs * 1.55} y={usable.y - ohY + margin * 0.5 + fs * 0.7}>
+            {onSide ? 'on side · flutes horizontal' : 'upright · flutes vertical'}
+          </text>
+        </g>
+        {hasRotated && hasBase && (
           <g>
-            <rect x={-ohX} y={usable.y - ohY + margin * 0.5} width={fs * 1.15} height={fs * 0.8} rx={fs * 0.15} fill={CARTON_FILL} stroke={CARTON_STROKE} strokeWidth={fs * 0.06} />
-            <text x={-ohX + fs * 1.55} y={usable.y - ohY + margin * 0.5 + fs * 0.7}>
-              {layer.orientation === 'upright' ? 'major flaps along pallet length' : 'depth along pallet length'}
-            </text>
-          </g>
-        )}
-        {hasRotated && (
-          <g>
-            <rect x={-ohX + usable.x * 0.55} y={usable.y - ohY + margin * 0.5} width={fs * 0.8} height={fs * 1.15} rx={fs * 0.15} fill={CARTON_ROT_FILL} stroke={CARTON_ROT_STROKE} strokeWidth={fs * 0.06} />
-            <text x={-ohX + usable.x * 0.55 + fs * 1.2} y={usable.y - ohY + margin * 0.5 + fs * 0.7}>
-              turned 90°
+            <line
+              x1={-ohX + usable.x * 0.62}
+              y1={usable.y - ohY + margin * 0.5 + fs * 0.4}
+              x2={-ohX + usable.x * 0.62 + fs}
+              y2={usable.y - ohY + margin * 0.5 + fs * 0.4}
+              stroke={stroke}
+              strokeWidth={fs * 0.12}
+            />
+            <line
+              x1={-ohX + usable.x * 0.62 + fs * 1.7}
+              y1={usable.y - ohY + margin * 0.5 - fs * 0.1}
+              x2={-ohX + usable.x * 0.62 + fs * 1.7}
+              y2={usable.y - ohY + margin * 0.5 + fs * 0.9}
+              stroke={stroke}
+              strokeWidth={fs * 0.12}
+            />
+            <text x={-ohX + usable.x * 0.62 + fs * 2.2} y={usable.y - ohY + margin * 0.5 + fs * 0.7}>
+              tick = major flaps
             </text>
           </g>
         )}
@@ -407,8 +432,8 @@ export function PalletSideView({ plan, maxLoadHeight, padThickness, units, palle
                 width={s.w - fs * 0.16}
                 height={r.h - fs * 0.12}
                 rx={fs * 0.18}
-                fill={rot ? CARTON_ROT_FILL : CARTON_FILL}
-                stroke={rot ? CARTON_ROT_STROKE : CARTON_STROKE}
+                fill={rot ? CARTON_SIDE_FILL : CARTON_FILL}
+                stroke={rot ? CARTON_SIDE_STROKE : CARTON_STROKE}
                 strokeWidth={fs * 0.07}
               />
             ))}

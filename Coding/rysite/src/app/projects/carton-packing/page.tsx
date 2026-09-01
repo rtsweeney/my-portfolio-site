@@ -65,6 +65,8 @@ interface FormState {
   maxLoadHeight: string;
   overhangLen: string;
   overhangWid: string;
+  maxOnSideLayers: string;
+  onSideUnlimited: boolean;
   padsEnabled: boolean;
   padThickness: string;
   padMode: 'every' | 'topBottom';
@@ -102,6 +104,8 @@ const DEFAULT_FORM: FormState = {
   maxLoadHeight: '2370',
   overhangLen: '0',
   overhangWid: '0',
+  maxOnSideLayers: '2',
+  onSideUnlimited: false,
   padsEnabled: false,
   padThickness: '5',
   padMode: 'topBottom',
@@ -511,6 +515,9 @@ export default function CartonPackingPage() {
       allowDepth: num('Depth allowance', form.allowDepth),
       wall: num('Carton wall thickness', form.wall),
       flutesVertical: form.flutesVertical,
+      maxOnSideLayers: form.onSideUnlimited
+        ? null
+        : Math.max(0, Math.round(num('Max layers on their side', form.maxOnSideLayers))),
       palletLen: num('Pallet length', form.palletLen, 1),
       palletWid: num('Pallet width', form.palletWid, 1),
       maxLoadHeight: num('Max stack height', form.maxLoadHeight, 1),
@@ -798,6 +805,23 @@ export default function CartonPackingPage() {
               onChange={(v) => set('flutesVertical', v)}
               hint="Checked: cartons always sit upright. Unchecked: cartons may also lie with the depth × major-flap plane on the pallet."
             />
+            {!form.flutesVertical && (
+              <div className="cpk-subsetting">
+                <NumField
+                  label="Max layers on their side"
+                  value={form.maxOnSideLayers}
+                  onChange={(v) => set('maxOnSideLayers', v)}
+                  step="1"
+                  hint="On-side layers always stack on top of the upright ones."
+                />
+                <Toggle
+                  label="Allow the whole stack on its side"
+                  checked={form.onSideUnlimited}
+                  onChange={(v) => set('onSideUnlimited', v)}
+                  hint="Lifts the cap so every layer may lie on its side when that packs better."
+                />
+              </div>
+            )}
             <div className="cpk-divider" />
             <div className="cpk-cardhead"><h2>Freight</h2></div>
             <p className="cpk-hint">Turns pallets per year into an annual freight cost. Display only — it does not change the packing.</p>
@@ -1105,7 +1129,8 @@ export default function CartonPackingPage() {
                   <li>The three highest annual-volume prism SKUs are shown in bold throughout the results.</li>
                   <li>Each carton is packed with one SKU at a time; each prism SKU is assigned to exactly one carton SKU.</li>
                   <li>Every SKU without a set per-carton count must reach the minimum prisms per carton; a set count overrides the minimum for that SKU and must split evenly across an enabled packing orientation (columns × tiers must divide it).</li>
-                  <li>When orientations mix on a pallet, upright layers always stack at the bottom and on-side layers on top; layers are numbered from the deck up.</li>
+                  <li>When orientations mix on a pallet, upright layers always stack at the bottom and on-side layers on top; layers are numbered from the deck up, and the number of on-side layers is capped by the max-layers-on-their-side setting (or uncapped when the whole stack may lie on its side).</li>
+                  <li>In the pallet views a carton&apos;s colour shows only its orientation — upright layers in purple, on-side layers in teal. A 90° turn within a layer is shown by the tick direction, so colour never means two things at once.</li>
                   <li>Pallet patterns mix 90° rotations using a block-pattern search (up to three guillotine splits). Fully interlocked pinwheel patterns are not searched, so a rare layout may fit one more carton than reported.</li>
                   <li>The pallet is assumed 5 in (127 mm) tall; the max stack height applies to cartons and pads above the deck.</li>
                   <li>With flutes not required vertical, cartons may also rest on the depth × major-flap face (minor flaps vertical); layers of different orientations can mix within the height budget.</li>
@@ -1409,6 +1434,10 @@ const CPK_CSS = `
 
 .cpk-bbox{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:0.55rem 0.8rem;font-size:0.78rem;color:var(--text-secondary);margin-top:1.1rem;line-height:1.55}
 .cpk-bbox b{color:var(--text-primary);font-variant-numeric:tabular-nums}
+
+.cpk-subsetting{margin:0.1rem 0 0.6rem 1.6rem;padding-left:0.8rem;border-left:2px solid var(--border)}
+.cpk-subsetting .cpk-field{margin-bottom:0.5rem}
+.cpk-subsetting input[type=number]{max-width:7rem}
 
 .cpk-objcompare{margin-top:0.4rem}
 .cpk-objcompare summary{cursor:pointer;font-size:0.74rem;font-weight:700;color:var(--accent-secondary)}
