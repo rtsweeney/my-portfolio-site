@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:nfl-elo": "node scripts/build-nfl-elo.ts"
   },
   "dependencies": {
     "@sanity/image-url": "^1.2.0",

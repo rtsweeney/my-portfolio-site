@@ -42,6 +42,30 @@ export default async function ProjectsPage() {
         </div>
 
         <div className="projects-grid">
+          {/* NFL Elo — built-in ratings dashboard */}
+          <Link href="/projects/nfl-elo" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-purple" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#127944;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                NFL Elo Ratings
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>FiveThirtyEight retired their NFL Elo model, so I rebuilt it from their published source and re-fit the constants on modern seasons — home field is worth 32 points now, not 65. Every week&apos;s games with pre-game win probabilities, a rolling quarterback rating for each starter, and scores that update live.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Elo Model</span>
+                <span className="project-tech-tag">nflverse</span>
+                <span className="project-tech-tag">Live Data</span>
+                <span className="project-tech-tag">Next.js</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* World Cup 2026 Tracker — built-in live dashboard */}
           <Link href="/projects/world-cup" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-gold" style={{ height: '100%', cursor: 'pointer' }}>

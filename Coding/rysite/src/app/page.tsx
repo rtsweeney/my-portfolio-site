@@ -30,6 +30,15 @@ const featured = [
     tags: ['Computer Vision', 'Canvas', 'No Server'],
   },
   {
+    name: 'NFL Elo Ratings',
+    href: '/projects/nfl-elo',
+    icon: '&#127944;',
+    accent: 'card-accent-purple',
+    description:
+      "FiveThirtyEight's NFL Elo model, continued. Rebuilt from their published source and re-fit on modern seasons, with per-game win probabilities, rolling quarterback ratings, and scores that update live.",
+    tags: ['Elo Model', 'nflverse', 'Live Scores'],
+  },
+  {
     name: 'Planetarium',
     href: '/planetarium',
     icon: '&#127776;',

@@ -1,0 +1,53 @@
+# Rebuilds the NFL Elo ratings and commits the result.
+#
+# The generated JSON is the site's system of record for probabilities, so the
+# commit is the deploy: pushing it triggers the usual Cloudflare Pages build.
+# Committing rather than caching also gives every set of ratings a version
+# history for free.
+#
+# The generator only needs Node and the network — it imports node builtins and
+# two local modules, so there is nothing to install.
+
+name: NFL Elo ratings
+
+on:
+  schedule:
+    # 11:00 UTC daily through the season (Sept-Feb). Late enough to pick up
+    # Monday night results and the morning's depth chart refresh, which
+    # nflverse publishes at 07:00 UTC.
+    - cron: '0 11 * 9,10,11,12,1,2 *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nfl-elo
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild ratings
+        working-directory: Coding/rysite
+        run: npm run build:nfl-elo
+
+      - name: Commit if the ratings moved
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if git diff --quiet -- Coding/rysite/public/data/nfl-elo/season.json; then
+            echo "Ratings unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Coding/rysite/public/data/nfl-elo/season.json
+          git commit -m "Update NFL Elo ratings"
+          git push
