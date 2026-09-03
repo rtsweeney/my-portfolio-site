@@ -1069,7 +1069,7 @@ export default function PleatCounterPage() {
         {/* Header */}
         <div className="page-header">
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-            <Link href="/projects" style={{ color: 'var(--accent-secondary)' }}>Projects</Link>
+            <Link href="/calculators" style={{ color: 'var(--accent-secondary)' }}>Calculators</Link>
             {' / '}Machine Vision Pleat Counting
           </p>
           <h1 className="section-title">

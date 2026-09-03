@@ -13,7 +13,7 @@ const featured = [
   },
   {
     name: 'Carton Packing Optimizer',
-    href: '/projects/carton-packing',
+    href: '/calculators/carton-packing',
     icon: '&#128230;',
     accent: 'card-accent-orange',
     description:
@@ -22,7 +22,7 @@ const featured = [
   },
   {
     name: 'Machine Vision Pleat Counting',
-    href: '/projects/pleat-counter',
+    href: '/calculators/pleat-counter',
     icon: '&#128247;',
     accent: 'card-accent-teal',
     description:
@@ -107,7 +107,7 @@ export default function Home() {
               <div className="home-card-icon">&#128425;</div>
               <h3 className="home-card-title">Calculators</h3>
               <p className="home-card-desc">
-                Handy engineering and everyday calculators &mdash; filters, air density, unit conversion, and more added over time.
+                Handy engineering and everyday calculators &mdash; filter models, carton packing, pleat counting, and more added over time.
               </p>
             </div>
           </Link>
@@ -117,7 +117,7 @@ export default function Home() {
               <div className="home-card-icon">&#128736;</div>
               <h3 className="home-card-title">Projects</h3>
               <p className="home-card-desc">
-                Bigger builds and experiments &mdash; optimizers, machine vision, live dashboards, and reactive visuals.
+                Bigger builds and experiments &mdash; live sports models, dashboards, star maps, and reactive visuals.
               </p>
             </div>
           </Link>

@@ -10,25 +10,25 @@ const calculators = [
     accent: 'card-accent-gold',
   },
   {
-    name: 'Unit Converter',
-    description: 'Convert between common units of length, weight, temperature, and more.',
-    href: '/calculators/unit-converter',
-    icon: '&#128207;',
-    accent: 'card-accent-purple',
-  },
-  {
-    name: 'Air Density',
-    description: 'Calculate the density of air from temperature, relative humidity, and altitude using the ISA atmosphere model.',
-    href: '/calculators/air-density',
-    icon: '&#127756;',
-    accent: 'card-accent-pink',
-  },
-  {
     name: 'Pleated Filter',
     description: 'Predict pressure drop, optimal pleat count, and fractional efficiency for a pleated air filter (Sothen & Tatarchuk 2009).',
     href: '/calculators/pleated-filter-calculator',
     icon: '&#128168;',
     accent: 'card-accent-purple',
+  },
+  {
+    name: 'Carton Packing Optimizer',
+    description: 'Design the best small set of carton sizes for your products, tile them onto pallets, and write supplier-ready box specs.',
+    href: '/calculators/carton-packing',
+    icon: '&#128230;',
+    accent: 'card-accent-orange',
+  },
+  {
+    name: 'Machine Vision Pleat Counting',
+    description: 'Photograph a filter panel and the browser finds the face, corrects perspective, and reports pitch, pleats per foot, and open area.',
+    href: '/calculators/pleat-counter',
+    icon: '&#128247;',
+    accent: 'card-accent-teal',
   },
 ];
 
