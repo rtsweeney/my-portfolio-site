@@ -110,6 +110,7 @@ export default function NflEloPage() {
 
   const weekRefs = useRef<Map<number, HTMLElement>>(new Map());
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
 
   // ── static model data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -267,6 +268,21 @@ export default function NflEloPage() {
     setPendingScroll(week);
   };
 
+  // On mobile the rail is a horizontal strip, so the active week can sit off
+  // screen. Nudge it back into view by setting scrollLeft directly —
+  // scrollIntoView would drag the whole page with it.
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || activeWeek === null) return;
+    if (rail.scrollWidth <= rail.clientWidth) return;
+    const chip = rail.querySelector<HTMLElement>(`[data-week-link="${activeWeek}"]`);
+    if (!chip) return;
+    rail.scrollTo({
+      left: chip.offsetLeft - rail.clientWidth / 2 + chip.offsetWidth / 2,
+      behavior: 'smooth',
+    });
+  }, [activeWeek]);
+
   const registerWeek = (week: number) => (el: HTMLElement | null) => {
     if (el) weekRefs.current.set(week, el);
     else weekRefs.current.delete(week);
@@ -365,11 +381,12 @@ export default function NflEloPage() {
                 {/* ── week rail ── */}
                 <aside className="nfl-weeks">
                   <div className="nfl-weeks-title">Weeks</div>
-                  <div className="nfl-weeks-list">
+                  <div className="nfl-weeks-list" ref={railRef}>
                     {weeks.map(([week, list]) => (
                       <button
                         key={week}
                         type="button"
+                        data-week-link={week}
                         className={`nfl-week-link ${activeWeek === week ? 'active' : ''} ${currentWeek === week ? 'now' : ''}`}
                         onClick={() => jumpToWeek(week)}
                       >
@@ -734,7 +751,7 @@ const NFL_CSS = `
 .nfl-weeks-list{display:flex;flex-direction:column;gap:2px}
 .nfl-week-link{display:flex;align-items:center;justify-content:space-between;gap:0.5rem;width:100%;padding:0.4rem 0.6rem;background:transparent;border:none;border-left:2px solid var(--border-subtle);border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-family:inherit;font-size:0.8rem;font-weight:600;color:var(--text-secondary);text-align:left;cursor:pointer;transition:all var(--transition-fast)}
 .nfl-week-link:hover{background:var(--surface-hover);color:var(--text-primary)}
-.nfl-week-link.active{background:var(--surface);border-left-color:var(--accent-primary);color:var(--accent-primary)}
+.nfl-week-link.active{background:var(--surface);border-left-color:var(--accent-primary);border-left-width:3px;color:var(--accent-primary);font-weight:800;padding-left:0.7rem}
 .nfl-week-link.now{font-weight:800}
 .nfl-week-link.now::after{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent-secondary);flex:none}
 .nfl-week-count{font-size:0.68rem;color:var(--text-muted);font-weight:600}
@@ -811,11 +828,23 @@ const NFL_CSS = `
 .nfl-generated{font-size:0.72rem !important;color:var(--text-muted) !important}
 
 @media (max-width:860px){
-  .nfl-layout{grid-template-columns:1fr;gap:1rem}
-  .nfl-weeks{position:static;max-height:none;padding-bottom:0.5rem;border-bottom:1px solid var(--border-subtle)}
-  .nfl-weeks-list{flex-direction:row;overflow-x:auto;gap:0.3rem;padding-bottom:0.4rem}
-  .nfl-week-link{flex:none;border-left:none;border-bottom:2px solid var(--border-subtle);border-radius:var(--radius-sm)}
-  .nfl-week-link.active{border-bottom-color:var(--accent-primary)}
+  .nfl-layout{grid-template-columns:1fr;gap:0}
+  /* The rail becomes a strip that sticks under the nav, and each week's name
+     rides along beneath it as a section header — so there is always a week
+     labelled at the top of the screen. */
+  /* The week name is the sticky element on mobile — it rides under the nav and
+     hands off to the next week as you scroll, so there is always a week
+     labelled at the top. The jump strip scrolls away with the page rather than
+     stacking a second sticky bar onto a 390px screen. */
+  .nfl-weeks{position:static;max-height:none;margin-bottom:0.75rem;padding-bottom:0.25rem;border-bottom:1px solid var(--border-subtle)}
+  .nfl-weeks-title{display:none}
+  .nfl-weeks-list{flex-direction:row;overflow-x:auto;gap:0.3rem;padding-bottom:0.5rem;scrollbar-width:none}
+  .nfl-weeks-list::-webkit-scrollbar{display:none}
+  .nfl-week-link{flex:none;width:auto;gap:0.4rem;border-left:none;border-bottom:2px solid var(--border-subtle);border-radius:var(--radius-sm);padding:0.35rem 0.6rem}
+  .nfl-week-link.active{border-bottom-color:var(--accent-primary);padding:0.35rem 0.6rem}
+  .nfl-weeks-note{display:none}
+  .nfl-week-section{margin-bottom:1.5rem;scroll-margin-top:120px}
+  .nfl-week-heading{position:sticky;top:var(--nav-height);z-index:5;margin:0 -1rem 0.6rem;padding:0.55rem 1rem;background:var(--background);border-bottom:1px solid var(--border-subtle)}
   .nfl-side{grid-template-columns:3px 3.4rem minmax(0,1fr) 1.8rem 2.6rem;gap:0.45rem}
   .nfl-side-full,.nfl-venue{display:none}
 }
