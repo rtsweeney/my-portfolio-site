@@ -42,6 +42,30 @@ export default async function ProjectsPage() {
         </div>
 
         <div className="projects-grid">
+          {/* NFL Elo — built-in ratings dashboard */}
+          <Link href="/projects/nfl-elo" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <div className="card card-accent-purple" style={{ height: '100%', cursor: 'pointer' }}>
+              <div className="project-card-header">
+                <div className="project-card-icon">&#127944;</div>
+              </div>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                NFL Elo Ratings
+              </h3>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
+                <p>FiveThirtyEight retired their NFL Elo model, so I rebuilt it from their published source and re-fit the constants on modern seasons — home field is worth 32 points now, not 65. Every week&apos;s games with pre-game win probabilities, a rolling quarterback rating for each starter, and scores that update live.</p>
+              </div>
+              <div className="project-tech-tags">
+                <span className="project-tech-tag">Elo Model</span>
+                <span className="project-tech-tag">nflverse</span>
+                <span className="project-tech-tag">Live Data</span>
+                <span className="project-tech-tag">Next.js</span>
+              </div>
+              <div className="project-links">
+                <span className="project-link">Open &rarr;</span>
+              </div>
+            </div>
+          </Link>
+
           {/* World Cup 2026 Tracker — built-in live dashboard */}
           <Link href="/projects/world-cup" style={{ textDecoration: 'none', color: 'inherit' }}>
             <div className="card card-accent-gold" style={{ height: '100%', cursor: 'pointer' }}>
@@ -58,54 +82,6 @@ export default async function ProjectsPage() {
                 <span className="project-tech-tag">Live Data</span>
                 <span className="project-tech-tag">SVG</span>
                 <span className="project-tech-tag">ESPN API</span>
-                <span className="project-tech-tag">Next.js</span>
-              </div>
-              <div className="project-links">
-                <span className="project-link">Open &rarr;</span>
-              </div>
-            </div>
-          </Link>
-
-          {/* Carton Packing Optimizer — built-in client-side optimizer */}
-          <Link href="/projects/carton-packing" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div className="card card-accent-orange" style={{ height: '100%', cursor: 'pointer' }}>
-              <div className="project-card-header">
-                <div className="project-card-icon">&#128230;</div>
-              </div>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Carton Packing Optimizer
-              </h3>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                <p>A free box size and pallet load calculator. Enter product dimensions and annual volumes and it designs the best small set of carton sizes, tiles them onto pallets with mixed 90° rotations, charts the trade-off of adding or removing a carton SKU, and writes supplier-ready carton specs — with isometric packing views for every carton, all computed in your browser.</p>
-              </div>
-              <div className="project-tech-tags">
-                <span className="project-tech-tag">Box Size Calculator</span>
-                <span className="project-tech-tag">Pallet Loading</span>
-                <span className="project-tech-tag">Optimization</span>
-                <span className="project-tech-tag">SVG</span>
-              </div>
-              <div className="project-links">
-                <span className="project-link">Open &rarr;</span>
-              </div>
-            </div>
-          </Link>
-
-          {/* Machine Vision Pleat Counting — built-in project */}
-          <Link href="/projects/pleat-counter" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div className="card card-accent-teal" style={{ height: '100%', cursor: 'pointer' }}>
-              <div className="project-card-header">
-                <div className="project-card-icon">&#128247;</div>
-              </div>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Machine Vision Pleat Counting
-              </h3>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.7 }}>
-                <p>Photograph a pleated filter panel and let the browser do the rest — auto-detects the panel boundary, perspective-corrects the face, counts ridges through frame and grating obstructions with autocorrelation, and reports pitch, pleats per foot, and open area. No server, no ML model, pure canvas.</p>
-              </div>
-              <div className="project-tech-tags">
-                <span className="project-tech-tag">Computer Vision</span>
-                <span className="project-tech-tag">Homography</span>
-                <span className="project-tech-tag">Canvas API</span>
                 <span className="project-tech-tag">Next.js</span>
               </div>
               <div className="project-links">

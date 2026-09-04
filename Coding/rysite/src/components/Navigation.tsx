@@ -8,9 +8,9 @@ import { ChevronDown, Menu, X } from 'lucide-react';
 
 const calculators = [
   { name: 'Beers Per Beer', href: '/calculators/beers-per-beer', subtitle: 'Standard beers in any drink' },
-  { name: 'Unit Converter', href: '/calculators/unit-converter', subtitle: 'Length, weight, temp & more' },
-  { name: 'Air Density', href: '/calculators/air-density', subtitle: 'Density from temp, humidity & altitude' },
   { name: 'Pleated Filter', href: '/calculators/pleated-filter-calculator', subtitle: 'Pressure drop & efficiency model' },
+  { name: 'Carton Packing', href: '/calculators/carton-packing', subtitle: 'Box sizes & pallet loads' },
+  { name: 'Pleat Counter', href: '/calculators/pleat-counter', subtitle: 'Count pleats from a photo' },
 ];
 
 export default function Navigation() {
@@ -57,10 +57,6 @@ export default function Navigation() {
               Calculators <ChevronDown size={14} />
             </span>
             <div className="nav-dropdown-menu">
-              <Link href="/calculators" className="nav-dropdown-item">
-                <div>All Calculators</div>
-                <div className="item-subtitle">Browse the collection</div>
-              </Link>
               {calculators.map((calc) => (
                 <Link key={calc.href} href={calc.href} className="nav-dropdown-item">
                   <div>{calc.name}</div>
