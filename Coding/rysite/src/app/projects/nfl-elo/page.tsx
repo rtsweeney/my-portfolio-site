@@ -18,14 +18,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Footer from '@/components/Footer';
 import { TEAMS, resolveTeam, fullName, shortName } from './teams';
-import type { EloSeason, GameProjection, QbRating } from './engine';
+import type { EloSeason, GameProjection, QbRating, TeamRating } from './engine';
 
 const DATA_URL = '/data/nfl-elo/season.json';
 const ESPN_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const REFRESH_MS = 60_000;
 
-/** The QB table takes the place of the game list; it is the 33rd filter. */
+/** Two tiles replace the game list with a ranked table instead of filtering it. */
 const QB_VIEW = 'QB_VIEW';
+const ELO_VIEW = 'ELO_VIEW';
+
+/** How many weeks to render before the reader scrolls for more. */
+const INITIAL_WEEKS = 2;
 
 interface LiveScore {
   away: number | null;
@@ -99,8 +103,13 @@ export default function NflEloPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeWeek, setActiveWeek] = useState<number | null>(null);
 
+  // Only a slice of the season is mounted at a time; the rest arrives as the
+  // reader scrolls. 272 game cards is a lot of DOM to build up front.
+  const [weekRange, setWeekRange] = useState<{ min: number; max: number } | null>(null);
+  const [pendingScroll, setPendingScroll] = useState<number | null>(null);
+
   const weekRefs = useRef<Map<number, HTMLElement>>(new Map());
-  const didJump = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // ── static model data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -140,10 +149,12 @@ export default function NflEloPage() {
 
   // ── derived views ──────────────────────────────────────────────────────────
   const showingQbs = selected === QB_VIEW;
+  const showingElo = selected === ELO_VIEW;
+  const showingTable = showingQbs || showingElo;
 
   const games = useMemo(() => {
     if (!data) return [];
-    const filtered = selected && !showingQbs
+    const filtered = selected && !showingQbs && !showingElo
       ? data.games.filter((g) => g.home === selected || g.away === selected)
       : data.games;
     return [...filtered].sort((a, b) => {
@@ -151,7 +162,7 @@ export default function NflEloPage() {
       const bk = b.kickoff ?? `${b.gameday}T00:00:00Z`;
       return ak < bk ? -1 : ak > bk ? 1 : a.gameId < b.gameId ? -1 : 1;
     });
-  }, [data, selected, showingQbs]);
+  }, [data, selected, showingQbs, showingElo]);
 
   const weeks = useMemo(() => {
     const byWeek = new Map<number, GameProjection[]>();
@@ -173,22 +184,66 @@ export default function NflEloPage() {
     return next?.week ?? (upcoming[0]?.week ?? null);
   }, [data]);
 
-  // Land the reader on the week the season is on, not on Week 1 in September.
+  // Open on the week the season is on rather than Week 1 in September, and
+  // mount only that week plus the next. Starting the window here beats scrolling
+  // to it: no jump, and the filters stay where the reader left them.
   useEffect(() => {
-    if (didJump.current || showingQbs || currentWeek === null || weeks.length === 0) return;
-    didJump.current = true;
-    setActiveWeek(currentWeek);
-    // Already at the top of the list — scrolling would only hide the filters.
-    if (weeks[0][0] === currentWeek) return;
-    const el = weekRefs.current.get(currentWeek);
+    if (weeks.length === 0) { setWeekRange(null); return; }
+    const numbers = weeks.map(([week]) => week);
+    const startAt = currentWeek === null ? 0 : Math.max(0, numbers.indexOf(currentWeek));
+    setWeekRange({
+      min: numbers[startAt],
+      max: numbers[Math.min(startAt + INITIAL_WEEKS - 1, numbers.length - 1)],
+    });
+    setActiveWeek(numbers[startAt]);
+  }, [weeks, currentWeek]);
+
+  const visibleWeeks = useMemo(
+    () => (weekRange ? weeks.filter(([week]) => week >= weekRange.min && week <= weekRange.max) : []),
+    [weeks, weekRange],
+  );
+
+  const earlierWeeks = weekRange ? weeks.filter(([week]) => week < weekRange.min).length : 0;
+  const laterWeeks = weekRange ? weeks.filter(([week]) => week > weekRange.max).length : 0;
+
+  const showMore = useCallback((direction: 'earlier' | 'later') => {
+    setWeekRange((range) => {
+      if (!range) return range;
+      if (direction === 'later') {
+        const next = weeks.find(([week]) => week > range.max);
+        return next ? { ...range, max: next[0] } : range;
+      }
+      const previous = [...weeks].reverse().find(([week]) => week < range.min);
+      return previous ? { ...range, min: previous[0] } : range;
+    });
+  }, [weeks]);
+
+  // Pull in the next week as the reader approaches the end of what is mounted.
+  useEffect(() => {
+    if (showingTable || laterWeeks === 0) return;
+    const el = sentinelRef.current;
     if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 90;
-    window.scrollTo({ top, behavior: 'auto' });
-  }, [currentWeek, weeks, showingQbs]);
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) showMore('later'); },
+      { rootMargin: '600px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [showingTable, laterWeeks, showMore]);
+
+  // A rail click may target a week that is not mounted yet, so the scroll waits
+  // for the render that brings it in.
+  useEffect(() => {
+    if (pendingScroll === null) return;
+    const el = weekRefs.current.get(pendingScroll);
+    if (!el) return;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 90, behavior: 'smooth' });
+    setPendingScroll(null);
+  }, [pendingScroll, visibleWeeks]);
 
   // Scroll spy so the week rail tracks whatever is on screen.
   useEffect(() => {
-    if (showingQbs || weeks.length === 0) return;
+    if (showingTable || visibleWeeks.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
@@ -203,13 +258,13 @@ export default function NflEloPage() {
     );
     for (const el of weekRefs.current.values()) observer.observe(el);
     return () => observer.disconnect();
-  }, [weeks, showingQbs]);
+  }, [visibleWeeks, showingTable]);
 
   const jumpToWeek = (week: number) => {
-    const el = weekRefs.current.get(week);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 90;
-    window.scrollTo({ top, behavior: 'smooth' });
+    setWeekRange((range) => (range
+      ? { min: Math.min(range.min, week), max: Math.max(range.max, week) }
+      : { min: week, max: week }));
+    setPendingScroll(week);
   };
 
   const registerWeek = (week: number) => (el: HTMLElement | null) => {
@@ -291,10 +346,20 @@ export default function NflEloPage() {
               >
                 QBs
               </button>
+
+              <button
+                type="button"
+                className={`nfl-chip nfl-chip-ratings ${showingElo ? 'active' : ''}`}
+                onClick={() => setSelected(showingElo ? null : ELO_VIEW)}
+              >
+                Elo
+              </button>
             </div>
 
             {showingQbs ? (
               <QbTable quarterbacks={data.quarterbacks} />
+            ) : showingElo ? (
+              <EloTable teams={data.teams} throughWeek={data.throughWeek} />
             ) : (
               <div className="nfl-layout">
                 {/* ── week rail ── */}
@@ -326,7 +391,14 @@ export default function NflEloPage() {
                   {weeks.length === 0 && (
                     <div className="nfl-empty">No games to show.</div>
                   )}
-                  {weeks.map(([week, list]) => (
+
+                  {earlierWeeks > 0 && (
+                    <button type="button" className="nfl-more" onClick={() => showMore('earlier')}>
+                      Show earlier weeks ({earlierWeeks} before this)
+                    </button>
+                  )}
+
+                  {visibleWeeks.map(([week, list]) => (
                     <section
                       key={week}
                       data-week={week}
@@ -342,6 +414,14 @@ export default function NflEloPage() {
                       ))}
                     </section>
                   ))}
+
+                  {laterWeeks > 0 && (
+                    <div ref={sentinelRef} className="nfl-sentinel">
+                      <button type="button" className="nfl-more" onClick={() => showMore('later')}>
+                        Show more weeks ({laterWeeks} {laterWeeks === 1 ? 'week' : 'weeks'} remaining)
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -405,10 +485,15 @@ function GameCard({ game, live }: { game: GameProjection; live: LiveScore | unde
             <span className="nfl-side-abbr">{side.abbr}</span>
             <span className="nfl-side-full">{side.team ? side.team.nickname : side.abbr}</span>
           </span>
-          <span className="nfl-side-qb" title={side.adj !== 0 ? `${side.adj > 0 ? '+' : ''}${side.adj} Elo vs this team's usual starter` : undefined}>
+          <span
+            className="nfl-side-qb"
+            title={side.adj === 0
+              ? 'Exactly this club\u2019s expected starter \u2014 no rating adjustment'
+              : `${side.adj > 0 ? '+' : ''}${side.adj} Elo vs this club\u2019s usual starter`}
+          >
             {side.qb ?? '—'}
-            {side.adj !== 0 && (
-              <em className={side.adj > 0 ? 'up' : 'down'}>
+            {side.qb && (
+              <em className={side.adj > 0 ? 'up' : side.adj < 0 ? 'down' : 'flat'}>
                 {side.adj > 0 ? '+' : ''}{side.adj}
               </em>
             )}
@@ -440,6 +525,66 @@ function GameCard({ game, live }: { game: GameProjection; live: LiveScore | unde
   );
 }
 
+// ── team rating table ────────────────────────────────────────────────────────
+
+function EloTable({ teams, throughWeek }: { teams: TeamRating[]; throughWeek: number }) {
+  const preseason = throughWeek === 0;
+  return (
+    <div className="nfl-qb-wrap">
+      <p className="nfl-qb-intro">
+        Every club&apos;s current rating, strongest first. The league mean is 1505, and a
+        400-point gap is about 10-to-1 odds — so roughly every 25 points is a point of
+        point spread. <strong>Preseason</strong> is where the club started the year after
+        reverting a third of the way to the mean; <strong>Change</strong> is what the season
+        has done to it since.
+        {preseason && ' The season has not started, so every club still sits at its preseason mark.'}
+      </p>
+      <div className="nfl-table-scroll">
+        <table className="nfl-qb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Team</th>
+              <th>Division</th>
+              <th className="num">Elo</th>
+              <th className="num">Preseason</th>
+              <th className="num">Change</th>
+              <th className="num">Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teams.map((t) => {
+              const team = resolveTeam(t.team);
+              const change = Math.round(t.elo - t.eloPreseason);
+              const record = t.ties > 0
+                ? `${t.wins}-${t.losses}-${t.ties}`
+                : `${t.wins}-${t.losses}`;
+              return (
+                <tr key={t.team}>
+                  <td className="nfl-qb-rank">{t.rank}</td>
+                  <td className="nfl-qb-name">
+                    <span className="nfl-elo-swatch" style={{ background: team?.color ?? 'var(--border)' }} />
+                    {fullName(t.team)}
+                  </td>
+                  <td className="nfl-elo-div">
+                    {team ? `${team.conference} ${team.division}` : '—'}
+                  </td>
+                  <td className="num nfl-elo-value">{t.elo.toFixed(0)}</td>
+                  <td className="num">{t.eloPreseason.toFixed(0)}</td>
+                  <td className={`num ${change > 0 ? 'up' : change < 0 ? 'down' : 'flat'}`}>
+                    {change > 0 ? '+' : ''}{change}
+                  </td>
+                  <td className="num">{record}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── quarterback table ────────────────────────────────────────────────────────
 
 function QbTable({ quarterbacks }: { quarterbacks: QbRating[] }) {
@@ -452,6 +597,13 @@ function QbTable({ quarterbacks }: { quarterbacks: QbRating[] }) {
         what a passer is worth against an average starter. <strong>vs Team</strong> is what
         actually moves a line: the gap between him and his own club&apos;s recent quarterback
         level, which is why the adjustment fires on an injury and stays quiet otherwise.
+      </p>
+      <p className="nfl-qb-intro">
+        A <strong>vs Team of 0</strong> is a result, not a gap in the data. A passer who has
+        taken every snap for one club has his rating and that club&apos;s baseline updated by
+        the same number after every game, so the two converge — about 90% of any starting gap
+        is gone within 20 starts. Reading it plainly: this club&apos;s expected quarterback is
+        exactly this man, so there is nothing to adjust for.
       </p>
       <div className="nfl-table-scroll">
         <table className="nfl-qb-table">
@@ -480,10 +632,10 @@ function QbTable({ quarterbacks }: { quarterbacks: QbRating[] }) {
                     </span>
                   </td>
                   <td className="num">{q.rating.toFixed(1)}</td>
-                  <td className={`num ${q.eloVsAverage >= 0 ? 'up' : 'down'}`}>
+                  <td className={`num ${q.eloVsAverage > 0 ? 'up' : q.eloVsAverage < 0 ? 'down' : 'flat'}`}>
                     {q.eloVsAverage > 0 ? '+' : ''}{q.eloVsAverage}
                   </td>
-                  <td className={`num ${q.eloVsTeam >= 0 ? 'up' : 'down'}`}>
+                  <td className={`num ${q.eloVsTeam > 0 ? 'up' : q.eloVsTeam < 0 ? 'down' : 'flat'}`}>
                     {q.eloVsTeam > 0 ? '+' : ''}{q.eloVsTeam}
                   </td>
                   <td className="num">{q.starts}</td>
@@ -571,8 +723,9 @@ const NFL_CSS = `
 .nfl-chip.active{background:var(--chip-color);color:#fff;border-color:transparent}
 .nfl-chip.active .nfl-chip-elo{color:rgba(255,255,255,0.85)}
 .nfl-chip-elo{font-size:0.62rem;font-weight:600;color:var(--text-muted);letter-spacing:0}
-.nfl-chip-all,.nfl-chip-qb{--chip-color:var(--accent-secondary);justify-content:center;padding-inline:0.85rem}
+.nfl-chip-all,.nfl-chip-qb,.nfl-chip-ratings{--chip-color:var(--accent-secondary);justify-content:center;padding-inline:0.85rem}
 .nfl-chip-qb{--chip-color:var(--accent-warm)}
+.nfl-chip-ratings{--chip-color:var(--accent-primary)}
 
 /* layout: sticky week rail + games */
 .nfl-layout{display:grid;grid-template-columns:150px minmax(0,1fr);gap:1.75rem;align-items:start}
@@ -613,6 +766,7 @@ const NFL_CSS = `
 .nfl-side-qb em{font-style:normal;font-weight:700;font-size:0.66rem;margin-left:0.35rem}
 .nfl-side-qb em.up,td.num.up{color:var(--accent-secondary)}
 .nfl-side-qb em.down,td.num.down{color:var(--accent-warm)}
+.nfl-side-qb em.flat,td.num.flat{color:var(--text-muted)}
 .nfl-side-score{font-size:1.02rem;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
 .nfl-side.winner .nfl-side-score{color:var(--accent-secondary)}
 .nfl-side-prob{font-size:0.82rem;font-weight:700;text-align:right;color:var(--text-secondary);font-variant-numeric:tabular-nums}
@@ -634,6 +788,13 @@ const NFL_CSS = `
 .nfl-qb-table tr:last-child td{border-bottom:none}
 .nfl-qb-table tbody tr:hover{background:var(--surface-hover)}
 .nfl-qb-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.nfl-more{display:block;width:100%;padding:0.7rem 1rem;margin-bottom:1rem;background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius-md);font-family:inherit;font-size:0.78rem;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast)}
+.nfl-more:hover{border-color:var(--accent-primary);color:var(--accent-primary);background:var(--surface-hover)}
+.nfl-sentinel{min-height:1px}
+
+.nfl-elo-swatch{display:inline-block;width:3px;height:0.85rem;border-radius:2px;margin-right:0.5rem;vertical-align:-1px}
+.nfl-elo-div{font-size:0.74rem;color:var(--text-muted);white-space:nowrap}
+.nfl-elo-value{font-weight:800}
 .nfl-qb-rank{color:var(--text-muted);font-weight:700;width:2.5rem}
 .nfl-qb-name{font-weight:700;width:100%}
 .nfl-qb-table th.num,.nfl-qb-table td.num{white-space:nowrap;width:1%}
